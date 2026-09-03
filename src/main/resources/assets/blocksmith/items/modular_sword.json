@@ -1,0 +1,9 @@
+{
+  "model": {
+    "type": "minecraft:special",
+    "base": "blocksmith:item/modular_sword_base",
+    "model": {
+      "type": "blocksmith:modular_weapon"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+	"schemaVersion": 1,
+	"id": "blocksmith",
+	"version": "${version}",
+	"name": "Blocksmith",
+	"description": "Create your own weapon with voxel-based customization!",
+	"authors": [
+		"adeptfrog"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/blocksmith/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"net.adeptfrog.blocksmith.Blocksmith"
+		],
+		"client": [
+			"net.adeptfrog.blocksmith.client.BlocksmithClient"
+		],
+		"fabric-datagen": [
+			"net.adeptfrog.blocksmith.client.BlocksmithDataGenerator"
+		]
+	},
+	"mixins": [
+		"blocksmith.mixins.json",
+		{
+			"config": "blocksmith.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.1.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
