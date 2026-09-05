@@ -18,6 +18,8 @@ A voxel-based weapon customization Fabric mod for Minecraft. Customize each voxe
 - Dynamic weapon stats - Each voxel materials provide different bonus stats
 - Copy and paste - You can save your weapon design to your clipboard so you can easily share it with other people
 
+[![Blocksmith 1.0 | Voxel-based Weapon Customization](https://img.youtube.com/vi/YyXp5wj8CI4/0.jpg)](https://www.youtube.com/watch?v=YyXp5wj8CI4)
+
 ## License
 
 This template is available under the CC0 license. Feel free to learn from it and incorporate it in your own projects.
