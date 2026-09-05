@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    " N ",
+    " X ",
+    " S "
+  ],
+  "key": {
+    "S": "minecraft:iron_sword",
+    "X": "minecraft:heavy_core",
+    "N": "minecraft:nether_star"
+  },
+  "result": {
+    "id": "blocksmith:modular_sword",
+    "count": 1
+  }
+}

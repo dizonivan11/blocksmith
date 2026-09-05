@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.serialization.MapCodec;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
+import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -42,9 +43,14 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<List<W
     }
 
     @Override
-    public @Nullable List<WeaponVoxel> extractArgument(@NonNull ItemStack stack) {
-        List<WeaponVoxel> voxels = ModularSwordItem.getVoxels(stack);
-        return voxels.isEmpty() ? null : new ArrayList<>(voxels);
+    public @Nullable List<WeaponVoxel> extractArgument(ItemStack stack) {
+        List<WeaponVoxel> voxels = null;
+        if (stack.getItem() instanceof ModularSwordItem) {
+            voxels = ModularSwordItem.getVoxels(stack);
+        } else if (stack.getItem() instanceof ModularBowItem) {
+            voxels = ModularBowItem.getVoxels(stack);
+        }
+        return (voxels == null || voxels.isEmpty()) ? null : new ArrayList<>(voxels);
     }
 
     @Override

@@ -2,6 +2,7 @@ package net.adeptfrog.blocksmith.client;
 
 import net.adeptfrog.blocksmith.Blocksmith;
 import net.adeptfrog.blocksmith.client.render.ModularWeaponSpecialRenderer;
+import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.fabricmc.api.ClientModInitializer;
 
 import net.adeptfrog.blocksmith.client.gui.CustomizationScreen;
@@ -33,14 +34,11 @@ public class BlocksmithClient implements ClientModInitializer {
 
 				if (state.is(Blocksmith.WEAPON_TABLE)) {
 					ItemStack held = player.getItemInHand(hand);
-
-					if (held.getItem() instanceof ModularSwordItem) {
+					if (held.getItem() instanceof ModularSwordItem || held.getItem() instanceof ModularBowItem) {
 						Minecraft.getInstance().setScreen(new CustomizationScreen(held));
 						return InteractionResult.SUCCESS;
 					} else {
-						player.sendSystemMessage(
-								Component.literal("§eHold a modular weapon to customize it!")
-						);
+						player.sendOverlayMessage(Component.literal("§eHold a modular weapon in your hand to customize it!"));
 						return InteractionResult.CONSUME;
 					}
 				}

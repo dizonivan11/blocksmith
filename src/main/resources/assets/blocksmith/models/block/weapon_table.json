@@ -1,8 +1,12 @@
 {
-  "parent": "minecraft:block/cube_bottom_top",
+  "parent": "block/cube",
   "textures": {
-    "top": "minecraft:block/smithing_table_top",
-    "bottom": "minecraft:block/smithing_table_bottom",
-    "side": "minecraft:block/smithing_table_side"
+    "particle": "blocksmith:block/weapon_table_front",
+    "north": "blocksmith:block/weapon_table_front",
+    "south": "blocksmith:block/weapon_table_back",
+    "east": "blocksmith:block/weapon_table_east",
+    "west": "blocksmith:block/weapon_table_west",
+    "up": "blocksmith:block/weapon_table_top",
+    "down": "blocksmith:block/weapon_table_bottom"
   }
 }

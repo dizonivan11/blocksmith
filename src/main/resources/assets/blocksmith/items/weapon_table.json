@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "blocksmith:block/weapon_table"
+  }
+}

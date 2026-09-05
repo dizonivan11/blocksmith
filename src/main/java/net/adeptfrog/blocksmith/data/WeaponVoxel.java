@@ -6,14 +6,14 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 
-public record WeaponVoxel(int x, int y, int z, VoxelMaterial material, int shade) {
+public record WeaponVoxel(int x, int y, int z, String materialId, int shade) {
     public static final Codec<WeaponVoxel> CODEC = RecordCodecBuilder.create(instance ->
             instance.group(
                     Codec.INT.fieldOf("x").forGetter(WeaponVoxel::x),
                     Codec.INT.fieldOf("y").forGetter(WeaponVoxel::y),
                     Codec.INT.fieldOf("z").forGetter(WeaponVoxel::z),
-                    VoxelMaterial.CODEC.fieldOf("material").forGetter(WeaponVoxel::material),
-                    Codec.INT.optionalFieldOf("shade", 2).forGetter(WeaponVoxel::shade) // Defaults to base (2)
+                    Codec.STRING.fieldOf("material").forGetter(WeaponVoxel::materialId),
+                    Codec.INT.optionalFieldOf("shade", 2).forGetter(WeaponVoxel::shade)
             ).apply(instance, WeaponVoxel::new)
     );
 
@@ -21,12 +21,21 @@ public record WeaponVoxel(int x, int y, int z, VoxelMaterial material, int shade
             ByteBufCodecs.VAR_INT, WeaponVoxel::x,
             ByteBufCodecs.VAR_INT, WeaponVoxel::y,
             ByteBufCodecs.VAR_INT, WeaponVoxel::z,
-            VoxelMaterial.STREAM_CODEC, WeaponVoxel::material,
+            ByteBufCodecs.STRING_UTF8, WeaponVoxel::materialId,
             ByteBufCodecs.VAR_INT, WeaponVoxel::shade,
             WeaponVoxel::new
     );
 
+    // Overload accepting VoxelMaterial instance
+    public WeaponVoxel(int x, int y, int z, VoxelMaterial mat, int shade) {
+        this(x, y, z, mat.id(), shade);
+    }
+
+    public VoxelMaterial material() {
+        return VoxelMaterialRegistry.getOrDefault(materialId);
+    }
+
     public int getColorRgb() {
-        return material.getColorRgb(shade);
+        return material().getColorRgb(shade);
     }
 }

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "NNN",
+    "NAN",
+    "NNN"
+  ],
+  "key": {
+    "N": "minecraft:netherite_ingot",
+    "A": "minecraft:anvil"
+  },
+  "result": {
+    "id": "blocksmith:weapon_table",
+    "count": 1
+  }
+}

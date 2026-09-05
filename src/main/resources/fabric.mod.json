@@ -3,7 +3,7 @@
 	"id": "blocksmith",
 	"version": "${version}",
 	"name": "Blocksmith",
-	"description": "Create your own weapon with voxel-based customization!",
+	"description": "Adds a customizable voxel-based weapon with dynamic stats!",
 	"authors": [
 		"adeptfrog"
 	],
@@ -23,6 +23,9 @@
 		],
 		"fabric-datagen": [
 			"net.adeptfrog.blocksmith.client.BlocksmithDataGenerator"
+		],
+		"modmenu": [
+			"net.adeptfrog.blocksmith.client.compat.BlocksmithModMenu"
 		]
 	},
 	"mixins": [

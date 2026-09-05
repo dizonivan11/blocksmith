@@ -1,7 +1,11 @@
 package net.adeptfrog.blocksmith.client.gui;
 
+
+import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
 import net.adeptfrog.blocksmith.data.VoxelMaterial;
+import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
+import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
 import net.adeptfrog.blocksmith.network.SaveWeaponVoxelsPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -20,13 +24,19 @@ import org.jspecify.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
 
+import static net.adeptfrog.blocksmith.Blocksmith.MIN_VOXELS;
+import static net.adeptfrog.blocksmith.Blocksmith.MAX_VOXELS;
+
 public class CustomizationScreen extends Screen {
     private final ItemStack weaponStack;
     private final List<WeaponVoxel> workingVoxels;
 
-    private VoxelMaterial selectedMaterial = VoxelMaterial.IRON;
+    private VoxelMaterial selectedMaterial = VoxelMaterialRegistry.FALLBACK;
     private int selectedShade = 2; // 0=Darkest, 2=Base, 4=Lightest
     private int saveFeedbackTimer = 0;
+    private int exportFeedbackTimer = 0;
+    private int importFeedbackTimer = 0;
+    private int materialIndexOffset = 0;
 
     private static final int FONT_COLOR = 0xFF3F3F3F;
 
@@ -37,14 +47,25 @@ public class CustomizationScreen extends Screen {
     private static final int CELL_SIZE = 7; // 168x168px area
     private static final int GRID_DIM = GRID_SIZE * CELL_SIZE;
 
-    private static final int SLOT_SIZE = 22;
-    private static final int SLOT_SPACING = 25;
+    // Material Section (8 visible slots)
+    private static final int VISIBLE_SLOTS = 8;
+    private static final int SLOT_SIZE = 16;
+    private static final int SLOT_SPACING = 19;
 
+    // Top Header Buttons
+    private static final int TOP_BTN_W = 41;
+    private static final int TOP_BTN_H = 11;
+
+    // Compact Arrow Buttons
+    private static final int ARROW_BTN_W = 11;
+    private static final int ARROW_BTN_H = 9;
+
+    // Fixed Shade Dimensions
     private static final int SHADE_SIZE = 16;
     private static final int SHADE_SPACING = 19;
 
     public CustomizationScreen(ItemStack weaponStack) {
-        super(Component.literal("Weapon Workbench"));
+        super(Component.literal("Weapon Forging"));
         this.weaponStack = weaponStack;
         this.workingVoxels = new ArrayList<>(ModularSwordItem.getVoxels(weaponStack));
     }
@@ -69,46 +90,139 @@ public class CustomizationScreen extends Screen {
     }
 
     @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
+        int maxOffset = Math.max(0, mats.size() - VISIBLE_SLOTS);
+
+        if (maxOffset > 0 && verticalAmount != 0) {
+            int oldOffset = this.materialIndexOffset;
+            if (verticalAmount > 0 && this.materialIndexOffset > 0) {
+                this.materialIndexOffset--;
+            } else if (verticalAmount < 0 && this.materialIndexOffset < maxOffset) {
+                this.materialIndexOffset++;
+            }
+
+            if (oldOffset != this.materialIndexOffset) {
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                return true;
+            }
+        }
+
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
 
-        if (saveFeedbackTimer > 0) {
-            saveFeedbackTimer--;
-        }
+        if (saveFeedbackTimer > 0) saveFeedbackTimer--;
+        else if (saveFeedbackTimer < 0) saveFeedbackTimer++;
+
+        if (exportFeedbackTimer > 0) exportFeedbackTimer--;
+        if (importFeedbackTimer > 0) importFeedbackTimer--;
+        else if (importFeedbackTimer < 0) importFeedbackTimer++;
 
         int leftPos = (this.width - WINDOW_WIDTH) / 2;
         int topPos = (this.height - WINDOW_HEIGHT) / 2;
 
         // 1. Container Background
-        drawClassicContainer(guiGraphics, leftPos, topPos, WINDOW_WIDTH, WINDOW_HEIGHT);
+        drawClassicContainer(guiGraphics, leftPos, topPos);
 
-        // 2. Title
+        // 2. Title & Top Action Buttons (Export / Import)
         guiGraphics.text(this.font, this.title, leftPos + 8, topPos + 6, FONT_COLOR, false);
 
-        // 3. Workspace
+        int exportBtnX = leftPos + WINDOW_WIDTH - (TOP_BTN_W * 2) - 12;
+        int importBtnX = leftPos + WINDOW_WIDTH - TOP_BTN_W - 8;
+        int topBtnY = topPos + 4;
+
+        boolean exportHovered = mouseX >= exportBtnX && mouseX <= exportBtnX + TOP_BTN_W && mouseY >= topBtnY && mouseY <= topBtnY + TOP_BTN_H;
+        boolean importHovered = mouseX >= importBtnX && mouseX <= importBtnX + TOP_BTN_W && mouseY >= topBtnY && mouseY <= topBtnY + TOP_BTN_H;
+
+        String exportLabel = exportFeedbackTimer > 0 ? "§aCopied!" : "Copy";
+        String importLabel = importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : "Paste");
+
+        drawSmallHeaderButton(guiGraphics, exportBtnX, topBtnY, exportLabel, exportHovered);
+        drawSmallHeaderButton(guiGraphics, importBtnX, topBtnY, importLabel, importHovered);
+
+        // 3. Workspace with Panning Checkerboard (168x168)
         int gridX = leftPos + 8;
         int gridY = topPos + 18;
         drawRecessedBox(guiGraphics, gridX, gridY, GRID_DIM, GRID_DIM);
 
-        guiGraphics.fill(gridX, gridY, gridX + GRID_DIM, gridY + GRID_DIM, 0xFF2B2B2B);
+        guiGraphics.enableScissor(gridX, gridY, gridX + GRID_DIM, gridY + GRID_DIM);
 
+        int checkerSize = 8;
+        long time = System.currentTimeMillis();
+        int pan = (int) ((time / 45L) % (checkerSize * 2));
+
+        for (int px = gridX - (checkerSize * 2) + pan; px < gridX + GRID_DIM + checkerSize; px += checkerSize) {
+            for (int py = gridY - (checkerSize * 2) + pan; py < gridY + GRID_DIM + checkerSize; py += checkerSize) {
+                int tileX = (px - pan) / checkerSize;
+                int tileY = (py - pan) / checkerSize;
+                int checkerColor = ((tileX + tileY) % 2 == 0) ? 0xFF3E3E3E : 0xFF525252;
+                guiGraphics.fill(px, py, px + checkerSize, py + checkerSize, checkerColor);
+            }
+        }
+
+        // Faint 24x24 cell guide overlay
         for (int x = 0; x < GRID_SIZE; x++) {
             for (int y = 0; y < GRID_SIZE; y++) {
                 int px = gridX + x * CELL_SIZE;
                 int py = gridY + y * CELL_SIZE;
-                int slotAlpha = ((x + y) % 2 == 0) ? 0x0EFFFFFF : 0x05FFFFFF;
-                guiGraphics.fill(px, py, px + CELL_SIZE, py + CELL_SIZE, slotAlpha);
+                guiGraphics.fill(px, py, px + CELL_SIZE, py + CELL_SIZE, 0x0CFFFFFF);
             }
         }
 
-        // 4. Render Voxels
+        // 4. Render 1px Outer White Silhouette Outline
+        boolean[][] occupied = new boolean[GRID_SIZE][GRID_SIZE];
+        for (WeaponVoxel v : workingVoxels) {
+            if (v.x() >= 0 && v.x() < GRID_SIZE && v.y() >= 0 && v.y() < GRID_SIZE) {
+                occupied[v.x()][v.y()] = true;
+            }
+        }
+
+        int outlineColor = 0xFFFFFFFF;
+        for (int x = 0; x < GRID_SIZE; x++) {
+            for (int y = 0; y < GRID_SIZE; y++) {
+                if (!occupied[x][y]) {
+                    int px = gridX + x * CELL_SIZE;
+                    int py = gridY + (GRID_SIZE - 1 - y) * CELL_SIZE;
+
+                    boolean hasTop = (y + 1 < GRID_SIZE) && occupied[x][y + 1];
+                    boolean hasBottom = (y - 1 >= 0) && occupied[x][y - 1];
+                    boolean hasLeft = (x - 1 >= 0) && occupied[x - 1][y];
+                    boolean hasRight = (x + 1 < GRID_SIZE) && occupied[x + 1][y];
+
+                    if (hasTop) guiGraphics.fill(px, py, px + CELL_SIZE, py + 1, outlineColor);
+                    if (hasBottom) guiGraphics.fill(px, py + CELL_SIZE - 1, px + CELL_SIZE, py + CELL_SIZE, outlineColor);
+                    if (hasLeft) guiGraphics.fill(px, py, px + 1, py + CELL_SIZE, outlineColor);
+                    if (hasRight) guiGraphics.fill(px + CELL_SIZE - 1, py, px + CELL_SIZE, py + CELL_SIZE, outlineColor);
+
+                    // Diagonal corner connections
+                    if (!hasTop && !hasRight && (x + 1 < GRID_SIZE && y + 1 < GRID_SIZE && occupied[x + 1][y + 1])) {
+                        guiGraphics.fill(px + CELL_SIZE - 1, py, px + CELL_SIZE, py + 1, outlineColor);
+                    }
+                    if (!hasTop && !hasLeft && (x - 1 >= 0 && y + 1 < GRID_SIZE && occupied[x - 1][y + 1])) {
+                        guiGraphics.fill(px, py, px + 1, py + 1, outlineColor);
+                    }
+                    if (!hasBottom && !hasRight && (x + 1 < GRID_SIZE && y - 1 >= 0 && occupied[x + 1][y - 1])) {
+                        guiGraphics.fill(px + CELL_SIZE - 1, py + CELL_SIZE - 1, px + CELL_SIZE, py + CELL_SIZE, outlineColor);
+                    }
+                    if (!hasBottom && !hasLeft && (x - 1 >= 0 && y - 1 >= 0 && occupied[x - 1][y - 1])) {
+                        guiGraphics.fill(px, py + CELL_SIZE - 1, px + 1, py + CELL_SIZE, outlineColor);
+                    }
+                }
+            }
+        }
+
+        // Render Colored Voxels
         for (WeaponVoxel voxel : workingVoxels) {
             int px = gridX + voxel.x() * CELL_SIZE;
             int py = gridY + (GRID_SIZE - 1 - voxel.y()) * CELL_SIZE;
             guiGraphics.fill(px, py, px + CELL_SIZE, py + CELL_SIZE, voxel.getColorRgb() | 0xFF000000);
         }
 
-        // 5. Grid Hover Cursor
+        // Grid Hover Cursor
         int hX = (mouseX - gridX) / CELL_SIZE;
         int hY = (mouseY - gridY) / CELL_SIZE;
         if (hX >= 0 && hX < GRID_SIZE && hY >= 0 && hY < GRID_SIZE) {
@@ -117,27 +231,25 @@ public class CustomizationScreen extends Screen {
             guiGraphics.fill(px, py, px + CELL_SIZE, py + CELL_SIZE, 0x44FFFFFF);
         }
 
-        // 6. Stats Panel & Save Button
+        guiGraphics.disableScissor();
+
+        // 5. Stats Panel & Save Button
         int statsX = gridX + GRID_DIM + 6;
-        int statsY = gridY;
         int statsW = 86;
         int statsH = GRID_DIM;
 
-        // --- 6A. Header Title Box ---
         int headerH = 14;
-        drawRecessedBox(guiGraphics, statsX, statsY, statsW, headerH);
-        guiGraphics.fill(statsX, statsY, statsX + statsW, statsY + headerH, 0xFF353535);
+        drawRecessedBox(guiGraphics, statsX, gridY, statsW, headerH);
+        guiGraphics.fill(statsX, gridY, statsX + statsW, gridY + headerH, 0xFF353535);
 
         Component titleText = Component.literal("Bonus Stats");
         int titleX = statsX + (statsW - this.font.width(titleText)) / 2;
-        guiGraphics.text(this.font, titleText, titleX, statsY + 3, 0xFFFFFFFF, true);
+        guiGraphics.text(this.font, titleText, titleX, gridY + 3, 0xFFFFFFFF, true);
 
-        // --- 6B. Main Stats Content Box ---
-        int bodyY = statsY + headerH + 2;
+        int bodyY = gridY + headerH + 2;
         int bodyH = statsH - (headerH + 2);
         drawRecessedBox(guiGraphics, statsX, bodyY, statsW, bodyH);
 
-        // Calculate baseline saved stats vs current working sandbox stats
         List<WeaponVoxel> savedVoxels = ModularSwordItem.getVoxels(weaponStack);
         double savedDmg = savedVoxels.stream().mapToDouble(v -> v.material().getBonusDamage()).sum();
         double savedSpd = savedVoxels.stream().mapToDouble(v -> v.material().getBonusSpeed()).sum();
@@ -152,35 +264,34 @@ public class CustomizationScreen extends Screen {
         double diffSpd = currentSpd - savedSpd;
         int diffDur = currentDur - savedDur;
 
-        // 1. Voxels Row
         guiGraphics.text(this.font, Component.literal("Voxels:"), statsX + 6, bodyY + 6, FONT_COLOR, false);
-        String voxelStr = workingVoxels.size() + " / " + ModularSwordItem.MAX_VOXELS;
+        String voxelStr = workingVoxels.size() + " / " + MAX_VOXELS;
         if (diffVoxels > 0) voxelStr += " §a(+" + diffVoxels + ")";
         else if (diffVoxels < 0) voxelStr += " §c(" + diffVoxels + ")";
         guiGraphics.text(this.font, Component.literal(voxelStr), statsX + 6, bodyY + 16, FONT_COLOR, false);
 
-        // 2. Attack Damage Row
-        guiGraphics.text(this.font, Component.literal("Attack Damage:"), statsX + 6, bodyY + 30, FONT_COLOR, false);
+        boolean isBow = weaponStack.getItem() instanceof ModularBowItem;
+
+        // 2. Damage Row (Contextual: "Arrow Damage" vs "Attack Damage")
+        guiGraphics.text(this.font, Component.literal(isBow ? "Arrow Damage:" : "Attack Damage:"), statsX + 6, bodyY + 30, FONT_COLOR, false);
         String dmgStr = "§a+" + String.format("%.1f", currentDmg);
         if (diffDmg > 0.001) dmgStr += " §a(+" + String.format("%.1f", diffDmg) + ")";
         else if (diffDmg < -0.001) dmgStr += " §c(" + String.format("%.1f", diffDmg) + ")";
         guiGraphics.text(this.font, Component.literal(dmgStr), statsX + 6, bodyY + 40, 0xFFFFFFFF, false);
 
-        // 3. Attack Speed Row
-        guiGraphics.text(this.font, Component.literal("Attack Speed:"), statsX + 6, bodyY + 54, FONT_COLOR, false);
+        // 3. Speed Row (Contextual: "Draw Speed" vs "Attack Speed")
+        guiGraphics.text(this.font, Component.literal(isBow ? "Draw Speed:" : "Attack Speed:"), statsX + 6, bodyY + 54, FONT_COLOR, false);
         String spdStr = "§a+" + String.format("%.2f", currentSpd);
         if (diffSpd > 0.0001) spdStr += " §a(+" + String.format("%.2f", diffSpd) + ")";
         else if (diffSpd < -0.0001) spdStr += " §c(" + String.format("%.2f", diffSpd) + ")";
         guiGraphics.text(this.font, Component.literal(spdStr), statsX + 6, bodyY + 64, 0xFFFFFFFF, false);
 
-        // 4. Durability Row
         guiGraphics.text(this.font, Component.literal("Durability:"), statsX + 6, bodyY + 78, FONT_COLOR, false);
         String durStr = "§a+" + currentDur;
         if (diffDur > 0) durStr += " §a(+" + diffDur + ")";
         else if (diffDur < 0) durStr += " §c(" + diffDur + ")";
         guiGraphics.text(this.font, Component.literal(durStr), statsX + 6, bodyY + 88, 0xFFFFFFFF, false);
 
-        // Controls Hints
         guiGraphics.text(this.font, Component.literal("[Drag L] Paint"), statsX + 6, bodyY + 104, FONT_COLOR, false);
         guiGraphics.text(this.font, Component.literal("[Drag R] Erase"), statsX + 6, bodyY + 114, FONT_COLOR, false);
 
@@ -188,7 +299,7 @@ public class CustomizationScreen extends Screen {
         int btnW = 74;
         int btnH = 20;
         int btnX = statsX + (statsW - btnW) / 2;
-        int btnY = statsY + statsH - btnH - 6;
+        int btnY = gridY + statsH - btnH - 6;
 
         boolean isHoveredSave = (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
         drawSaveButton(guiGraphics, btnX, btnY, btnW, btnH, isHoveredSave, saveFeedbackTimer > 0);
@@ -197,41 +308,63 @@ public class CustomizationScreen extends Screen {
         Component saveLabel;
         if (saveFeedbackTimer > 0) {
             saveLabel = Component.literal("§aSaved!");
-        } else if (saveFeedbackTimer < 0) {
+        } else if (saveFeedbackTimer == -1) {
             saveLabel = Component.literal("§cInvalid!");
+        } else if (saveFeedbackTimer == -2) {
+            saveLabel = Component.literal("§cInsufficient!");
+        } else if (hasMissingMaterials()) {
+            saveLabel = Component.literal("§cInsufficient!");
         } else {
             saveLabel = Component.literal(isHoveredSave ? "§fSave" : "§7Save");
         }
         int labelWidth = this.font.width(saveLabel);
         guiGraphics.text(this.font, saveLabel, btnX + (btnW - labelWidth) / 2, btnY + 6, 0xFFFFFFFF, false);
 
-        // 7. Bottom Section (Material & Shade Palettes)
+        // 6. Bottom Section: Material Palette, Arrows & Shade Palette
         int bottomY = gridY + GRID_DIM + 6;
-        guiGraphics.text(this.font, Component.literal("Material:"), gridX, bottomY, FONT_COLOR, false);
-
-        VoxelMaterial[] mats = VoxelMaterial.values();
-        int shadeStartX = gridX + (mats.length * SLOT_SPACING) + 8;
-        guiGraphics.text(this.font, Component.literal("Shade:"), shadeStartX, bottomY, FONT_COLOR, false);
-
-        int slotsY = bottomY + 10;
+        int slotsY = bottomY + 12;
         boolean isCreative = this.minecraft.player != null && this.minecraft.player.getAbilities().instabuild;
 
-        // Render Material Slots with Stack Numbers on Bottom-Right
+        List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
+        if (selectedMaterial == null && !mats.isEmpty()) {
+            selectedMaterial = mats.getFirst();
+        }
+
+        int maxOffset = Math.max(0, mats.size() - VISIBLE_SLOTS);
+        this.materialIndexOffset = Math.clamp(this.materialIndexOffset, 0, maxOffset);
+
+        guiGraphics.text(this.font, Component.literal("Material:"), gridX, bottomY, FONT_COLOR, false);
+
+        int matSectionRight = gridX + (VISIBLE_SLOTS - 1) * SLOT_SPACING + SLOT_SIZE;
+        int arrowY = bottomY - 1;
+        int rightArrowX = matSectionRight - ARROW_BTN_W;
+        int leftArrowX = rightArrowX - ARROW_BTN_W - 2;
+
+        boolean leftEnabled = materialIndexOffset > 0;
+        boolean rightEnabled = materialIndexOffset < maxOffset;
+        boolean leftHovered = mouseX >= leftArrowX && mouseX <= leftArrowX + ARROW_BTN_W && mouseY >= arrowY && mouseY <= arrowY + ARROW_BTN_H;
+        boolean rightHovered = mouseX >= rightArrowX && mouseX <= rightArrowX + ARROW_BTN_W && mouseY >= arrowY && mouseY <= arrowY + ARROW_BTN_H;
+
+        drawVanillaArrowButton(guiGraphics, leftArrowX, arrowY, "<", leftEnabled, leftHovered);
+        drawVanillaArrowButton(guiGraphics, rightArrowX, arrowY, ">", rightEnabled, rightHovered);
+
+        int shadeStartX = leftPos + 168;
+        guiGraphics.text(this.font, Component.literal("Shade:"), shadeStartX, bottomY, FONT_COLOR, false);
+
         VoxelMaterial hoveredMaterial = null;
-        for (int i = 0; i < mats.length; i++) {
-            VoxelMaterial mat = mats[i];
+        for (int i = 0; i < VISIBLE_SLOTS && (i + materialIndexOffset) < mats.size(); i++) {
+            VoxelMaterial mat = mats.get(i + materialIndexOffset);
             int sX = gridX + (i * SLOT_SPACING);
-            boolean isSelected = (mat == selectedMaterial);
+            boolean isSelected = (mat.id().equalsIgnoreCase(selectedMaterial.id()));
 
-            drawItemSlot(guiGraphics, sX, slotsY, SLOT_SIZE, isSelected);
-            guiGraphics.fakeItem(new ItemStack(mat.getIconItem()), sX + 3, slotsY + 3);
+            drawItemSlot(guiGraphics, sX, slotsY, isSelected);
+            guiGraphics.fakeItem(new ItemStack(mat.getIconItem()), sX, slotsY);
 
-            // Item Stack Count in the Bottom-Right corner
             int available = getAvailableCount(mat);
             String countStr = isCreative ? "∞" : (available > 99 ? "99+" : String.valueOf(available));
-            int countColor = (available <= 0 && !isCreative) ? 0xFFFF5555 : 0xFFFFFFFF;
-            int countX = sX + SLOT_SIZE - this.font.width(countStr) - 2;
-            int countY = slotsY + SLOT_SIZE - 9;
+            int countColor = (available < 0 && !isCreative) ? 0xFFFF5555 : 0xFFFFFFFF;
+            int countX = sX + SLOT_SIZE - this.font.width(countStr) - 1;
+            int countY = slotsY + SLOT_SIZE - 8;
             guiGraphics.text(this.font, Component.literal(countStr), countX, countY, countColor, true);
 
             if (mouseX >= sX && mouseX <= sX + SLOT_SIZE && mouseY >= slotsY && mouseY <= slotsY + SLOT_SIZE) {
@@ -239,17 +372,16 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        // Render 5 Shade Swatches
         int[] palette = selectedMaterial.getPalette();
-        for (int s = 0; s < palette.length; s++) {
-            int swX = shadeStartX + (s * SHADE_SPACING);
-            int swY = slotsY + 3;
-            boolean isSelectedShade = (s == selectedShade);
+        if (palette != null) {
+            for (int s = 0; s < palette.length && s < 5; s++) {
+                int swX = shadeStartX + (s * SHADE_SPACING);
+                boolean isSelectedShade = (s == selectedShade);
 
-            drawShadeSwatch(guiGraphics, swX, swY, SHADE_SIZE, isSelectedShade, palette[s] | 0xFF000000);
+                drawShadeSwatch(guiGraphics, swX, slotsY, isSelectedShade, palette[s] | 0xFF000000);
+            }
         }
 
-        // Clean Tooltip without redundant count
         if (hoveredMaterial != null) {
             String name = hoveredMaterial.toString().substring(0, 1).toUpperCase() + hoveredMaterial.toString().substring(1);
             List<ClientTooltipComponent> tooltipLines = List.of(
@@ -269,62 +401,120 @@ public class CustomizationScreen extends Screen {
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
 
+        // 1. Check Export Button Click (Copy JSON to Clipboard)
+        int exportBtnX = leftPos + WINDOW_WIDTH - (TOP_BTN_W * 2) - 12;
+        int topBtnY = topPos + 4;
+        if (mouseX >= exportBtnX && mouseX <= exportBtnX + TOP_BTN_W && mouseY >= topBtnY && mouseY <= topBtnY + TOP_BTN_H) {
+            String json = VoxelDesignSerializer.exportToJson(workingVoxels);
+            this.minecraft.keyboardHandler.setClipboard(json);
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            this.exportFeedbackTimer = 40; // 2 seconds feedback
+            return true;
+        }
+
+        // 2. Check Import Button Click (Paste JSON from Clipboard)
+        int importBtnX = leftPos + WINDOW_WIDTH - TOP_BTN_W - 8;
+        if (mouseX >= importBtnX && mouseX <= importBtnX + TOP_BTN_W && mouseY >= topBtnY && mouseY <= topBtnY + TOP_BTN_H) {
+            try {
+                String clipboard = this.minecraft.keyboardHandler.getClipboard();
+                List<WeaponVoxel> imported = VoxelDesignSerializer.importFromJson(clipboard);
+                this.workingVoxels.clear();
+                this.workingVoxels.addAll(imported);
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ANVIL_USE, 1.2F));
+                this.importFeedbackTimer = 40;
+            } catch (Exception e) {
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                this.importFeedbackTimer = -40; // Shows "Invalid!" in red
+            }
+            return true;
+        }
+
         int gridX = leftPos + 8;
         int gridY = topPos + 18;
         int statsX = gridX + GRID_DIM + 6;
-        int statsY = gridY;
         int statsW = 86;
-        int statsH = GRID_DIM;
 
-        // 1. Save Button Click
+        // 3. Save Button Click
         int btnW = 74;
         int btnH = 20;
         int btnX = statsX + (statsW - btnW) / 2;
-        int btnY = statsY + statsH - btnH - 6;
+        int btnY = gridY + GRID_DIM - btnH - 6;
 
         if (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY && mouseY <= btnY + btnH) {
-            // Check minimum voxel threshold
-            if (workingVoxels.size() < ModularSwordItem.MIN_VOXELS) {
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.5F));
-                this.saveFeedbackTimer = -40; // Negative timer indicates minimum warning
+            // Check 1: Minimum 8 Voxels
+            if (workingVoxels.size() < MIN_VOXELS) {
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                this.saveFeedbackTimer = -1; // Code -1 = Min 8
                 return true;
             }
 
+            // Check 2: Missing Materials (Negative counts on imported designs)
+            if (hasMissingMaterials()) {
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                this.saveFeedbackTimer = -2; // Code -2 = Missing materials
+                return true;
+            }
+
+            // Check 3: Save Changes
             if (hasUnsavedChanges()) {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ANVIL_USE, 1.0F));
+                // Save locally and send to server
                 ModularSwordItem.saveVoxels(weaponStack, workingVoxels);
                 ClientPlayNetworking.send(new SaveWeaponVoxelsPayload(workingVoxels));
-                this.saveFeedbackTimer = 40; // Positive timer indicates success
+                this.saveFeedbackTimer = 40; // Positive = Saved
             } else {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             }
             return true;
         }
 
-        // 2. Material Selector Clicks
+        // 4. Arrow Navigator Buttons Click
         int bottomY = gridY + GRID_DIM + 6;
-        int slotsY = bottomY + 10;
-        VoxelMaterial[] mats = VoxelMaterial.values();
-        for (int i = 0; i < mats.length; i++) {
-            int sX = gridX + (i * SLOT_SPACING);
-            if (mouseX >= sX && mouseX <= sX + SLOT_SIZE && mouseY >= slotsY && mouseY <= slotsY + SLOT_SIZE) {
-                this.selectedMaterial = mats[i];
+        int arrowY = bottomY - 1;
+        int matSectionRight = gridX + (VISIBLE_SLOTS - 1) * SLOT_SPACING + SLOT_SIZE;
+        int rightArrowX = matSectionRight - ARROW_BTN_W;
+        int leftArrowX = rightArrowX - ARROW_BTN_W - 2;
+
+        List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
+        int maxOffset = Math.max(0, mats.size() - VISIBLE_SLOTS);
+
+        if (mouseX >= leftArrowX && mouseX <= leftArrowX + ARROW_BTN_W && mouseY >= arrowY && mouseY <= arrowY + ARROW_BTN_H) {
+            if (materialIndexOffset > 0) {
+                materialIndexOffset--;
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 return true;
             }
         }
 
-        // 3. Shade Swatch Clicks
-        int shadeStartX = gridX + (mats.length * SLOT_SPACING) + 8;
+        if (mouseX >= rightArrowX && mouseX <= rightArrowX + ARROW_BTN_W && mouseY >= arrowY && mouseY <= arrowY + ARROW_BTN_H) {
+            if (materialIndexOffset < maxOffset) {
+                materialIndexOffset++;
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                return true;
+            }
+        }
+
+        // 5. Material Slot Clicks
+        int slotsY = bottomY + 12;
+        for (int i = 0; i < VISIBLE_SLOTS && (i + materialIndexOffset) < mats.size(); i++) {
+            int sX = gridX + (i * SLOT_SPACING);
+            if (mouseX >= sX && mouseX <= sX + SLOT_SIZE && mouseY >= slotsY && mouseY <= slotsY + SLOT_SIZE) {
+                this.selectedMaterial = mats.get(i + materialIndexOffset);
+                return true;
+            }
+        }
+
+        // 6. Shade Swatch Clicks
+        int shadeStartX = leftPos + 168;
         for (int s = 0; s < 5; s++) {
             int swX = shadeStartX + (s * SHADE_SPACING);
-            int swY = slotsY + 3;
-            if (mouseX >= swX && mouseX <= swX + SHADE_SIZE && mouseY >= swY && mouseY <= swY + SHADE_SIZE) {
+            if (mouseX >= swX && mouseX <= swX + SHADE_SIZE && mouseY >= slotsY && mouseY <= slotsY + SHADE_SIZE) {
                 this.selectedShade = s;
                 return true;
             }
         }
 
-        // 4. Grid Clicks
+        // 7. Grid Clicks
         if (handleGridInteraction(mouseX, mouseY, event.button())) {
             return true;
         }
@@ -367,12 +557,12 @@ public class CustomizationScreen extends Screen {
                     if (!isCreative && getAvailableCount(selectedMaterial) <= 0) {
                         return false;
                     }
-                    if (workingVoxels.size() < ModularSwordItem.MAX_VOXELS) {
+                    if (workingVoxels.size() < MAX_VOXELS) {
                         workingVoxels.add(new WeaponVoxel(cellX, voxelY, 0, selectedMaterial, selectedShade));
                         return true;
                     }
-                } else if (existing.material() != selectedMaterial || existing.shade() != selectedShade) {
-                    if (existing.material() != selectedMaterial && !isCreative && getAvailableCount(selectedMaterial) <= 0) {
+                } else if (!existing.materialId().equalsIgnoreCase(selectedMaterial.id()) || existing.shade() != selectedShade) {
+                    if (!existing.materialId().equalsIgnoreCase(selectedMaterial.id()) && !isCreative && getAvailableCount(selectedMaterial) <= 0) {
                         return false;
                     }
                     workingVoxels.remove(existing);
@@ -381,8 +571,7 @@ public class CustomizationScreen extends Screen {
                 }
             } else if (button == 1) { // Right-Click = Erase
                 if (existing != null) {
-                    // Prevent erasing below threshold
-                    if (workingVoxels.size() <= ModularSwordItem.MIN_VOXELS) {
+                    if (workingVoxels.size() <= MIN_VOXELS) {
                         return false;
                     }
                     workingVoxels.remove(existing);
@@ -398,27 +587,49 @@ public class CustomizationScreen extends Screen {
         if (this.minecraft.player.getAbilities().instabuild) return 999;
 
         int inInventory = 0;
+
         for (ItemStack s : this.minecraft.player.getInventory().getNonEquipmentItems()) {
             if (s.is(mat.getIconItem())) {
                 inInventory += s.getCount();
             }
         }
 
+        // Offhand item
+        ItemStack offhand = this.minecraft.player.getOffhandItem();
+        if (offhand.is(mat.getIconItem())) {
+            inInventory += offhand.getCount();
+        }
+
         int onOriginalWeapon = 0;
         for (WeaponVoxel v : ModularSwordItem.getVoxels(weaponStack)) {
-            if (v.material() == mat) {
+            if (v.materialId().equalsIgnoreCase(mat.id())) {
                 onOriginalWeapon++;
             }
         }
 
         int placedInWorking = 0;
         for (WeaponVoxel v : workingVoxels) {
-            if (v.material() == mat) {
+            if (v.materialId().equalsIgnoreCase(mat.id())) {
                 placedInWorking++;
             }
         }
 
         return inInventory + onOriginalWeapon - placedInWorking;
+    }
+
+    /**
+     * Checks if any material has a negative available count (insufficient items in Survival).
+     */
+    private boolean hasMissingMaterials() {
+        if (this.minecraft.player == null) return false;
+        if (this.minecraft.player.getAbilities().instabuild) return false;
+
+        for (VoxelMaterial mat : VoxelMaterialRegistry.getAll()) {
+            if (getAvailableCount(mat) < 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean hasUnsavedChanges() {
@@ -431,9 +642,49 @@ public class CustomizationScreen extends Screen {
 
     // --- GUI Styling Helpers ---
 
-    private void drawDivider(GuiGraphicsExtractor g, int x, int y, int width) {
-        g.fill(x, y, x + width, y + 1, 0xFF282828); // Shadow line
-        g.fill(x, y + 1, x + width, y + 2, 0xFF4A4A4A); // Highlight line
+    private void drawSmallHeaderButton(GuiGraphicsExtractor g, int x, int y, String text, boolean hovered) {
+        int bg = hovered ? 0xFFD6D6D6 : 0xFFBCBCBC;
+        g.fill(x, y, x + CustomizationScreen.TOP_BTN_W, y + CustomizationScreen.TOP_BTN_H, bg);
+
+        int highlight = hovered ? 0xFFFFFFFF : 0xFFE0E0E0;
+        int shadow = 0xFF555555;
+
+        g.fill(x, y, x + CustomizationScreen.TOP_BTN_W - 1, y + 1, highlight);
+        g.fill(x, y, x + 1, y + CustomizationScreen.TOP_BTN_H - 1, highlight);
+        g.fill(x + 1, y + CustomizationScreen.TOP_BTN_H - 1, x + CustomizationScreen.TOP_BTN_W, y + CustomizationScreen.TOP_BTN_H, shadow);
+        g.fill(x + CustomizationScreen.TOP_BTN_W - 1, y + 1, x + CustomizationScreen.TOP_BTN_W, y + CustomizationScreen.TOP_BTN_H, shadow);
+
+        g.fill(x - 1, y - 1, x + CustomizationScreen.TOP_BTN_W + 1, y, 0xFF373737);
+        g.fill(x - 1, y + CustomizationScreen.TOP_BTN_H, x + CustomizationScreen.TOP_BTN_W + 1, y + CustomizationScreen.TOP_BTN_H + 1, 0xFF373737);
+        g.fill(x - 1, y, x, y + CustomizationScreen.TOP_BTN_H, 0xFF373737);
+        g.fill(x + CustomizationScreen.TOP_BTN_W, y, x + CustomizationScreen.TOP_BTN_W + 1, y + CustomizationScreen.TOP_BTN_H, 0xFF373737);
+
+        int textX = x + (CustomizationScreen.TOP_BTN_W - this.font.width(text)) / 2;
+        int textY = y + (CustomizationScreen.TOP_BTN_H - 7) / 2;
+        g.text(this.font, Component.literal(text), textX, textY, hovered ? 0xFF000000 : 0xFF303030, false);
+    }
+
+    private void drawVanillaArrowButton(GuiGraphicsExtractor g, int x, int y, String arrow, boolean enabled, boolean hovered) {
+        int bg = !enabled ? 0xFF8B8B8B : (hovered ? 0xFFD6D6D6 : 0xFFBCBCBC);
+        g.fill(x, y, x + CustomizationScreen.ARROW_BTN_W, y + CustomizationScreen.ARROW_BTN_H, bg);
+
+        int highlight = !enabled ? 0xFFA0A0A0 : (hovered ? 0xFFFFFFFF : 0xFFE0E0E0);
+        int shadow = !enabled ? 0xFF666666 : (hovered ? 0xFF666666 : 0xFF555555);
+
+        g.fill(x, y, x + CustomizationScreen.ARROW_BTN_W - 1, y + 1, highlight);
+        g.fill(x, y, x + 1, y + CustomizationScreen.ARROW_BTN_H - 1, highlight);
+        g.fill(x + 1, y + CustomizationScreen.ARROW_BTN_H - 1, x + CustomizationScreen.ARROW_BTN_W, y + CustomizationScreen.ARROW_BTN_H, shadow);
+        g.fill(x + CustomizationScreen.ARROW_BTN_W - 1, y + 1, x + CustomizationScreen.ARROW_BTN_W, y + CustomizationScreen.ARROW_BTN_H, shadow);
+
+        g.fill(x - 1, y - 1, x + CustomizationScreen.ARROW_BTN_W + 1, y, 0xFF373737);
+        g.fill(x - 1, y + CustomizationScreen.ARROW_BTN_H, x + CustomizationScreen.ARROW_BTN_W + 1, y + CustomizationScreen.ARROW_BTN_H + 1, 0xFF373737);
+        g.fill(x - 1, y, x, y + CustomizationScreen.ARROW_BTN_H, 0xFF373737);
+        g.fill(x + CustomizationScreen.ARROW_BTN_W, y, x + CustomizationScreen.ARROW_BTN_W + 1, y + CustomizationScreen.ARROW_BTN_H, 0xFF373737);
+
+        int textColor = !enabled ? 0xFF666666 : (hovered ? 0xFF000000 : 0xFF303030);
+        int textX = x + (CustomizationScreen.ARROW_BTN_W - this.font.width(arrow)) / 2 + 1;
+        int textY = y + (CustomizationScreen.ARROW_BTN_H - 7) / 2;
+        g.text(this.font, Component.literal(arrow), textX, textY, textColor, false);
     }
 
     private void drawSaveButton(GuiGraphicsExtractor g, int x, int y, int w, int h, boolean hovered, boolean saved) {
@@ -455,16 +706,16 @@ public class CustomizationScreen extends Screen {
         g.fill(x + w, y, x + w + 1, y + h, 0xFF1E1E1E);
     }
 
-    private void drawClassicContainer(GuiGraphicsExtractor g, int x, int y, int w, int h) {
-        g.fill(x, y, x + w, y + h, 0xFFC6C6C6);
-        g.fill(x, y, x + w - 1, y + 1, 0xFFFFFFFF);
-        g.fill(x, y, x + 1, y + h - 1, 0xFFFFFFFF);
-        g.fill(x, y + h - 1, x + w, y + h, 0xFF555555);
-        g.fill(x + w - 1, y, x + w, y + h, 0xFF555555);
-        g.fill(x - 1, y - 1, x + w + 1, y, 0xFF373737);
-        g.fill(x - 1, y + h, x + w + 1, y + h + 1, 0xFF373737);
-        g.fill(x - 1, y, x, y + h, 0xFF373737);
-        g.fill(x + w, y, x + w + 1, y + h, 0xFF373737);
+    private void drawClassicContainer(GuiGraphicsExtractor g, int x, int y) {
+        g.fill(x, y, x + CustomizationScreen.WINDOW_WIDTH, y + CustomizationScreen.WINDOW_HEIGHT, 0xFFC6C6C6);
+        g.fill(x, y, x + CustomizationScreen.WINDOW_WIDTH - 1, y + 1, 0xFFFFFFFF);
+        g.fill(x, y, x + 1, y + CustomizationScreen.WINDOW_HEIGHT - 1, 0xFFFFFFFF);
+        g.fill(x, y + CustomizationScreen.WINDOW_HEIGHT - 1, x + CustomizationScreen.WINDOW_WIDTH, y + CustomizationScreen.WINDOW_HEIGHT, 0xFF555555);
+        g.fill(x + CustomizationScreen.WINDOW_WIDTH - 1, y, x + CustomizationScreen.WINDOW_WIDTH, y + CustomizationScreen.WINDOW_HEIGHT, 0xFF555555);
+        g.fill(x - 1, y - 1, x + CustomizationScreen.WINDOW_WIDTH + 1, y, 0xFF373737);
+        g.fill(x - 1, y + CustomizationScreen.WINDOW_HEIGHT, x + CustomizationScreen.WINDOW_WIDTH + 1, y + CustomizationScreen.WINDOW_HEIGHT + 1, 0xFF373737);
+        g.fill(x - 1, y, x, y + CustomizationScreen.WINDOW_HEIGHT, 0xFF373737);
+        g.fill(x + CustomizationScreen.WINDOW_WIDTH, y, x + CustomizationScreen.WINDOW_WIDTH + 1, y + CustomizationScreen.WINDOW_HEIGHT, 0xFF373737);
     }
 
     private void drawRecessedBox(GuiGraphicsExtractor g, int x, int y, int w, int h) {
@@ -475,35 +726,35 @@ public class CustomizationScreen extends Screen {
         g.fill(x + w, y - 1, x + w + 1, y + h + 1, 0xFFFFFFFF);
     }
 
-    private void drawItemSlot(GuiGraphicsExtractor g, int x, int y, int size, boolean selected) {
-        g.fill(x, y, x + size, y + size, selected ? 0xFF353535 : 0xFF222222);
+    private void drawItemSlot(GuiGraphicsExtractor g, int x, int y, boolean selected) {
+        g.fill(x, y, x + CustomizationScreen.SLOT_SIZE, y + CustomizationScreen.SLOT_SIZE, selected ? 0xFF353535 : 0xFF222222);
 
         if (selected) {
-            g.fill(x - 1, y - 1, x + size + 1, y, 0xFFFFFFFF);
-            g.fill(x - 1, y + size, x + size + 1, y + size + 1, 0xFFFFFFFF);
-            g.fill(x - 1, y, x, y + size, 0xFFFFFFFF);
-            g.fill(x + size, y, x + size + 1, y + size, 0xFFFFFFFF);
+            g.fill(x - 1, y - 1, x + CustomizationScreen.SLOT_SIZE + 1, y, 0xFFFFFFFF);
+            g.fill(x - 1, y + CustomizationScreen.SLOT_SIZE, x + CustomizationScreen.SLOT_SIZE + 1, y + CustomizationScreen.SLOT_SIZE + 1, 0xFFFFFFFF);
+            g.fill(x - 1, y, x, y + CustomizationScreen.SLOT_SIZE, 0xFFFFFFFF);
+            g.fill(x + CustomizationScreen.SLOT_SIZE, y, x + CustomizationScreen.SLOT_SIZE + 1, y + CustomizationScreen.SLOT_SIZE, 0xFFFFFFFF);
         } else {
-            g.fill(x - 1, y - 1, x + size + 1, y, 0xFF373737);
-            g.fill(x - 1, y, x, y + size, 0xFF373737);
-            g.fill(x - 1, y + size, x + size + 1, y + size + 1, 0xFFFFFFFF);
-            g.fill(x + size, y - 1, x + size + 1, y + size + 1, 0xFFFFFFFF);
+            g.fill(x - 1, y - 1, x + CustomizationScreen.SLOT_SIZE + 1, y, 0xFF373737);
+            g.fill(x - 1, y, x, y + CustomizationScreen.SLOT_SIZE, 0xFF373737);
+            g.fill(x - 1, y + CustomizationScreen.SLOT_SIZE, x + CustomizationScreen.SLOT_SIZE + 1, y + CustomizationScreen.SLOT_SIZE + 1, 0xFFFFFFFF);
+            g.fill(x + CustomizationScreen.SLOT_SIZE, y - 1, x + CustomizationScreen.SLOT_SIZE + 1, y + CustomizationScreen.SLOT_SIZE + 1, 0xFFFFFFFF);
         }
     }
 
-    private void drawShadeSwatch(GuiGraphicsExtractor g, int x, int y, int size, boolean selected, int color) {
-        g.fill(x, y, x + size, y + size, color);
+    private void drawShadeSwatch(GuiGraphicsExtractor g, int x, int y, boolean selected, int color) {
+        g.fill(x, y, x + CustomizationScreen.SHADE_SIZE, y + CustomizationScreen.SHADE_SIZE, color);
 
         if (selected) {
-            g.fill(x - 1, y - 1, x + size + 1, y, 0xFFFFFFFF);
-            g.fill(x - 1, y + size, x + size + 1, y + size + 1, 0xFFFFFFFF);
-            g.fill(x - 1, y, x, y + size, 0xFFFFFFFF);
-            g.fill(x + size, y, x + size + 1, y + size, 0xFFFFFFFF);
+            g.fill(x - 1, y - 1, x + CustomizationScreen.SHADE_SIZE + 1, y, 0xFFFFFFFF);
+            g.fill(x - 1, y + CustomizationScreen.SHADE_SIZE, x + CustomizationScreen.SHADE_SIZE + 1, y + CustomizationScreen.SHADE_SIZE + 1, 0xFFFFFFFF);
+            g.fill(x - 1, y, x, y + CustomizationScreen.SHADE_SIZE, 0xFFFFFFFF);
+            g.fill(x + CustomizationScreen.SHADE_SIZE, y, x + CustomizationScreen.SHADE_SIZE + 1, y + CustomizationScreen.SHADE_SIZE, 0xFFFFFFFF);
         } else {
-            g.fill(x - 1, y - 1, x + size + 1, y, 0xFF373737);
-            g.fill(x - 1, y + size, x + size + 1, y + size + 1, 0xFF373737);
-            g.fill(x - 1, y, x, y + size, 0xFF373737);
-            g.fill(x + size, y, x + size + 1, y + size, 0xFF373737);
+            g.fill(x - 1, y - 1, x + CustomizationScreen.SHADE_SIZE + 1, y, 0xFF373737);
+            g.fill(x - 1, y + CustomizationScreen.SHADE_SIZE, x + CustomizationScreen.SHADE_SIZE + 1, y + CustomizationScreen.SHADE_SIZE + 1, 0xFF373737);
+            g.fill(x - 1, y, x, y + CustomizationScreen.SHADE_SIZE, 0xFF373737);
+            g.fill(x + CustomizationScreen.SHADE_SIZE, y, x + CustomizationScreen.SHADE_SIZE + 1, y + CustomizationScreen.SHADE_SIZE, 0xFF373737);
         }
     }
 }
