@@ -177,14 +177,12 @@ public class MaterialConfigScreen extends Screen {
         int listTopY = 36;
         int listBottomY = this.height - 30;
 
-        // 1. Check Scrollbar Drag Start
         int scrollbarX = cardX + CARD_WIDTH + 4;
         if (mouseX >= scrollbarX && mouseX <= scrollbarX + 8 && mouseY >= listTopY && mouseY <= listBottomY) {
             this.isScrolling = true;
             return true;
         }
 
-        // 2. Check [Edit] Button Clicks inside Scrollable List
         if (mouseY >= listTopY && mouseY <= listBottomY && mouseX >= cardX && mouseX <= cardX + CARD_WIDTH) {
             List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
             for (int i = 0; i < mats.size(); i++) {

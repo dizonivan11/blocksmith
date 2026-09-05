@@ -125,10 +125,8 @@ public class CustomizationScreen extends Screen {
         int leftPos = (this.width - WINDOW_WIDTH) / 2;
         int topPos = (this.height - WINDOW_HEIGHT) / 2;
 
-        // 1. Container Background
         drawClassicContainer(guiGraphics, leftPos, topPos);
 
-        // 2. Title & Top Action Buttons (Export / Import)
         guiGraphics.text(this.font, this.title, leftPos + 8, topPos + 6, FONT_COLOR, false);
 
         int exportBtnX = leftPos + WINDOW_WIDTH - (TOP_BTN_W * 2) - 12;
@@ -144,7 +142,6 @@ public class CustomizationScreen extends Screen {
         drawSmallHeaderButton(guiGraphics, exportBtnX, topBtnY, exportLabel, exportHovered);
         drawSmallHeaderButton(guiGraphics, importBtnX, topBtnY, importLabel, importHovered);
 
-        // 3. Workspace with Panning Checkerboard (168x168)
         int gridX = leftPos + 8;
         int gridY = topPos + 18;
         drawRecessedBox(guiGraphics, gridX, gridY, GRID_DIM, GRID_DIM);
@@ -164,7 +161,6 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        // Faint 24x24 cell guide overlay
         for (int x = 0; x < GRID_SIZE; x++) {
             for (int y = 0; y < GRID_SIZE; y++) {
                 int px = gridX + x * CELL_SIZE;
@@ -173,7 +169,6 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        // 4. Render 1px Outer White Silhouette Outline
         boolean[][] occupied = new boolean[GRID_SIZE][GRID_SIZE];
         for (WeaponVoxel v : workingVoxels) {
             if (v.x() >= 0 && v.x() < GRID_SIZE && v.y() >= 0 && v.y() < GRID_SIZE) {
@@ -198,7 +193,6 @@ public class CustomizationScreen extends Screen {
                     if (hasLeft) guiGraphics.fill(px, py, px + 1, py + CELL_SIZE, outlineColor);
                     if (hasRight) guiGraphics.fill(px + CELL_SIZE - 1, py, px + CELL_SIZE, py + CELL_SIZE, outlineColor);
 
-                    // Diagonal corner connections
                     if (!hasTop && !hasRight && (x + 1 < GRID_SIZE && y + 1 < GRID_SIZE && occupied[x + 1][y + 1])) {
                         guiGraphics.fill(px + CELL_SIZE - 1, py, px + CELL_SIZE, py + 1, outlineColor);
                     }
@@ -215,14 +209,12 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        // Render Colored Voxels
         for (WeaponVoxel voxel : workingVoxels) {
             int px = gridX + voxel.x() * CELL_SIZE;
             int py = gridY + (GRID_SIZE - 1 - voxel.y()) * CELL_SIZE;
             guiGraphics.fill(px, py, px + CELL_SIZE, py + CELL_SIZE, voxel.getColorRgb() | 0xFF000000);
         }
 
-        // Grid Hover Cursor
         int hX = (mouseX - gridX) / CELL_SIZE;
         int hY = (mouseY - gridY) / CELL_SIZE;
         if (hX >= 0 && hX < GRID_SIZE && hY >= 0 && hY < GRID_SIZE) {
@@ -233,7 +225,6 @@ public class CustomizationScreen extends Screen {
 
         guiGraphics.disableScissor();
 
-        // 5. Stats Panel & Save Button
         int statsX = gridX + GRID_DIM + 6;
         int statsW = 86;
         int statsH = GRID_DIM;
@@ -272,14 +263,12 @@ public class CustomizationScreen extends Screen {
 
         boolean isBow = weaponStack.getItem() instanceof ModularBowItem;
 
-        // 2. Damage Row (Contextual: "Arrow Damage" vs "Attack Damage")
         guiGraphics.text(this.font, Component.literal(isBow ? "Arrow Damage:" : "Attack Damage:"), statsX + 6, bodyY + 30, FONT_COLOR, false);
         String dmgStr = "§a+" + String.format("%.1f", currentDmg);
         if (diffDmg > 0.001) dmgStr += " §a(+" + String.format("%.1f", diffDmg) + ")";
         else if (diffDmg < -0.001) dmgStr += " §c(" + String.format("%.1f", diffDmg) + ")";
         guiGraphics.text(this.font, Component.literal(dmgStr), statsX + 6, bodyY + 40, 0xFFFFFFFF, false);
 
-        // 3. Speed Row (Contextual: "Draw Speed" vs "Attack Speed")
         guiGraphics.text(this.font, Component.literal(isBow ? "Draw Speed:" : "Attack Speed:"), statsX + 6, bodyY + 54, FONT_COLOR, false);
         String spdStr = "§a+" + String.format("%.2f", currentSpd);
         if (diffSpd > 0.0001) spdStr += " §a(+" + String.format("%.2f", diffSpd) + ")";
@@ -295,7 +284,6 @@ public class CustomizationScreen extends Screen {
         guiGraphics.text(this.font, Component.literal("[Drag L] Paint"), statsX + 6, bodyY + 104, FONT_COLOR, false);
         guiGraphics.text(this.font, Component.literal("[Drag R] Erase"), statsX + 6, bodyY + 114, FONT_COLOR, false);
 
-        // Save Button
         int btnW = 74;
         int btnH = 20;
         int btnX = statsX + (statsW - btnW) / 2;
@@ -304,7 +292,6 @@ public class CustomizationScreen extends Screen {
         boolean isHoveredSave = (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
         drawSaveButton(guiGraphics, btnX, btnY, btnW, btnH, isHoveredSave, saveFeedbackTimer > 0);
 
-        // Save Button Label & Feedback
         Component saveLabel;
         if (saveFeedbackTimer > 0) {
             saveLabel = Component.literal("§aSaved!");
@@ -320,7 +307,6 @@ public class CustomizationScreen extends Screen {
         int labelWidth = this.font.width(saveLabel);
         guiGraphics.text(this.font, saveLabel, btnX + (btnW - labelWidth) / 2, btnY + 6, 0xFFFFFFFF, false);
 
-        // 6. Bottom Section: Material Palette, Arrows & Shade Palette
         int bottomY = gridY + GRID_DIM + 6;
         int slotsY = bottomY + 12;
         boolean isCreative = this.minecraft.player != null && this.minecraft.player.getAbilities().instabuild;
@@ -401,18 +387,16 @@ public class CustomizationScreen extends Screen {
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
 
-        // 1. Check Export Button Click (Copy JSON to Clipboard)
         int exportBtnX = leftPos + WINDOW_WIDTH - (TOP_BTN_W * 2) - 12;
         int topBtnY = topPos + 4;
         if (mouseX >= exportBtnX && mouseX <= exportBtnX + TOP_BTN_W && mouseY >= topBtnY && mouseY <= topBtnY + TOP_BTN_H) {
             String json = VoxelDesignSerializer.exportToJson(workingVoxels);
             this.minecraft.keyboardHandler.setClipboard(json);
             this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            this.exportFeedbackTimer = 40; // 2 seconds feedback
+            this.exportFeedbackTimer = 40;
             return true;
         }
 
-        // 2. Check Import Button Click (Paste JSON from Clipboard)
         int importBtnX = leftPos + WINDOW_WIDTH - TOP_BTN_W - 8;
         if (mouseX >= importBtnX && mouseX <= importBtnX + TOP_BTN_W && mouseY >= topBtnY && mouseY <= topBtnY + TOP_BTN_H) {
             try {
@@ -424,7 +408,7 @@ public class CustomizationScreen extends Screen {
                 this.importFeedbackTimer = 40;
             } catch (Exception e) {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                this.importFeedbackTimer = -40; // Shows "Invalid!" in red
+                this.importFeedbackTimer = -40;
             }
             return true;
         }
@@ -434,28 +418,24 @@ public class CustomizationScreen extends Screen {
         int statsX = gridX + GRID_DIM + 6;
         int statsW = 86;
 
-        // 3. Save Button Click
         int btnW = 74;
         int btnH = 20;
         int btnX = statsX + (statsW - btnW) / 2;
         int btnY = gridY + GRID_DIM - btnH - 6;
 
         if (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY && mouseY <= btnY + btnH) {
-            // Check 1: Minimum 8 Voxels
             if (workingVoxels.size() < MIN_VOXELS) {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 this.saveFeedbackTimer = -1; // Code -1 = Min 8
                 return true;
             }
 
-            // Check 2: Missing Materials (Negative counts on imported designs)
             if (hasMissingMaterials()) {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 this.saveFeedbackTimer = -2; // Code -2 = Missing materials
                 return true;
             }
 
-            // Check 3: Save Changes
             if (hasUnsavedChanges()) {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ANVIL_USE, 1.0F));
                 // Save locally and send to server
@@ -468,7 +448,6 @@ public class CustomizationScreen extends Screen {
             return true;
         }
 
-        // 4. Arrow Navigator Buttons Click
         int bottomY = gridY + GRID_DIM + 6;
         int arrowY = bottomY - 1;
         int matSectionRight = gridX + (VISIBLE_SLOTS - 1) * SLOT_SPACING + SLOT_SIZE;
@@ -494,7 +473,6 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        // 5. Material Slot Clicks
         int slotsY = bottomY + 12;
         for (int i = 0; i < VISIBLE_SLOTS && (i + materialIndexOffset) < mats.size(); i++) {
             int sX = gridX + (i * SLOT_SPACING);
@@ -504,7 +482,6 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        // 6. Shade Swatch Clicks
         int shadeStartX = leftPos + 168;
         for (int s = 0; s < 5; s++) {
             int swX = shadeStartX + (s * SHADE_SPACING);
@@ -514,7 +491,6 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        // 7. Grid Clicks
         if (handleGridInteraction(mouseX, mouseY, event.button())) {
             return true;
         }
@@ -594,7 +570,6 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        // Offhand item
         ItemStack offhand = this.minecraft.player.getOffhandItem();
         if (offhand.is(mat.getIconItem())) {
             inInventory += offhand.getCount();
@@ -617,9 +592,6 @@ public class CustomizationScreen extends Screen {
         return inInventory + onOriginalWeapon - placedInWorking;
     }
 
-    /**
-     * Checks if any material has a negative available count (insufficient items in Survival).
-     */
     private boolean hasMissingMaterials() {
         if (this.minecraft.player == null) return false;
         if (this.minecraft.player.getAbilities().instabuild) return false;

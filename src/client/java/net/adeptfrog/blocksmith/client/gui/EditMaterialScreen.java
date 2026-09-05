@@ -201,7 +201,6 @@ public class EditMaterialScreen extends Screen {
             guiGraphics.fill(colX, swatchY, colX + 44, swatchY + swatchHeight, color);
         }
 
-        // Error message if input validation fails
         if (!errorMessage.isEmpty()) {
             Component err = Component.literal(errorMessage);
             guiGraphics.text(this.font, err, centerX - (this.font.width(err) / 2), this.height - 46, 0xFFFF5555, true);
