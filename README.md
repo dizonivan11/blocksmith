@@ -9,10 +9,6 @@ A voxel-based weapon customization Fabric mod for Minecraft. Customize each voxe
 - Dynamic weapon stats - Each voxel materials provide different bonus stats
 - Copy and paste - You can save your weapon design to your clipboard so you can easily share it with other people
 
-## Setup
-
-For setup instructions, please see the [Fabric Documentation page](https://docs.fabricmc.net/develop/getting-started/creating-a-project#setting-up) related to the IDE that you are using.
-
 ## License
 
 This template is available under the CC0 license. Feel free to learn from it and incorporate it in your own projects.
