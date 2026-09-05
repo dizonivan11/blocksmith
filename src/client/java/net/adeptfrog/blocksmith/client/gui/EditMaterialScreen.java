@@ -24,7 +24,6 @@ public class EditMaterialScreen extends Screen {
     private final EditBox[] shadeBoxes = new EditBox[5];
     private String errorMessage = "";
 
-    // Unified 240px form width
     private static final int FORM_WIDTH = 240;
 
     public EditMaterialScreen(Screen parent, VoxelMaterial material, boolean isNew) {
@@ -38,9 +37,8 @@ public class EditMaterialScreen extends Screen {
     protected void init() {
         super.init();
         int centerX = this.width / 2;
-        int formLeft = centerX - (FORM_WIDTH / 2); // Left edge at centerX - 120
+        int formLeft = centerX - (FORM_WIDTH / 2);
 
-        // --- Row 1: Material ID (95px) & Item ID (137px) ---
         int row1Y = 38;
         this.idBox = createStyledEditBox(formLeft, row1Y, 95, "Material ID", isNew);
         this.idBox.setValue(original.id());
@@ -51,7 +49,6 @@ public class EditMaterialScreen extends Screen {
         this.itemBox.setValue(original.iconItem().toString());
         this.addRenderableWidget(itemBox);
 
-        // --- Row 2: Stats (3 Columns of 74px with 9px gaps) ---
         int row2Y = 74;
         int statW = 74;
         int statGap = 9;
@@ -68,7 +65,6 @@ public class EditMaterialScreen extends Screen {
         this.durabilityBox.setValue(String.valueOf(original.bonusDurability()));
         this.addRenderableWidget(durabilityBox);
 
-        // --- Row 3: 5-Shade Palette (5 Columns of 44px with 5px gaps) ---
         int row3Y = 114;
         int[] palette = original.getPalette();
 
@@ -116,10 +112,10 @@ public class EditMaterialScreen extends Screen {
     private EditBox createStyledEditBox(int x, int y, int w, String label, boolean editable) {
         EditBox box = new EditBox(this.font, x, y, w, 16, Component.literal(label));
         if (editable) {
-            box.setTextColor(0xFFFFFFFF);           // Bright white for active inputs
+            box.setTextColor(0xFFFFFFFF);
             box.setTextColorUneditable(0xFFFFFFFF);
         } else {
-            box.setTextColor(0xFF777777);           // Dim grey for disabled inputs
+            box.setTextColor(0xFF777777);
             box.setTextColorUneditable(0xFF777777);
         }
         return box;
@@ -161,10 +157,8 @@ public class EditMaterialScreen extends Screen {
         int centerX = this.width / 2;
         int formLeft = centerX - (FORM_WIDTH / 2);
 
-        // 1. Screen Title (Centered)
         guiGraphics.text(this.font, this.title, centerX - (this.font.width(this.title) / 2), 10, 0xFFFFFFFF, true);
 
-        // 2. Row 1 Labels (Centered over each input box)
         Component idLabel = Component.literal("Material ID");
         int idLabelX = formLeft + (95 - this.font.width(idLabel)) / 2;
         guiGraphics.text(this.font, idLabel, idLabelX, 26, isNew ? 0xFFEEEEEE : 0xFFAAAAAA, true);
@@ -173,7 +167,6 @@ public class EditMaterialScreen extends Screen {
         int itemLabelX = (formLeft + 103) + (137 - this.font.width(itemLabel)) / 2;
         guiGraphics.text(this.font, itemLabel, itemLabelX, 26, 0xFFEEEEEE, true);
 
-        // 3. Row 2 Labels (Centered over each 74px stats box)
         int statW = 74;
         int statGap = 9;
 
@@ -189,11 +182,9 @@ public class EditMaterialScreen extends Screen {
         int durLabelX = (formLeft + (statW + statGap) * 2) + (statW - this.font.width(durLabel)) / 2;
         guiGraphics.text(this.font, durLabel, durLabelX, 62, 0xFF77FF77, true);
 
-        // 4. Row 3 Palette Section Title (Centered over the screen)
         Component paletteTitle = Component.literal("5-Shade Color Palette (Hex)");
         guiGraphics.text(this.font, paletteTitle, centerX - (this.font.width(paletteTitle) / 2), 100, 0xFFEEEEEE, true);
 
-        // 5. 5 Color Swatches (Exact 44px width matching the hex boxes)
         int swatchY = 133;
         int swatchHeight = 10;
 
@@ -206,7 +197,6 @@ public class EditMaterialScreen extends Screen {
                 color = 0xFF000000 | Integer.parseInt(hex, 16);
             } catch (Exception ignored) {}
 
-            // 1px black outline + 44px color fill
             guiGraphics.fill(colX - 1, swatchY - 1, colX + 45, swatchY + swatchHeight + 1, 0xFF000000);
             guiGraphics.fill(colX, swatchY, colX + 44, swatchY + swatchHeight, color);
         }

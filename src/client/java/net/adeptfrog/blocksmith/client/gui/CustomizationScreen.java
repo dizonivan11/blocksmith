@@ -44,10 +44,10 @@ public class CustomizationScreen extends Screen {
     private static final int WINDOW_HEIGHT = 232;
 
     public static final int GRID_SIZE = 24;
-    private static final int CELL_SIZE = 7; // 168x168px area
+    private static final int CELL_SIZE = 7;
     private static final int GRID_DIM = GRID_SIZE * CELL_SIZE;
 
-    // Material Section (8 visible slots)
+    // Material Section
     private static final int VISIBLE_SLOTS = 8;
     private static final int SLOT_SIZE = 16;
     private static final int SLOT_SPACING = 19;

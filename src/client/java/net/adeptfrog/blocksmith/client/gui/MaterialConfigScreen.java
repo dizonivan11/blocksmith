@@ -22,7 +22,7 @@ public class MaterialConfigScreen extends Screen {
 
     private static final int CARD_WIDTH = 370;
     private static final int ROW_HEIGHT = 28;
-    private static final int ROW_SPACING = 31; // ROW_HEIGHT (28) + 3px gap
+    private static final int ROW_SPACING = 31;
 
     public MaterialConfigScreen(Screen parent) {
         super(Component.literal("Blocksmith Material Configuration"));
@@ -100,7 +100,6 @@ public class MaterialConfigScreen extends Screen {
         int maxScroll = Math.max(0, totalContentHeight - listHeight);
         this.scrollY = Math.clamp(this.scrollY, 0, maxScroll);
 
-        // --- 1. Render Scrollable Material List with Scissor Clipping ---
         guiGraphics.enableScissor(cardX - 4, listTopY, cardX + CARD_WIDTH + 14, listBottomY);
 
         for (int i = 0; i < mats.size(); i++) {
@@ -110,22 +109,18 @@ public class MaterialConfigScreen extends Screen {
             // Cull off-screen rows for performance
             if (y + ROW_HEIGHT < listTopY - 10 || y > listBottomY + 10) continue;
 
-            // Row Container Card
             guiGraphics.fill(cardX, y, cardX + CARD_WIDTH, y + ROW_HEIGHT, 0x55000000);
             guiGraphics.fill(cardX, y, cardX + CARD_WIDTH, y + 1, 0x33FFFFFF);
             guiGraphics.fill(cardX, y + ROW_HEIGHT - 1, cardX + CARD_WIDTH, y + ROW_HEIGHT, 0x33000000);
 
-            // Column 1: Name & Item ID
             String name = mat.id().substring(0, 1).toUpperCase() + mat.id().substring(1);
             guiGraphics.text(this.font, Component.literal("§e" + name), cardX + 6, y + 4, 0xFFFFFFFF, false);
             guiGraphics.text(this.font, Component.literal("§7" + mat.iconItem().getPath()), cardX + 6, y + 15, 0xFFAAAAAA, false);
 
-            // Column 2: Stats
             guiGraphics.text(this.font, Component.literal("§c+" + mat.getBonusDamage() + " Dmg"), cardX + 90, y + 10, 0xFFFFFFFF, false);
             guiGraphics.text(this.font, Component.literal("§b+" + mat.getBonusSpeed() + " Spd"), cardX + 150, y + 10, 0xFFFFFFFF, false);
             guiGraphics.text(this.font, Component.literal("§a+" + mat.getBonusDurability() + " Dur"), cardX + 215, y + 10, 0xFFFFFFFF, false);
 
-            // Column 3: 5-Shade Swatches
             int[] palette = mat.getPalette();
             if (palette != null) {
                 int swatchStartX = cardX + 276;
@@ -137,7 +132,6 @@ public class MaterialConfigScreen extends Screen {
                 }
             }
 
-            // Column 4: Inline [Edit] Button
             int editBtnW = 38;
             int editBtnH = 18;
             int editBtnX = cardX + CARD_WIDTH - editBtnW - 4;
@@ -147,7 +141,6 @@ public class MaterialConfigScreen extends Screen {
             drawEditButton(guiGraphics, editBtnX, editBtnY, editBtnW, editBtnH, hoveredEdit);
         }
 
-        // --- 2. Render Vertical Scrollbar Track & Thumb ---
         if (maxScroll > 0) {
             int scrollbarX = cardX + CARD_WIDTH + 4;
             guiGraphics.fill(scrollbarX, listTopY, scrollbarX + 6, listBottomY, 0x88000000);
@@ -162,18 +155,15 @@ public class MaterialConfigScreen extends Screen {
 
         guiGraphics.disableScissor();
 
-        // --- 3. Fixed Top Header Backdrop ---
         guiGraphics.fill(0, 0, this.width, 32, 0xD0000000);
         guiGraphics.fill(0, 32, this.width, 33, 0x55FFFFFF);
         guiGraphics.text(this.font, this.title, centerX - (this.font.width(this.title) / 2), 8, 0xFFFFFFFF, true);
         Component sub = Component.literal("Configure stats, palettes, and required items in-game");
         guiGraphics.text(this.font, sub, centerX - (this.font.width(sub) / 2), 20, 0xFFAAAAAA, false);
 
-        // --- 4. Fixed Bottom Footer Backdrop ---
         guiGraphics.fill(0, this.height - 30, this.width, this.height, 0xD0000000);
         guiGraphics.fill(0, this.height - 30, this.width, this.height - 29, 0x55FFFFFF);
 
-        // --- 5. Render Buttons ---
         super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
     }
 
