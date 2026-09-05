@@ -1,5 +1,7 @@
 # Blocksmith
 
+### WARNING! This mod is currently in a very early development. Exploits, duplicate bugs or buggy interaction with other mods are expected. Development might be slow sometimes as I am only doing this on my free time. Kindly report any bugs, errors and exploits you find so I can improve this mod. Thank you!
+
 A voxel-based weapon customization Fabric mod for Minecraft. Customize each voxels by shaping your own weapon to your preference and show your own personalized weapons to your friends. Currently, each voxels will give bonus stats such as Attack Damage/Arrow Damage, Attack Speed/Draw Speed, and Durability.
 
 ## Features
