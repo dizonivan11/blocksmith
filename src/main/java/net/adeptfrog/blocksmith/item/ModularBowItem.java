@@ -38,7 +38,6 @@ public class ModularBowItem extends BowItem {
         recalculateStats(stack);
     }
 
-    // Calculates the total base durability + bonus durability from default bow voxels
     public static int calculateDefaultMaxDurability() {
         List<WeaponVoxel> defaults = getDefaultBowVoxels();
         int bonusDurability = 0;

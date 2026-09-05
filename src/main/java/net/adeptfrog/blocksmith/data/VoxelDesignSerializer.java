@@ -8,7 +8,6 @@ import java.util.List;
 public class VoxelDesignSerializer {
     private static final Gson GSON = new GsonBuilder().create();
 
-    // 1. Embedded Default Sword Blueprint
     private static final String DEFAULT_SWORD_BLUEPRINT_JSON = """
     {
       "format": "blocksmith_blueprint",
@@ -161,7 +160,6 @@ public class VoxelDesignSerializer {
     }
     """;
 
-    // 2. Embedded Default Bow Blueprint (144 Voxels)
     private static final String DEFAULT_BOW_BLUEPRINT_JSON = """
     {
       "format": "blocksmith_blueprint",

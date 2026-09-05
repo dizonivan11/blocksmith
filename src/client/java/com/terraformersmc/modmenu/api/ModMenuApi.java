@@ -13,7 +13,6 @@ public interface ModMenuApi {
         return Collections.emptyMap();
     }
 
-    // Fixes the NoSuchMethodError crash
     static Component createModsButtonText() {
         return Component.translatable("modmenu.title");
     }

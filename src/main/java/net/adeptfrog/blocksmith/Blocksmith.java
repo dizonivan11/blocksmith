@@ -46,7 +46,6 @@ public class Blocksmith implements ModInitializer {
 		return Registry.register(BuiltInRegistries.ITEM, key, item);
 	}
 
-	// 1. Create the ResourceKey first
 	public static final ResourceKey<Block> WEAPON_TABLE_BLOCK_KEY = ResourceKey.create(
 			Registries.BLOCK,
 			Identifier.fromNamespaceAndPath(MOD_ID, "weapon_table")
@@ -67,13 +66,11 @@ public class Blocksmith implements ModInitializer {
 			Identifier.fromNamespaceAndPath(MOD_ID, "modular_bow")
 	);
 
-	// 2. Create the Creative Mode Tab
 	public static final ResourceKey<CreativeModeTab> BLOCKSMITH_TAB_KEY = ResourceKey.create(
 			Registries.CREATIVE_MODE_TAB,
 			Identifier.fromNamespaceAndPath(MOD_ID, "blocksmith_tab")
 	);
 
-	// 3. Register the blocks and items
 	public static final Block WEAPON_TABLE = registerBlock(
 			WEAPON_TABLE_BLOCK_KEY,
 			WeaponTableBlock::new,
@@ -104,7 +101,6 @@ public class Blocksmith implements ModInitializer {
 					.durability(ModularBowItem.calculateDefaultMaxDurability())
 	);
 
-	// 3. Creative Tab Instance
 	public static final CreativeModeTab BLOCKSMITH_TAB = CreativeModeTab.builder(CreativeModeTab.Row.BOTTOM, 0)
 			.icon(() -> new ItemStack(WEAPON_TABLE_ITEM))
 			.title(Component.translatable("itemGroup.blocksmith.blocksmith_tab"))

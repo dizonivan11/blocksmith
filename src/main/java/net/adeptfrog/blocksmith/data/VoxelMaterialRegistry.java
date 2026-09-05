@@ -18,7 +18,6 @@ public class VoxelMaterialRegistry {
 
     private static final Map<String, VoxelMaterial> MATERIALS = new LinkedHashMap<>();
 
-    // Updated Fallback to match new Iron defaults
     public static final VoxelMaterial FALLBACK = new VoxelMaterial(
             "iron", 0.01f, 0.0f, 3,
             new int[]{0xFF707070, 0xFF9E9E9E, 0xFFD8D8D8, 0xFFEEEEEE, 0xFFFFFFFF},

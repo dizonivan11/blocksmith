@@ -19,11 +19,9 @@ public class WeaponTableBlock extends Block {
 
     @Override
     protected @NonNull InteractionResult useWithoutItem(@NonNull BlockState state, @NonNull Level level, @NonNull BlockPos pos, @NonNull Player player, @NonNull BlockHitResult hitResult) {
-        // Return SUCCESS so hand animation swings and client callback triggers
         return InteractionResult.SUCCESS;
     }
 
-    // Client-side ambient particle spawner
     @Override
     public void animateTick(@NonNull BlockState state, Level level, BlockPos pos, RandomSource random) {
         // Center position on top of the block with a slight random spread
@@ -31,10 +29,8 @@ public class WeaponTableBlock extends Block {
         double y = pos.getY() + 1.05; // Spawns just above the top surface
         double z = pos.getZ() + 0.5 + (random.nextDouble() - 0.5) * 0.4;
 
-        // 1. Spawn Flame Particle
         level.addParticle(ParticleTypes.FLAME, x, y, z, 0.0, 0.02, 0.0);
 
-        // 2. (Optional) Spawn subtle rising Smoke every few ticks
         if (random.nextDouble() < 0.3) {
             level.addParticle(ParticleTypes.SMOKE, x, y, z, 0.0, 0.01, 0.0);
         }

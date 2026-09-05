@@ -54,7 +54,6 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
 
             List<WeaponVoxel> newVoxels = payload.voxels();
 
-            // 1. Validate voxel limits
             if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_VOXELS) {
                 player.sendOverlayMessage(Component.literal("§cInvalid voxel count!"));
                 player.inventoryMenu.broadcastChanges();
@@ -65,7 +64,6 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
                     ? ModularSwordItem.getVoxels(stack)
                     : ModularBowItem.getVoxels(stack);
 
-            // 2. Compute exact item diffs (Net additions & net removals)
             Map<Item, Integer> itemDiffs = new HashMap<>();
 
             for (WeaponVoxel v : newVoxels) {
@@ -81,7 +79,6 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
             boolean isCreative = player.getAbilities().instabuild;
 
             if (!isCreative) {
-                // 3. Strict Server-Side Verification: Check if player has enough of all items
                 for (Map.Entry<Item, Integer> entry : itemDiffs.entrySet()) {
                     Item item = entry.getKey();
                     int needed = entry.getValue();
@@ -93,14 +90,12 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
                             player.sendOverlayMessage(
                                     Component.literal("§cCannot save: Missing " + missing + "x " + item.getName(new ItemStack(item)).getString() + "!")
                             );
-                            // Resync inventory so client rolls back
                             player.inventoryMenu.broadcastChanges();
                             return;
                         }
                     }
                 }
 
-                // 4. Consume added items & refund removed items
                 for (Map.Entry<Item, Integer> entry : itemDiffs.entrySet()) {
                     Item item = entry.getKey();
                     int diff = entry.getValue();
@@ -113,7 +108,6 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
                 }
             }
 
-            // 5. Apply save to item and broadcast changes to client
             if (stack.getItem() instanceof ModularSwordItem) {
                 ModularSwordItem.saveVoxels(stack, newVoxels);
             } else {
@@ -126,14 +120,12 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
     private static int countItem(Player player, Item item) {
         int count = 0;
 
-        // 1. Count items in main storage / hotbar
         for (ItemStack s : player.getInventory().getNonEquipmentItems()) {
             if (s.is(item)) {
                 count += s.getCount();
             }
         }
 
-        // 2. Count item in offhand if matching
         ItemStack offhand = player.getOffhandItem();
         if (offhand.is(item)) {
             count += offhand.getCount();
@@ -145,7 +137,6 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
     private static void consumeItem(Player player, Item item, int amount) {
         int needed = amount;
 
-        // 1. Consume from main inventory storage
         for (int i = 0; i < player.getInventory().getNonEquipmentItems().size(); i++) {
             ItemStack s = player.getInventory().getNonEquipmentItems().get(i);
             if (s.is(item)) {
@@ -159,7 +150,6 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
             }
         }
 
-        // 2. Consume from offhand if still needed
         ItemStack offhand = player.getOffhandItem();
         if (offhand.is(item) && needed > 0) {
             int take = Math.min(needed, offhand.getCount());

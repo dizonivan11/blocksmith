@@ -26,7 +26,6 @@ public record WeaponVoxel(int x, int y, int z, String materialId, int shade) {
             WeaponVoxel::new
     );
 
-    // Overload accepting VoxelMaterial instance
     public WeaponVoxel(int x, int y, int z, VoxelMaterial mat, int shade) {
         this(x, y, z, mat.id(), shade);
     }

@@ -36,7 +36,6 @@ public class ModularSwordItem extends Item {
         recalculateAttributes(stack);
     }
 
-    // Calculates the total base durability + bonus durability from default voxels
     public static int calculateDefaultMaxDurability() {
         List<WeaponVoxel> defaults = getDefaultVoxels();
         int bonusDurability = 0;
