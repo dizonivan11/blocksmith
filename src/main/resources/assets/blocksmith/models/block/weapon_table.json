@@ -1,0 +1,12 @@
+{
+  "parent": "block/cube",
+  "textures": {
+    "particle": "blocksmith:block/weapon_table_front",
+    "north": "blocksmith:block/weapon_table_front",
+    "south": "blocksmith:block/weapon_table_back",
+    "east": "blocksmith:block/weapon_table_east",
+    "west": "blocksmith:block/weapon_table_west",
+    "up": "blocksmith:block/weapon_table_top",
+    "down": "blocksmith:block/weapon_table_bottom"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "blocksmith:block/weapon_table"
+    },
+    "facing=east": {
+      "model": "blocksmith:block/weapon_table",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "blocksmith:block/weapon_table",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "blocksmith:block/weapon_table",
+      "y": 270
+    }
+  }
+}
