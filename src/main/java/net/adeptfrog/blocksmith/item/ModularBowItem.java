@@ -2,6 +2,7 @@ package net.adeptfrog.blocksmith.item;
 
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
+import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.level.ServerLevel;
@@ -126,5 +127,14 @@ public class ModularBowItem extends BowItem {
 
     public static List<WeaponVoxel> getDefaultBowVoxels() {
         return VoxelDesignSerializer.getDefaultBowVoxels();
+    }
+
+    public static WeaponOffset getOffset(ItemStack stack) {
+        WeaponOffset offset = stack.get(ModDataComponents.WEAPON_OFFSET);
+        return offset != null ? offset : getDefaultBowOffset();
+    }
+
+    public static WeaponOffset getDefaultBowOffset() {
+        return VoxelDesignSerializer.getDefaultBowOffset();
     }
 }

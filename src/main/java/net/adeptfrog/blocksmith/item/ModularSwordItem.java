@@ -3,6 +3,7 @@ package net.adeptfrog.blocksmith.item;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
 import net.adeptfrog.blocksmith.data.VoxelMaterial;
+import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.Identifier;
@@ -120,5 +121,14 @@ public class ModularSwordItem extends Item {
 
     public static List<WeaponVoxel> getDefaultVoxels() {
         return VoxelDesignSerializer.getDefaultVoxels();
+    }
+
+    public static WeaponOffset getOffset(ItemStack stack) {
+        WeaponOffset offset = stack.get(ModDataComponents.WEAPON_OFFSET);
+        return offset != null ? offset : getDefaultOffset();
+    }
+
+    public static WeaponOffset getDefaultOffset() {
+        return VoxelDesignSerializer.getDefaultOffset();
     }
 }

@@ -27,8 +27,9 @@ import java.util.function.Function;
 
 public class Blocksmith implements ModInitializer {
 	public static final String MOD_ID = "blocksmith";
+	public static int BASE_GRID_SIZE = 16; // This is where we reference the weapon stats
 	public static final int MIN_VOXELS = 8;
-	public static final int MAX_VOXELS = 192;
+	public static int MAX_VOXELS() { return (VoxelMaterialRegistry.getGridSize() * VoxelMaterialRegistry.getGridSize()) / 2; }
 	public static final int BASE_DURABILITY = ToolMaterial.NETHERITE.durability();
 
 	// This logger is used to write text to the console and the log file.
@@ -91,17 +92,19 @@ public class Blocksmith implements ModInitializer {
 			ModularSwordItem::new,
 			new Item.Properties()
 					.sword(ToolMaterial.NETHERITE, 0f, 0f)
-					.component(ModDataComponents.WEAPON_VOXELS, ModularSwordItem.getDefaultVoxels())
-					.attributes(ModularSwordItem.createDefaultAttributes())
 					.durability(ModularSwordItem.calculateDefaultMaxDurability())
+					.component(ModDataComponents.WEAPON_VOXELS, ModularSwordItem.getDefaultVoxels())
+					.component(ModDataComponents.WEAPON_OFFSET, ModularSwordItem.getDefaultOffset())
+					.attributes(ModularSwordItem.createDefaultAttributes())
 	);
 
 	public static final Item MODULAR_BOW = registerItem(
 			MODULAR_BOW_KEY,
 			ModularBowItem::new,
 			new Item.Properties()
-					.component(ModDataComponents.WEAPON_VOXELS, ModularBowItem.getDefaultBowVoxels())
 					.durability(ModularBowItem.calculateDefaultMaxDurability())
+					.component(ModDataComponents.WEAPON_VOXELS, ModularBowItem.getDefaultBowVoxels())
+					.component(ModDataComponents.WEAPON_OFFSET, ModularBowItem.getDefaultBowOffset())
 	);
 
 	public static final CreativeModeTab BLOCKSMITH_TAB = CreativeModeTab.builder(CreativeModeTab.Row.BOTTOM, 0)

@@ -1,6 +1,9 @@
 package net.adeptfrog.blocksmith.network;
 
 import net.adeptfrog.blocksmith.Blocksmith;
+import net.adeptfrog.blocksmith.component.ModDataComponents;
+import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
+import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
@@ -25,11 +28,12 @@ import java.util.Map;
 import static net.adeptfrog.blocksmith.Blocksmith.MIN_VOXELS;
 import static net.adeptfrog.blocksmith.Blocksmith.MAX_VOXELS;
 
-public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements CustomPacketPayload {
+public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset offset) implements CustomPacketPayload {
     public static final Type<SaveWeaponVoxelsPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(Blocksmith.MOD_ID, "save_weapon_voxels"));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, SaveWeaponVoxelsPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.collection(ArrayList::new, WeaponVoxel.STREAM_CODEC), SaveWeaponVoxelsPayload::voxels,
+            WeaponOffset.STREAM_CODEC, SaveWeaponVoxelsPayload::offset,
             SaveWeaponVoxelsPayload::new
     );
 
@@ -52,10 +56,20 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
                 if (!isModular) return;
             }
 
+            int gridSize = VoxelMaterialRegistry.getGridSize();
             List<WeaponVoxel> newVoxels = payload.voxels();
+            WeaponOffset newOffset = payload.offset();
 
-            if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_VOXELS) {
+            // Voxel count limit check
+            if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_VOXELS()) {
                 player.sendOverlayMessage(Component.literal("§cInvalid voxel count!"));
+                player.inventoryMenu.broadcastChanges();
+                return;
+            }
+
+            // Grip offset limit check
+            if (Math.abs(newOffset.x()) > gridSize || Math.abs(newOffset.y()) > gridSize) {
+                player.sendOverlayMessage(Component.literal("§cInvalid grip offset!"));
                 player.inventoryMenu.broadcastChanges();
                 return;
             }
@@ -99,20 +113,18 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
                 for (Map.Entry<Item, Integer> entry : itemDiffs.entrySet()) {
                     Item item = entry.getKey();
                     int diff = entry.getValue();
-
-                    if (diff > 0) {
-                        consumeItem(player, item, diff);
-                    } else if (diff < 0) {
-                        refundItem(player, item, -diff);
-                    }
+                    if (diff > 0) consumeItem(player, item, diff);
                 }
             }
 
+            // Save data
             if (stack.getItem() instanceof ModularSwordItem) {
                 ModularSwordItem.saveVoxels(stack, newVoxels);
             } else {
                 ModularBowItem.saveVoxels(stack, newVoxels);
             }
+            stack.set(ModDataComponents.WEAPON_OFFSET, newOffset);
+
             player.inventoryMenu.broadcastChanges();
         }));
     }
@@ -154,13 +166,6 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels) implements Custo
         if (offhand.is(item) && needed > 0) {
             int take = Math.min(needed, offhand.getCount());
             offhand.shrink(take);
-        }
-    }
-
-    private static void refundItem(Player player, Item item, int amount) {
-        ItemStack refund = new ItemStack(item, amount);
-        if (!player.getInventory().add(refund)) {
-            player.drop(refund, false);
         }
     }
 }

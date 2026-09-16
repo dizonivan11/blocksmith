@@ -4,6 +4,7 @@ import net.adeptfrog.blocksmith.data.VoxelMaterial;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
@@ -25,7 +26,7 @@ public class MaterialConfigScreen extends Screen {
     private static final int ROW_SPACING = 31;
 
     public MaterialConfigScreen(Screen parent) {
-        super(Component.literal("Blocksmith Material Configuration"));
+        super(Component.literal("Blocksmith Configuration"));
         this.parent = parent;
     }
 
@@ -33,9 +34,37 @@ public class MaterialConfigScreen extends Screen {
     protected void init() {
         super.init();
         int centerX = this.width / 2;
-        int bottomY = this.height - 24;
 
-        // --- Fixed Bottom Action Buttons ---
+        // Bottom Buttons
+        int btnW = 86;
+        int btnGap = 6;
+        int totalBtnWidth = (4 * btnW) + (3 * btnGap);
+        int btnStartX = centerX - (totalBtnWidth / 2);
+        int btnY = this.height - 25;
+
+        // [Grid Resolution] Button
+        int[] availableSizes = {16, 32, 64};
+        int currentSize = VoxelMaterialRegistry.getGridSize();
+        Component warningTooltip = Component.literal("§cServer and client restart is required when changing grid resolution!");
+        this.addRenderableWidget(
+                Button.builder(Component.literal("Grid: " + currentSize + "x" + currentSize), b -> {
+                    int current = VoxelMaterialRegistry.getGridSize();
+                    int nextIdx = 0;
+                    for (int i = 0; i < availableSizes.length; i++) {
+                        if (availableSizes[i] == current) {
+                            nextIdx = (i + 1) % availableSizes.length;
+                            break;
+                        }
+                    }
+                    int newSize = availableSizes[nextIdx];
+                    VoxelMaterialRegistry.setGridSize(newSize);
+                    b.setMessage(Component.literal("Grid: " + newSize + "x" + newSize));
+                })
+                .bounds(btnStartX, btnY, btnW, 20)
+                .tooltip(Tooltip.create(warningTooltip))
+                .build()
+        );
+
         // [+ Add Material] Button
         this.addRenderableWidget(
                 Button.builder(Component.literal("+ Add Material"), _ -> {
@@ -46,7 +75,7 @@ public class MaterialConfigScreen extends Screen {
                             Identifier.fromNamespaceAndPath("minecraft", "iron_ingot")
                     );
                     this.minecraft.setScreen(new EditMaterialScreen(this, newTemplate, true));
-                }).bounds(centerX - 165, bottomY, 100, 20).build()
+                }).bounds(btnStartX + (btnW + btnGap), btnY, btnW, 20).build()
         );
 
         // [Reset Defaults] Button
@@ -54,13 +83,14 @@ public class MaterialConfigScreen extends Screen {
                 Button.builder(Component.literal("Reset Defaults"), _ -> {
                     VoxelMaterialRegistry.resetToDefaults();
                     this.scrollY = 0;
-                }).bounds(centerX - 55, bottomY, 100, 20).build()
+                    this.rebuildWidgets();
+                }).bounds(btnStartX + (btnW + btnGap) * 2, btnY, btnW, 20).build()
         );
 
         // [Done] Button
         this.addRenderableWidget(
                 Button.builder(Component.literal("Done"), _ -> this.onClose())
-                        .bounds(centerX + 55, bottomY, 100, 20).build()
+                        .bounds(btnStartX + (btnW + btnGap) * 3, btnY, btnW, 20).build()
         );
     }
 
@@ -73,7 +103,7 @@ public class MaterialConfigScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
         int listTopY = 36;
-        int listBottomY = this.height - 30;
+        int listBottomY = this.height - 32;
         int listHeight = listBottomY - listTopY;
         int totalContentHeight = mats.size() * ROW_SPACING;
         int maxScroll = Math.max(0, totalContentHeight - listHeight);
@@ -92,7 +122,7 @@ public class MaterialConfigScreen extends Screen {
         int cardX = centerX - (CARD_WIDTH / 2);
 
         int listTopY = 36;
-        int listBottomY = this.height - 30;
+        int listBottomY = this.height - 32;
         int listHeight = listBottomY - listTopY;
 
         List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
@@ -100,30 +130,38 @@ public class MaterialConfigScreen extends Screen {
         int maxScroll = Math.max(0, totalContentHeight - listHeight);
         this.scrollY = Math.clamp(this.scrollY, 0, maxScroll);
 
+        // Render centered scrollable list
         guiGraphics.enableScissor(cardX - 4, listTopY, cardX + CARD_WIDTH + 14, listBottomY);
 
         for (int i = 0; i < mats.size(); i++) {
             VoxelMaterial mat = mats.get(i);
             int y = listTopY - scrollY + (i * ROW_SPACING);
 
-            // Cull off-screen rows for performance
             if (y + ROW_HEIGHT < listTopY - 10 || y > listBottomY + 10) continue;
 
+            // Row container
             guiGraphics.fill(cardX, y, cardX + CARD_WIDTH, y + ROW_HEIGHT, 0x55000000);
             guiGraphics.fill(cardX, y, cardX + CARD_WIDTH, y + 1, 0x33FFFFFF);
             guiGraphics.fill(cardX, y + ROW_HEIGHT - 1, cardX + CARD_WIDTH, y + ROW_HEIGHT, 0x33000000);
 
+            // Column 1: Name
             String name = mat.id().substring(0, 1).toUpperCase() + mat.id().substring(1);
             guiGraphics.text(this.font, Component.literal("§e" + name), cardX + 6, y + 4, 0xFFFFFFFF, false);
             guiGraphics.text(this.font, Component.literal("§7" + mat.iconItem().getPath()), cardX + 6, y + 15, 0xFFAAAAAA, false);
 
-            guiGraphics.text(this.font, Component.literal("§c+" + mat.getBonusDamage() + " Dmg"), cardX + 90, y + 10, 0xFFFFFFFF, false);
-            guiGraphics.text(this.font, Component.literal("§b+" + mat.getBonusSpeed() + " Spd"), cardX + 150, y + 10, 0xFFFFFFFF, false);
-            guiGraphics.text(this.font, Component.literal("§a+" + mat.getBonusDurability() + " Dur"), cardX + 215, y + 10, 0xFFFFFFFF, false);
+            // Column 2: Damage
+            guiGraphics.text(this.font, Component.literal("§c+" + mat.getBonusDamage() + " Dmg"), cardX + 108, y + 10, 0xFFFFFFFF, false);
 
+            // Column 3: Speed
+            guiGraphics.text(this.font, Component.literal("§b+" + mat.getBonusSpeed() + " Spd"), cardX + 162, y + 10, 0xFFFFFFFF, false);
+
+            // Column 4: Durability
+            guiGraphics.text(this.font, Component.literal("§a+" + mat.getBonusDurability() + " Dur"), cardX + 222, y + 10, 0xFFFFFFFF, false);
+
+            // Column 5: 5-Shade Swatches
             int[] palette = mat.getPalette();
             if (palette != null) {
-                int swatchStartX = cardX + 276;
+                int swatchStartX = cardX + 278;
                 for (int s = 0; s < palette.length; s++) {
                     int swX = swatchStartX + (s * 9);
                     int swY = y + 8;
@@ -132,7 +170,8 @@ public class MaterialConfigScreen extends Screen {
                 }
             }
 
-            int editBtnW = 38;
+            // Column 6: Edit Button
+            int editBtnW = 36;
             int editBtnH = 18;
             int editBtnX = cardX + CARD_WIDTH - editBtnW - 4;
             int editBtnY = y + 5;
@@ -141,6 +180,7 @@ public class MaterialConfigScreen extends Screen {
             drawEditButton(guiGraphics, editBtnX, editBtnY, editBtnW, editBtnH, hoveredEdit);
         }
 
+        // Scrollbar
         if (maxScroll > 0) {
             int scrollbarX = cardX + CARD_WIDTH + 4;
             guiGraphics.fill(scrollbarX, listTopY, scrollbarX + 6, listBottomY, 0x88000000);
@@ -155,15 +195,18 @@ public class MaterialConfigScreen extends Screen {
 
         guiGraphics.disableScissor();
 
+        // Fixed Header Backdrop
         guiGraphics.fill(0, 0, this.width, 32, 0xD0000000);
         guiGraphics.fill(0, 32, this.width, 33, 0x55FFFFFF);
         guiGraphics.text(this.font, this.title, centerX - (this.font.width(this.title) / 2), 8, 0xFFFFFFFF, true);
         Component sub = Component.literal("Configure stats, palettes, and required items in-game");
         guiGraphics.text(this.font, sub, centerX - (this.font.width(sub) / 2), 20, 0xFFAAAAAA, false);
 
+        // Fixed Footer Backdrop
         guiGraphics.fill(0, this.height - 30, this.width, this.height, 0xD0000000);
         guiGraphics.fill(0, this.height - 30, this.width, this.height - 29, 0x55FFFFFF);
 
+        // Render bottom buttons
         super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
     }
 
@@ -175,7 +218,7 @@ public class MaterialConfigScreen extends Screen {
         int centerX = this.width / 2;
         int cardX = centerX - (CARD_WIDTH / 2);
         int listTopY = 36;
-        int listBottomY = this.height - 30;
+        int listBottomY = this.height - 32;
 
         int scrollbarX = cardX + CARD_WIDTH + 4;
         if (mouseX >= scrollbarX && mouseX <= scrollbarX + 8 && mouseY >= listTopY && mouseY <= listBottomY) {
@@ -213,7 +256,7 @@ public class MaterialConfigScreen extends Screen {
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double deltaX, double deltaY) {
         if (this.isScrolling) {
             int listTopY = 36;
-            int listBottomY = this.height - 30;
+            int listBottomY = this.height - 32;
             int listHeight = listBottomY - listTopY;
             List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
             int totalContentHeight = mats.size() * ROW_SPACING;

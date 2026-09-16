@@ -38,7 +38,7 @@ public class BlocksmithClient implements ClientModInitializer {
 						Minecraft.getInstance().setScreen(new CustomizationScreen(held));
 						return InteractionResult.SUCCESS;
 					} else {
-						player.sendOverlayMessage(Component.literal("§eHold a modular weapon in your hand to customize it!"));
+						player.sendOverlayMessage(Component.literal("§eHold a forged weapon in your hand to customize it!"));
 						return InteractionResult.CONSUME;
 					}
 				}

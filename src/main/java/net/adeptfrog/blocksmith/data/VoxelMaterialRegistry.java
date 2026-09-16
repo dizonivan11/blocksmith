@@ -3,6 +3,7 @@ package net.adeptfrog.blocksmith.data;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import net.adeptfrog.blocksmith.Blocksmith;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.resources.Identifier;
 
@@ -24,6 +25,8 @@ public class VoxelMaterialRegistry {
             Identifier.fromNamespaceAndPath("minecraft", "iron_ingot")
     );
 
+    private static int gridSize = Blocksmith.BASE_GRID_SIZE; // Default resolution
+
     static {
         load();
     }
@@ -35,14 +38,22 @@ public class VoxelMaterialRegistry {
 
         if (CONFIG_FILE.exists()) {
             try (FileReader reader = new FileReader(CONFIG_FILE)) {
-                Type type = new TypeToken<List<MaterialConfigEntry>>() {}.getType();
-                List<MaterialConfigEntry> entries = GSON.fromJson(reader, type);
+                com.google.gson.JsonElement element = com.google.gson.JsonParser.parseReader(reader);
+                com.google.gson.JsonObject root = element.getAsJsonObject();
 
-                if (entries != null && !entries.isEmpty()) {
-                    for (MaterialConfigEntry e : entries) {
-                        MATERIALS.put(e.id.toLowerCase(), e.toMaterial());
+                if (root.has("gridSize")) {
+                    gridSize = Math.clamp(root.get("gridSize").getAsInt(), 16, 64);
+                }
+
+                if (root.has("materials")) {
+                    Type type = new TypeToken<List<MaterialConfigEntry>>() {}.getType();
+                    List<MaterialConfigEntry> entries = GSON.fromJson(root.get("materials"), type);
+                    if (entries != null) {
+                        for (MaterialConfigEntry e : entries) {
+                            MATERIALS.put(e.id.toLowerCase(), e.toMaterial());
+                        }
+                        return;
                     }
-                    return;
                 }
             } catch (Exception e) {
                 System.err.println("[Blocksmith] Failed to load config, falling back to defaults: " + e.getMessage());
@@ -57,11 +68,19 @@ public class VoxelMaterialRegistry {
         try {
             CONFIG_FILE.getParentFile().mkdirs();
             try (FileWriter writer = new FileWriter(CONFIG_FILE)) {
+                com.google.gson.JsonObject root = new com.google.gson.JsonObject();
+
+                // Grid Size
+                root.addProperty("gridSize", gridSize);
+
+                // Materials
                 List<MaterialConfigEntry> entries = new ArrayList<>();
                 for (VoxelMaterial mat : MATERIALS.values()) {
                     entries.add(MaterialConfigEntry.fromMaterial(mat));
                 }
-                GSON.toJson(entries, writer);
+                root.add("materials", GSON.toJsonTree(entries));
+
+                GSON.toJson(root, writer);
             }
         } catch (Exception e) {
             System.err.println("[Blocksmith] Failed to save config: " + e.getMessage());
@@ -82,6 +101,14 @@ public class VoxelMaterialRegistry {
         register(new VoxelMaterial("copper", 0.01f, 0.0f, 2,
                 new int[]{0xFF5A2C1C, 0xFF9E5232, 0xFFD36E42, 0xFFF0956E, 0xFFFFC0A8},
                 Identifier.fromNamespaceAndPath("minecraft", "copper_ingot")));
+
+        register(new VoxelMaterial("lapis_lazuli", 0.01f, 0.0005f, 2,
+                new int[]{0xFF052463, 0xFF1A3D8F, 0xFF345EC3, 0xFF5A82E2, 0xFF7497EA},
+                Identifier.fromNamespaceAndPath("minecraft", "lapis_lazuli")));
+
+        register(new VoxelMaterial("prismarine", 0.04f, 0.0005f, 2,
+                new int[]{0xFF1C5963, 0xFF2C8C91, 0xFF5BD1D7, 0xFFA4F4E5, 0xFFEBFDFB},
+                Identifier.fromNamespaceAndPath("minecraft", "prismarine_crystals")));
 
         register(new VoxelMaterial("gold", 0.02f, 0.005f, 1,
                 new int[]{0xFF9E6F00, 0xFFCCA010, 0xFFFFE135, 0xFFFFF070, 0xFFFFFFB8},
@@ -121,6 +148,14 @@ public class VoxelMaterialRegistry {
 
     public static VoxelMaterial getOrDefault(String id) {
         return MATERIALS.getOrDefault(id != null ? id.toLowerCase() : "", FALLBACK);
+    }
+
+    public static int getGridSize() {
+        return gridSize;
+    }
+    public static void setGridSize(int size) {
+        gridSize = Math.clamp(size, 16, 64);
+        save();
     }
 
     public static Collection<VoxelMaterial> getAll() {

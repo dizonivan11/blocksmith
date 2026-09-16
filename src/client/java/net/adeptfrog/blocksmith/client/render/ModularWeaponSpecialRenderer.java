@@ -3,6 +3,9 @@ package net.adeptfrog.blocksmith.client.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.serialization.MapCodec;
+import net.adeptfrog.blocksmith.component.ModDataComponents;
+import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
+import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
@@ -22,13 +25,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
-public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<List<WeaponVoxel>> {
+public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<WeaponRenderState> {
 
     private static final RenderType VOXEL_RENDER_TYPE = RenderTypes.entityCutout(
             Identifier.withDefaultNamespace("textures/block/white_concrete.png")
     );
 
-    public record Unbaked() implements SpecialModelRenderer.Unbaked<List<WeaponVoxel>> {
+    public record Unbaked() implements SpecialModelRenderer.Unbaked<WeaponRenderState> {
         public static final MapCodec<Unbaked> MAP_CODEC = MapCodec.unit(new Unbaked());
 
         @Override
@@ -37,25 +40,28 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<List<W
         }
 
         @Override
-        public SpecialModelRenderer<List<WeaponVoxel>> bake(SpecialModelRenderer.@NonNull BakingContext context) {
+        public SpecialModelRenderer<WeaponRenderState> bake(SpecialModelRenderer.@NonNull BakingContext context) {
             return new ModularWeaponSpecialRenderer();
         }
     }
 
     @Override
-    public @Nullable List<WeaponVoxel> extractArgument(ItemStack stack) {
+    public @Nullable WeaponRenderState extractArgument(ItemStack stack) {
         List<WeaponVoxel> voxels = null;
         if (stack.getItem() instanceof ModularSwordItem) {
             voxels = ModularSwordItem.getVoxels(stack);
         } else if (stack.getItem() instanceof ModularBowItem) {
             voxels = ModularBowItem.getVoxels(stack);
         }
-        return (voxels == null || voxels.isEmpty()) ? null : new ArrayList<>(voxels);
+        if (voxels == null || voxels.isEmpty()) return null;
+
+        WeaponOffset offset = stack.getOrDefault(ModDataComponents.WEAPON_OFFSET, WeaponOffset.ZERO);
+        return new WeaponRenderState(new ArrayList<>(voxels), offset.x(), offset.y());
     }
 
     @Override
     public void submit(
-            @Nullable List<WeaponVoxel> voxels,
+            @Nullable WeaponRenderState state,
             @NonNull PoseStack poseStack,
             @NonNull SubmitNodeCollector collector,
             int lightCoords,
@@ -63,18 +69,20 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<List<W
             boolean hasFoil,
             int outlineColor
     ) {
-        if (voxels == null || voxels.isEmpty()) return;
+        if (state == null || state.voxels().isEmpty()) return;
 
-        float voxelSize = 1.0f / 24.0f;
-        float voxelDepth = 1.25f / 24.0f;
+        float resolution = (float) VoxelMaterialRegistry.getGridSize();
+        float voxelSize = 1.0f / resolution;
+        float voxelDepth = 1.25f / 16.0f;
         float zOffset = 0.5f - (voxelDepth / 2.0f);
 
         collector.submitCustomGeometry(poseStack, VOXEL_RENDER_TYPE, (pose, consumer) -> {
             Matrix4f baseMatrix = pose.pose();
 
-            for (WeaponVoxel voxel : voxels) {
+            for (WeaponVoxel voxel : state.voxels()) {
+                // Translates voxels by the player's custom grip offset
                 Matrix4f voxelMatrix = new Matrix4f(baseMatrix)
-                        .translate(voxel.x() * voxelSize, voxel.y() * voxelSize, zOffset);
+                        .translate((voxel.x() + state.offsetX()) * voxelSize, (voxel.y() + state.offsetY()) * voxelSize, zOffset);
 
                 renderSolidCube(voxelMatrix, consumer, voxelSize, voxelDepth, voxel.getColorRgb(), lightCoords, overlayCoords);
             }

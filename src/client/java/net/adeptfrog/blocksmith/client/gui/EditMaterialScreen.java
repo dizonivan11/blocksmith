@@ -79,7 +79,7 @@ public class EditMaterialScreen extends Screen {
             this.addRenderableWidget(shadeBoxes[i]);
         }
 
-        // --- Bottom Action Buttons ---
+        // Bottom Action Buttons
         int btnY = this.height - 28;
 
         if (isNew) {
