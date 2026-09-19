@@ -86,6 +86,11 @@ public class CustomizationScreen extends Screen {
     private double cachedDiffSpd = 0;
     private int cachedDiffDur = 0;
 
+    // Material Percentage Breakdown Panel
+    public record MaterialBreakdown(VoxelMaterial material, ItemStack iconStack, int percent) {}
+    private final List<MaterialBreakdown> cachedBreakdown = new ArrayList<>();
+    private static final int MAX_BREAKDOWN = 10;
+
     public CustomizationScreen(ItemStack weaponStack) {
         super(Component.literal("Weapon Forging"));
         this.weaponStack = weaponStack;
@@ -291,20 +296,26 @@ public class CustomizationScreen extends Screen {
         else if (diffVoxels < 0) voxelStr += " §c(" + diffVoxels + ")";
         guiGraphics.text(this.font, Component.literal(voxelStr), statsX + 6, statsY + 16, FONT_COLOR, false);
 
+        // Damage
         guiGraphics.text(this.font, Component.literal(isBow ? "Arrow Damage:" : "Attack Damage:"), statsX + 6, statsY + 30, FONT_COLOR, false);
-        String dmgStr = "§a+" + String.format("%.1f", this.cachedCurrentDmg);
+        String dmgPrefix = this.cachedCurrentDmg > 0 ? "§a+" : (this.cachedCurrentDmg < 0 ? "§c" : "");
+        String dmgStr = dmgPrefix + String.format("%.1f", this.cachedCurrentDmg);
         if (this.cachedDiffDmg > 0.001) dmgStr += " §a(+" + String.format("%.1f", this.cachedDiffDmg) + ")";
         else if (this.cachedDiffDmg < -0.001) dmgStr += " §c(" + String.format("%.1f", this.cachedDiffDmg) + ")";
         guiGraphics.text(this.font, Component.literal(dmgStr), statsX + 6, statsY + 40, 0xFFFFFFFF, false);
 
+        // Speed
         guiGraphics.text(this.font, Component.literal(isBow ? "Draw Speed:" : "Attack Speed:"), statsX + 6, statsY + 54, FONT_COLOR, false);
-        String spdStr = "§a+" + String.format("%.2f", this.cachedCurrentSpd);
+        String spdPrefix = this.cachedCurrentSpd > 0 ? "§a+" : (this.cachedCurrentSpd < 0 ? "§c" : "");
+        String spdStr = spdPrefix + String.format("%.2f", this.cachedCurrentSpd);
         if (this.cachedDiffSpd > 0.0001) spdStr += " §a(+" + String.format("%.2f", this.cachedDiffSpd) + ")";
         else if (this.cachedDiffSpd < -0.0001) spdStr += " §c(" + String.format("%.2f", this.cachedDiffSpd) + ")";
         guiGraphics.text(this.font, Component.literal(spdStr), statsX + 6, statsY + 64, 0xFFFFFFFF, false);
 
+        // Durability
         guiGraphics.text(this.font, Component.literal("Durability:"), statsX + 6, statsY + 78, FONT_COLOR, false);
-        String durStr = "§a+" + this.cachedCurrentDur;
+        String durPrefix = this.cachedCurrentDur > 0 ? "§a+" : (this.cachedCurrentDur < 0 ? "§c" : "");
+        String durStr = durPrefix + this.cachedCurrentDur;
         if (this.cachedDiffDur > 0) durStr += " §a(+" + this.cachedDiffDur + ")";
         else if (this.cachedDiffDur < 0) durStr += " §c(" + this.cachedDiffDur + ")";
         guiGraphics.text(this.font, Component.literal(durStr), statsX + 6, statsY + 88, 0xFFFFFFFF, false);
@@ -459,13 +470,30 @@ public class CustomizationScreen extends Screen {
             String name = hoveredMaterial.toString().substring(0, 1).toUpperCase() + hoveredMaterial.toString().substring(1);
             boolean isBowMaterial = weaponStack.getItem() instanceof ModularBowItem;
 
+            String dmgSign = hoveredMaterial.getBonusDamage() > 0 ? "+" : "";
+            String spdSign = hoveredMaterial.getBonusSpeed() > 0 ? "+" : "";
+            String durSign = hoveredMaterial.getBonusDurability() > 0 ? "+" : "";
+
             List<ClientTooltipComponent> tooltipLines = List.of(
                     ClientTooltipComponent.create(Component.literal("§e" + name).getVisualOrderText()),
-                    ClientTooltipComponent.create(Component.literal("+" + hoveredMaterial.getBonusDamage() + (isBowMaterial ? " Arrow Damage" : " Attack Damage")).getVisualOrderText()),
-                    ClientTooltipComponent.create(Component.literal("+" + hoveredMaterial.getBonusSpeed() + (isBowMaterial ? " Draw Speed" : " Attack Speed")).getVisualOrderText()),
-                    ClientTooltipComponent.create(Component.literal("+" + hoveredMaterial.getBonusDurability() + " Durability").getVisualOrderText())
+                    ClientTooltipComponent.create(Component.literal(dmgSign + hoveredMaterial.getBonusDamage() + (isBowMaterial ? " Arrow Damage" : " Attack Damage")).getVisualOrderText()),
+                    ClientTooltipComponent.create(Component.literal(spdSign + hoveredMaterial.getBonusSpeed() + (isBowMaterial ? " Draw Speed" : " Attack Speed")).getVisualOrderText()),
+                    ClientTooltipComponent.create(Component.literal(durSign + hoveredMaterial.getBonusDurability() + " Durability").getVisualOrderText())
             );
             guiGraphics.tooltip(this.font, tooltipLines, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+        }
+
+        // Material percentage breakdown panel
+        int breakdownX = leftPos + WINDOW_WIDTH + 6;
+        int startY = topPos + 16;
+        int rowH = 20;
+
+        for (int i = 0; i < cachedBreakdown.size() && i < MAX_BREAKDOWN; i++) {
+            MaterialBreakdown entry = cachedBreakdown.get(i);
+            int rowY = startY + (i * rowH);
+            guiGraphics.fakeItem(entry.iconStack(), breakdownX, rowY);
+            String pctText = entry.percent() + "%";
+            guiGraphics.text(this.font, Component.literal(pctText), breakdownX + 19, rowY + 4, 0xFFFFFFFF, true);
         }
     }
 
@@ -753,25 +781,32 @@ public class CustomizationScreen extends Screen {
     }
 
     private void recalculateCachedStats() {
+        double gridArea = this.gridSize * this.gridSize;
+
         List<WeaponVoxel> savedVoxels = ModularSwordItem.getVoxels(weaponStack);
-        double savedDmg = 0, savedSpd = 0;
-        int savedDur = 0;
+        double savedRawDmg = 0, savedRawSpd = 0, savedRawDur = 0;
         for (WeaponVoxel v : savedVoxels) {
             VoxelMaterial m = v.material();
-            savedDmg += m.getBonusDamage();
-            savedSpd += m.getBonusSpeed();
-            savedDur += m.getBonusDurability();
+            savedRawDmg += m.getBonusDamage();
+            savedRawSpd += m.getBonusSpeed();
+            savedRawDur += m.getBonusDurability();
         }
 
-        this.cachedCurrentDmg = 0;
-        this.cachedCurrentSpd = 0;
-        this.cachedCurrentDur = 0;
+        double workingRawDmg = 0, workingRawSpd = 0, workingRawDur = 0;
         for (WeaponVoxel v : workingVoxels) {
             VoxelMaterial m = v.material();
-            this.cachedCurrentDmg += m.getBonusDamage();
-            this.cachedCurrentSpd += m.getBonusSpeed();
-            this.cachedCurrentDur += m.getBonusDurability();
+            workingRawDmg += m.getBonusDamage();
+            workingRawSpd += m.getBonusSpeed();
+            workingRawDur += m.getBonusDurability();
         }
+
+        double savedDmg = savedRawDmg / gridArea;
+        double savedSpd = savedRawSpd / gridArea;
+        int savedDur = (int) Math.round(savedRawDur / gridArea);
+
+        this.cachedCurrentDmg = workingRawDmg / gridArea;
+        this.cachedCurrentSpd = workingRawSpd / gridArea;
+        this.cachedCurrentDur = (int) Math.round(workingRawDur / gridArea);
 
         this.cachedDiffDmg = this.cachedCurrentDmg - savedDmg;
         this.cachedDiffSpd = this.cachedCurrentSpd - savedSpd;
@@ -787,6 +822,25 @@ public class CustomizationScreen extends Screen {
             } else {
                 this.cachedMaterialStacks[i] = ItemStack.EMPTY;
                 this.cachedAvailableCounts[i] = 0;
+            }
+        }
+
+        this.cachedBreakdown.clear();
+        if (!workingVoxels.isEmpty()) {
+            java.util.Map<VoxelMaterial, Integer> counts = new java.util.HashMap<>();
+            for (WeaponVoxel v : workingVoxels) {
+                counts.merge(v.material(), 1, Integer::sum);
+            }
+            int total = workingVoxels.size();
+
+            // Sort all used materials by count in descending order
+            List<java.util.Map.Entry<VoxelMaterial, Integer>> sorted = new ArrayList<>(counts.entrySet());
+            sorted.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+
+            for (int i = 0; i < sorted.size() && i < MAX_BREAKDOWN; i++) {
+                java.util.Map.Entry<VoxelMaterial, Integer> entry = sorted.get(i);
+                int p = (int) Math.round((entry.getValue() * 100.0) / total);
+                this.cachedBreakdown.add(new MaterialBreakdown(entry.getKey(), entry.getKey().getIconItem().getDefaultInstance(), p));
             }
         }
     }

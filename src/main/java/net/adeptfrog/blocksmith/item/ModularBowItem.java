@@ -2,6 +2,7 @@ package net.adeptfrog.blocksmith.item;
 
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
+import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.minecraft.core.component.DataComponents;
@@ -40,51 +41,55 @@ public class ModularBowItem extends BowItem {
     }
 
     public static int calculateDefaultMaxDurability() {
+        VoxelMaterialRegistry.initialize();
         List<WeaponVoxel> defaults = getDefaultBowVoxels();
-        int bonusDurability = 0;
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        double gridArea = gridSize * gridSize;
+
+        double rawDurability = 0;
         for (WeaponVoxel voxel : defaults) {
-            bonusDurability += voxel.material().getBonusDurability();
+            rawDurability += voxel.material().getBonusDurability();
         }
-        return BASE_DURABILITY + bonusDurability;
+        return BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
     }
 
     public static void recalculateStats(ItemStack stack) {
         List<WeaponVoxel> voxels = getVoxels(stack);
-        int bonusDurability = 0;
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        double gridArea = gridSize * gridSize;
 
+        double rawDurability = 0;
         for (WeaponVoxel voxel : voxels) {
-            bonusDurability += voxel.material().getBonusDurability();
+            rawDurability += voxel.material().getBonusDurability();
         }
 
-        stack.set(DataComponents.MAX_DAMAGE, BASE_DURABILITY + bonusDurability);
+        int bonusDurability = BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        stack.set(DataComponents.MAX_DAMAGE, bonusDurability);
     }
 
     @Override
     public boolean releaseUsing(@NonNull ItemStack stack, @NonNull Level level, @NonNull LivingEntity entity, int timeLeft) {
-        if (!(entity instanceof Player player)) {
-            return false;
-        }
+        if (!(entity instanceof Player player)) return false;
 
         ItemStack projectileStack = player.getProjectile(stack);
-        if (projectileStack.isEmpty()) {
-            return false;
-        }
+        if (projectileStack.isEmpty()) return false;
 
         List<WeaponVoxel> voxels = getVoxels(stack);
-        double bonusSpeed = 0;
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        double gridArea = gridSize * gridSize;
 
+        double rawSpeed = 0;
         for (WeaponVoxel voxel : voxels) {
-            bonusSpeed += voxel.material().getBonusSpeed();
+            rawSpeed += voxel.material().getBonusSpeed();
         }
 
         // Draw speed multiplier (draws bow faster with speed voxels)
+        double bonusSpeed = rawSpeed / gridArea;
         float speedMultiplier = 1.0f + (float) (bonusSpeed * 5.0f);
         int useDuration = (int) ((this.getUseDuration(stack, entity) - timeLeft) * speedMultiplier);
 
         float power = getPowerForTime(useDuration);
-        if ((double) power < 0.1) {
-            return false;
-        }
+        if ((double) power < 0.1) return false;
 
         List<ItemStack> list = draw(stack, projectileStack, player);
         if (level instanceof ServerLevel serverLevel && !list.isEmpty()) {
@@ -115,12 +120,15 @@ public class ModularBowItem extends BowItem {
                     : shooter.getOffhandItem();
 
             if (bow.getItem() instanceof ModularBowItem) {
-                double bonusDamage = 0;
+                int gridSize = VoxelMaterialRegistry.getGridSize();
+                double gridArea = gridSize * gridSize;
+
+                double rawDamage = 0;
                 for (WeaponVoxel voxel : getVoxels(bow)) {
-                    bonusDamage += voxel.material().getBonusDamage();
+                    rawDamage += voxel.material().getBonusDamage();
                 }
                 // Default vanilla arrow base damage is 2.0
-                arrow.setBaseDamage(2.0 + bonusDamage);
+                arrow.setBaseDamage(2.0 + (rawDamage / gridArea));
             }
         }
     }

@@ -150,13 +150,16 @@ public class MaterialConfigScreen extends Screen {
             guiGraphics.text(this.font, Component.literal("§7" + mat.iconItem().getPath()), cardX + 6, y + 15, 0xFFAAAAAA, false);
 
             // Column 2: Damage
-            guiGraphics.text(this.font, Component.literal("§c+" + mat.getBonusDamage() + " Dmg"), cardX + 108, y + 10, 0xFFFFFFFF, false);
+            String dmgSign = mat.getBonusDamage() > 0 ? "+" : "";
+            guiGraphics.text(this.font, Component.literal("§c" + dmgSign + mat.getBonusDamage() + " Dmg"), cardX + 108, y + 10, 0xFFFFFFFF, false);
 
             // Column 3: Speed
-            guiGraphics.text(this.font, Component.literal("§b+" + mat.getBonusSpeed() + " Spd"), cardX + 162, y + 10, 0xFFFFFFFF, false);
+            String spdSign = mat.getBonusSpeed() > 0 ? "+" : "";
+            guiGraphics.text(this.font, Component.literal("§b" + spdSign + mat.getBonusSpeed() + " Spd"), cardX + 162, y + 10, 0xFFFFFFFF, false);
 
             // Column 4: Durability
-            guiGraphics.text(this.font, Component.literal("§a+" + mat.getBonusDurability() + " Dur"), cardX + 222, y + 10, 0xFFFFFFFF, false);
+            String durSign = mat.getBonusDurability() > 0 ? "+" : "";
+            guiGraphics.text(this.font, Component.literal("§a" + durSign + mat.getBonusDurability() + " Dur"), cardX + 222, y + 10, 0xFFFFFFFF, false);
 
             // Column 5: 5-Shade Swatches
             int[] palette = mat.getPalette();

@@ -93,6 +93,7 @@ public class Blocksmith implements ModInitializer {
 			new Item.Properties()
 					.sword(ToolMaterial.NETHERITE, 0f, 0f)
 					.durability(ModularSwordItem.calculateDefaultMaxDurability())
+					.enchantable(ToolMaterial.NETHERITE.enchantmentValue())
 					.component(ModDataComponents.WEAPON_VOXELS, ModularSwordItem.getDefaultVoxels())
 					.component(ModDataComponents.WEAPON_OFFSET, ModularSwordItem.getDefaultOffset())
 					.attributes(ModularSwordItem.createDefaultAttributes())
@@ -103,6 +104,7 @@ public class Blocksmith implements ModInitializer {
 			ModularBowItem::new,
 			new Item.Properties()
 					.durability(ModularBowItem.calculateDefaultMaxDurability())
+					.enchantable(1)
 					.component(ModDataComponents.WEAPON_VOXELS, ModularBowItem.getDefaultBowVoxels())
 					.component(ModDataComponents.WEAPON_OFFSET, ModularBowItem.getDefaultBowOffset())
 	);

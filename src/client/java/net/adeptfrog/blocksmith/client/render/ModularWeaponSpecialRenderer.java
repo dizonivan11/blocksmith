@@ -79,10 +79,20 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
         collector.submitCustomGeometry(poseStack, VOXEL_RENDER_TYPE, (pose, consumer) -> {
             Matrix4f baseMatrix = pose.pose();
 
+            boolean isGui = Math.abs(baseMatrix.m01()) < 1e-4 &&
+                    Math.abs(baseMatrix.m10()) < 1e-4 &&
+                    Math.abs(baseMatrix.m02()) < 1e-4 &&
+                    Math.abs(baseMatrix.m20()) < 1e-4 &&
+                    baseMatrix.m00() > 0;
+
+            // Apply grip offset ONLY in-hand / world, keep 0 in inventory slots
+            int applyOffX = isGui ? 0 : state.offsetX();
+            int applyOffY = isGui ? 0 : state.offsetY();
+
             for (WeaponVoxel voxel : state.voxels()) {
-                // Translates voxels by the player's custom grip offset
                 Matrix4f voxelMatrix = new Matrix4f(baseMatrix)
-                        .translate((voxel.x() + state.offsetX()) * voxelSize, (voxel.y() + state.offsetY()) * voxelSize, zOffset);
+                        // Translates voxels by the player's custom grip offset
+                        .translate((voxel.x() + applyOffX) * voxelSize, (voxel.y() + applyOffY) * voxelSize, zOffset);
 
                 renderSolidCube(voxelMatrix, consumer, voxelSize, voxelDepth, voxel.getColorRgb(), lightCoords, overlayCoords);
             }

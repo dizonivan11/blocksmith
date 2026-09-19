@@ -1,10 +1,7 @@
 package net.adeptfrog.blocksmith.item;
 
 import net.adeptfrog.blocksmith.component.ModDataComponents;
-import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
-import net.adeptfrog.blocksmith.data.VoxelMaterial;
-import net.adeptfrog.blocksmith.data.WeaponOffset;
-import net.adeptfrog.blocksmith.data.WeaponVoxel;
+import net.adeptfrog.blocksmith.data.*;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EquipmentSlotGroup;
@@ -38,29 +35,39 @@ public class ModularSwordItem extends Item {
     }
 
     public static int calculateDefaultMaxDurability() {
+        VoxelMaterialRegistry.initialize();
         List<WeaponVoxel> defaults = getDefaultVoxels();
-        int bonusDurability = 0;
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        double gridArea = gridSize * gridSize;
+
+        double rawDurability = 0;
         for (WeaponVoxel voxel : defaults) {
-            bonusDurability += voxel.material().getBonusDurability();
+            rawDurability += voxel.material().getBonusDurability();
         }
-        return BASE_DURABILITY + bonusDurability;
+        return BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
     }
 
     public static void recalculateAttributes(ItemStack stack) {
         List<WeaponVoxel> voxels = getVoxels(stack);
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        double gridArea = gridSize * gridSize;
 
-        double bonusDamage = 0;
-        double bonusSpeed = 0;
-        int bonusDurability = 0;
+        double rawDamage = 0;
+        double rawSpeed = 0;
+        double rawDurability = 0;
 
         for (WeaponVoxel voxel : voxels) {
             VoxelMaterial mat = voxel.material();
-            bonusDamage += mat.getBonusDamage();
-            bonusSpeed += mat.getBonusSpeed();
-            bonusDurability += mat.getBonusDurability();
+            rawDamage += mat.getBonusDamage();
+            rawSpeed += mat.getBonusSpeed();
+            rawDurability += mat.getBonusDurability();
         }
 
-        stack.set(DataComponents.MAX_DAMAGE, BASE_DURABILITY + bonusDurability);
+        double bonusDamage = rawDamage / gridArea;
+        double bonusSpeed = rawSpeed / gridArea;
+        int bonusDurability = BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+
+        stack.set(DataComponents.MAX_DAMAGE, bonusDurability);
 
         ItemAttributeModifiers modifiers = ItemAttributeModifiers.builder()
                 .add(
@@ -88,14 +95,20 @@ public class ModularSwordItem extends Item {
 
     public static ItemAttributeModifiers createDefaultAttributes() {
         List<WeaponVoxel> defaults = getDefaultVoxels();
-        double bonusDamage = 0;
-        double bonusSpeed = 0;
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        double gridArea = gridSize * gridSize;
+
+        double rawDamage = 0;
+        double rawSpeed = 0;
 
         for (WeaponVoxel voxel : defaults) {
             VoxelMaterial mat = voxel.material();
-            bonusDamage += mat.getBonusDamage();
-            bonusSpeed += mat.getBonusSpeed();
+            rawDamage += mat.getBonusDamage();
+            rawSpeed += mat.getBonusSpeed();
         }
+
+        double bonusDamage = rawDamage / gridArea;
+        double bonusSpeed = rawSpeed / gridArea;
 
         return ItemAttributeModifiers.builder()
                 .add(
