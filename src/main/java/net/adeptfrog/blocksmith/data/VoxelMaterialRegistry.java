@@ -130,7 +130,7 @@ public class VoxelMaterialRegistry {
                 new int[]{0xFF54398A, 0xFF6F4FAB, 0xFF8D6ACC, 0xFFB38EF3, 0xFFFECBE6},
                 Identifier.fromNamespaceAndPath("minecraft", "amethyst_shard")));
 
-        register(new VoxelMaterial("ender", 10f, -3f, -1024,
+        register(new VoxelMaterial("ender", 15f, -0.5f, -1024,
                 new int[]{0xFF2A1138, 0xFF4D1C68, 0xFF8A38B0, 0xFFB762D8, 0xFFE3A6FF},
                 Identifier.fromNamespaceAndPath("minecraft", "end_crystal")));
 
