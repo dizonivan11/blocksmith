@@ -18,7 +18,49 @@ A voxel-based weapon customization mod for Minecraft. Customize each voxels to s
 - Dynamic weapon stats - Each voxel materials provide different bonus stats
 - Copy and paste - You can save your weapon design to your clipboard so you can easily share it with other people
 
+## 32x32 Forged Sword Examples
+
+<div style="width: 100%; overflow-x: scroll;">
+<table style="min-width: 800px; display: table;">
+  <tbody>
+    <tr>
+      <td style="width: 50%; text-align: center">
+        <img src="https://cdn.modrinth.com/data/zltG2GkM/images/c078788e9e49ea5ebcedfce7428272b5e6ce4ccf.png" alt="Horn or Antler" />
+        <span><sub><b>Horn or Antler</b> from <a href="https://thewisehedgehog.itch.io/hs2022" target="_blank">"Hedgy's Swordtember 2022"</a> by TheWiseHedgehog, used under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">CC BY 4.0</a>.</sub></span>
+      </td>
+      <td style="width: 50%; text-align: center">
+        <img src="https://cdn.modrinth.com/data/zltG2GkM/images/01696cedc05c339577971de807ef11c039198731.png" alt="Moss" />
+        <span><sub><b>Moss</b> from <a href="https://thewisehedgehog.itch.io/hs2025" target="_blank">"Hedgy's Swordtember 2025"</a> by TheWiseHedgehog, used under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">CC BY 4.0</a>.</sub></span>
+      </td>
+    </tr>
+    <tr>
+      <td style="width: 50%; text-align: center">
+        <img src="https://cdn.modrinth.com/data/zltG2GkM/images/c565687627f098fe8ba8ec5b68d1337e0ead597f.png" alt="Vapor" />
+        <span><sub><b>Vapor</b> from <a href="https://thewisehedgehog.itch.io/hs2025" target="_blank">"Hedgy's Swordtember 2025"</a> by TheWiseHedgehog, used under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">CC BY 4.0</a>.</sub></span>
+      </td>
+      <td style="width: 50%; text-align: center">
+        <img src="https://cdn.modrinth.com/data/zltG2GkM/images/6476c1e6833ea7fe9d5ad297520a71aeb3b7aa55.png" alt="Coral" />
+        <span><sub><b>Coral</b> from <a href="https://thewisehedgehog.itch.io/hs2022" target="_blank">"Hedgy's Swordtember 2022"</a> by TheWiseHedgehog, used under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">CC BY 4.0</a>.</sub></span>
+      </td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+> [!NOTE]
+> These examples are not available in-game. You have to create this yourself.
+
 [![Blocksmith 1.0 | Voxel-based Weapon Customization](https://img.youtube.com/vi/YyXp5wj8CI4/0.jpg)](https://www.youtube.com/watch?v=YyXp5wj8CI4)
+
+## Recipes
+
+| Forging Table | Forged Sword | Forged Bow |
+| :---: | :---: | :---: |
+| ![Forging Table](https://cdn.modrinth.com/data/zltG2GkM/images/86a6e37b3b3e517b24ae7dc768abf0ca8b2be31c.png) | ![Forged Sword](https://cdn.modrinth.com/data/zltG2GkM/images/ae943c84d44f1595f81a2a805c917315d4f4a03c.png) | ![Forged Bow](https://cdn.modrinth.com/data/zltG2GkM/images/b9d739302b647cdeb8af8630f75473a42e502c5f.png) |
+
+## Recommended With
+- [Better Combat](https://modrinth.com/mod/better-combat)
+- [Punchy](https://modrinth.com/mod/punchy-fpa)
 
 ## License
 
