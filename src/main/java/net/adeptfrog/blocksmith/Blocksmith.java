@@ -2,7 +2,6 @@ package net.adeptfrog.blocksmith;
 
 import net.adeptfrog.blocksmith.ability.BurstFireScheduler;
 import net.adeptfrog.blocksmith.ability.DoubleAttackScheduler;
-import net.adeptfrog.blocksmith.ability.PhantomSlashScheduler;
 import net.adeptfrog.blocksmith.ability.SingularityVortexScheduler;
 import net.adeptfrog.blocksmith.block.WeaponTableBlock;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
@@ -140,7 +139,6 @@ public class Blocksmith implements ModInitializer {
 
 		// Register ability timers
 		ServerTickEvents.END_SERVER_TICK.register(_ -> {
-			PhantomSlashScheduler.tick();
 			BurstFireScheduler.tick();
 			DoubleAttackScheduler.tick();
 			SingularityVortexScheduler.tick();
