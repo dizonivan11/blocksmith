@@ -35,7 +35,15 @@ public class Blocksmith implements ModInitializer {
 	public static final String MOD_ID = "blocksmith";
 	public static int BASE_GRID_SIZE = 32;
 	public static final int MIN_VOXELS = 8;
+	/** Voxel capacity of a SINGLE layer (grid x grid). Ability thresholds are relative to this. */
 	public static int MAX_VOXELS() { return Math.powExact(VoxelMaterialRegistry.getGridSize(), 2); }
+
+	// Layers extend outward from the base layer (z = 0): -2, -1, 0, +1, +2. Every layer is the full grid size.
+	public static final int MAX_LAYER = 2;
+	public static final int MIN_LAYER = -MAX_LAYER;
+	public static final int LAYER_COUNT = MAX_LAYER * 2 + 1;
+	/** Voxel capacity across all layers. */
+	public static int MAX_TOTAL_VOXELS() { return Math.multiplyExact(MAX_VOXELS(), LAYER_COUNT); }
 	public static int ABILITY_MIN_VOXELS = 25; // In percentage
 	public static final int BASE_DURABILITY = ToolMaterial.NETHERITE.durability();
 

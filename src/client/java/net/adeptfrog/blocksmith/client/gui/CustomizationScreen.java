@@ -29,7 +29,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
-import static net.adeptfrog.blocksmith.Blocksmith.MAX_VOXELS;
+import static net.adeptfrog.blocksmith.Blocksmith.MAX_LAYER;
+import static net.adeptfrog.blocksmith.Blocksmith.MAX_TOTAL_VOXELS;
+import static net.adeptfrog.blocksmith.Blocksmith.MIN_LAYER;
 import static net.adeptfrog.blocksmith.Blocksmith.MIN_VOXELS;
 
 public class CustomizationScreen extends Screen {
@@ -44,6 +46,7 @@ public class CustomizationScreen extends Screen {
     private int exportFeedbackTimer = 0;
     private int importFeedbackTimer = 0;
     private int materialIndexOffset = 0;
+    private int activeLayer = 0; // Layer being edited: MIN_LAYER..MAX_LAYER, 0 = base layer
 
     private int workingOffsetX;
     private int workingOffsetY;
@@ -189,7 +192,17 @@ public class CustomizationScreen extends Screen {
         java.util.Arrays.fill(this.occupiedGrid, false);
         java.util.Arrays.fill(this.colorGrid, 0);
 
+        // Other layers are drawn as faint ghosts under the layer being edited
+        for (WeaponVoxel v : WeaponVoxel.sortedBackToFront(workingVoxels)) {
+            if (v.z() == this.activeLayer) continue;
+            if (v.x() < 0 || v.x() >= this.gridSize || v.y() < 0 || v.y() >= this.gridSize) continue;
+            int gx = gridX + v.x() * this.cellSize;
+            int gy = gridY + (this.gridSize - 1 - v.y()) * this.cellSize;
+            guiGraphics.fill(gx, gy, gx + this.cellSize, gy + this.cellSize, (v.getColorRgb() & 0xFFFFFF) | 0x55000000);
+        }
+
         for (WeaponVoxel v : workingVoxels) {
+            if (v.z() != this.activeLayer) continue;
             if (v.x() >= 0 && v.x() < this.gridSize && v.y() >= 0 && v.y() < this.gridSize) {
                 int idx = v.x() + v.y() * this.gridSize;
                 this.occupiedGrid[idx] = true;
@@ -259,6 +272,7 @@ public class CustomizationScreen extends Screen {
         }
 
         for (WeaponVoxel voxel : workingVoxels) {
+            if (voxel.z() != this.activeLayer) continue;
             int vx = voxel.x();
             int vy = voxel.y();
             if (vx < 0 || vx >= this.gridSize || vy < 0 || vy >= this.gridSize) continue;
@@ -302,7 +316,7 @@ public class CustomizationScreen extends Screen {
 
         // Stats text
         guiGraphics.text(this.font, Component.literal("Voxels:"), statsX + 6, statsY + 6, FONT_COLOR, false);
-        String voxelStr = workingVoxels.size() + " / " + MAX_VOXELS();
+        String voxelStr = workingVoxels.size() + " / " + MAX_TOTAL_VOXELS();
         if (diffVoxels > 0) voxelStr += " §a(+" + diffVoxels + ")";
         else if (diffVoxels < 0) voxelStr += " §c(" + diffVoxels + ")";
         guiGraphics.text(this.font, Component.literal(voxelStr), statsX + 6, statsY + 16, FONT_COLOR, false);
@@ -423,6 +437,19 @@ public class CustomizationScreen extends Screen {
 
         drawSmallHeaderButton(guiGraphics, subBtnX, rotCWBtnY, subBtnW, subBtnH, "Rot CW", rotCWHovered);
         drawSmallHeaderButton(guiGraphics, subBtnX, rotCCWBtnY, subBtnW, subBtnH, "Rot CCW", rotCCWHovered);
+
+        // Layer buttons
+        int layerUpBtnY = rotCCWBtnY + subBtnH + 4;
+        int layerDownBtnY = layerUpBtnY + subBtnH + 4;
+
+        boolean layerUpHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerUpBtnY && mouseY <= layerUpBtnY + subBtnH;
+        boolean layerDownHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerDownBtnY && mouseY <= layerDownBtnY + subBtnH;
+
+        drawSmallHeaderButton(guiGraphics, subBtnX, layerUpBtnY, subBtnW, subBtnH, "Layer +", layerUpHovered);
+        drawSmallHeaderButton(guiGraphics, subBtnX, layerDownBtnY, subBtnW, subBtnH, "Layer -", layerDownHovered);
+
+        String layerText = this.activeLayer == 0 ? "Layer 0 (Base)" : String.format("Layer %+d", this.activeLayer);
+        guiGraphics.text(this.font, Component.literal(layerText), subBtnX - 1, layerDownBtnY + subBtnH + 5, 0xFFFFFFFF, true);
 
         // Materials and Shades
         int slotsY = topPos + SLOTS_Y;
@@ -663,6 +690,22 @@ public class CustomizationScreen extends Screen {
             }
         }
 
+        // Layer buttons click
+        int layerUpBtnY = rotCCWBtnY + subBtnH + 4;
+        int layerDownBtnY = layerUpBtnY + subBtnH + 4;
+
+        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerUpBtnY && mouseY <= layerUpBtnY + subBtnH) {
+            if (this.activeLayer < MAX_LAYER) this.activeLayer++;
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            return true;
+        }
+
+        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerDownBtnY && mouseY <= layerDownBtnY + subBtnH) {
+            if (this.activeLayer > MIN_LAYER) this.activeLayer--;
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            return true;
+        }
+
         // Grip offset buttons click
         int offsetUiY = statsY + 130;
         int rowX_Y = offsetUiY + 10;
@@ -812,7 +855,7 @@ public class CustomizationScreen extends Screen {
 
             WeaponVoxel existing = null;
             for (WeaponVoxel v : workingVoxels) {
-                if (v.x() == cellX && v.y() == voxelY && v.z() == 0) {
+                if (v.x() == cellX && v.y() == voxelY && v.z() == this.activeLayer) {
                     existing = v;
                     break;
                 }
@@ -825,8 +868,8 @@ public class CustomizationScreen extends Screen {
                     if (!isCreative && getAvailableCount(selectedMaterial) <= 0) {
                         return false;
                     }
-                    if (workingVoxels.size() < MAX_VOXELS()) {
-                        workingVoxels.add(new WeaponVoxel(cellX, voxelY, 0, selectedMaterial, selectedShade));
+                    if (workingVoxels.size() < MAX_TOTAL_VOXELS()) {
+                        workingVoxels.add(new WeaponVoxel(cellX, voxelY, this.activeLayer, selectedMaterial, selectedShade));
                         recalculateCachedStats();
                         return true;
                     }
@@ -835,7 +878,7 @@ public class CustomizationScreen extends Screen {
                         return false;
                     }
                     workingVoxels.remove(existing);
-                    workingVoxels.add(new WeaponVoxel(cellX, voxelY, 0, selectedMaterial, selectedShade));
+                    workingVoxels.add(new WeaponVoxel(cellX, voxelY, this.activeLayer, selectedMaterial, selectedShade));
                     recalculateCachedStats();
                     return true;
                 }

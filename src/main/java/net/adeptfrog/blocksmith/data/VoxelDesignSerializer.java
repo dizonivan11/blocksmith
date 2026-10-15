@@ -2,6 +2,8 @@ package net.adeptfrog.blocksmith.data;
 
 import com.google.gson.*;
 
+import net.adeptfrog.blocksmith.Blocksmith;
+
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -283,6 +285,7 @@ public class VoxelDesignSerializer {
             JsonObject obj = new JsonObject();
             obj.addProperty("x", v.x());
             obj.addProperty("y", v.y());
+            if (v.z() != 0) obj.addProperty("z", v.z()); // Layer index; omitted for the base layer (z = 0)
             obj.addProperty("m", v.materialId());
             obj.addProperty("s", v.shade());
             array.add(obj);
@@ -317,6 +320,11 @@ public class VoxelDesignSerializer {
         return importBlueprint(jsonStr, targetGridSize).voxels();
     }
 
+    /** Unique map key per grid cell AND layer, so voxels on different layers never overwrite each other. */
+    private static long voxelKey(int x, int y, int z) {
+        return ((long) (z - Blocksmith.MIN_LAYER) << 48) | ((long) (x & 0xFFFFFF) << 24) | (y & 0xFFFFFFL);
+    }
+
     private static List<WeaponVoxel> scaleAndConvertVoxels(JsonArray array, int sourceGrid, int targetGrid) {
         double scale = (double) targetGrid / sourceGrid;
         java.util.Map<Long, WeaponVoxel> scaledMap = new java.util.LinkedHashMap<>();
@@ -325,14 +333,15 @@ public class VoxelDesignSerializer {
             JsonObject obj = el.getAsJsonObject();
             int srcX = obj.get("x").getAsInt();
             int srcY = obj.get("y").getAsInt();
+            int z = obj.has("z") ? obj.get("z").getAsInt() : 0;
+            if (!WeaponVoxel.isValidLayer(z)) continue; // Outside the supported layer range
             String mat = obj.has("m") ? obj.get("m").getAsString() : "iron";
             int s = obj.has("s") ? obj.get("s").getAsInt() : 2;
 
             if (targetGrid == sourceGrid) {
                 // Exact match: 1-to-1 mapping
                 if (srcX >= 0 && srcX < targetGrid && srcY >= 0 && srcY < targetGrid) {
-                    long key = ((long) srcX << 32) | (srcY & 0xFFFFFFFFL);
-                    scaledMap.put(key, new WeaponVoxel(srcX, srcY, 0, mat, s));
+                    scaledMap.put(voxelKey(srcX, srcY, z), new WeaponVoxel(srcX, srcY, z, mat, s));
                 }
             } else if (targetGrid > sourceGrid) {
                 // Upscaling (e.g. 16 -> 64): Fills target sub-grid area to prevent hollow gaps
@@ -343,16 +352,14 @@ public class VoxelDesignSerializer {
 
                 for (int tx = minX; tx < maxX && tx < targetGrid; tx++) {
                     for (int ty = minY; ty < maxY && ty < targetGrid; ty++) {
-                        long key = ((long) tx << 32) | (ty & 0xFFFFFFFFL);
-                        scaledMap.put(key, new WeaponVoxel(tx, ty, 0, mat, s));
+                        scaledMap.put(voxelKey(tx, ty, z), new WeaponVoxel(tx, ty, z, mat, s));
                     }
                 }
             } else {
                 // Downscaling (e.g. 64 -> 16): Deduplicates points to fit smaller resolution
                 int tx = Math.clamp((int) Math.round(srcX * scale), 0, targetGrid - 1);
                 int ty = Math.clamp((int) Math.round(srcY * scale), 0, targetGrid - 1);
-                long key = ((long) tx << 32) | (ty & 0xFFFFFFFFL);
-                scaledMap.put(key, new WeaponVoxel(tx, ty, 0, mat, s));
+                scaledMap.put(voxelKey(tx, ty, z), new WeaponVoxel(tx, ty, z, mat, s));
             }
         }
 

@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 import static net.adeptfrog.blocksmith.Blocksmith.MIN_VOXELS;
-import static net.adeptfrog.blocksmith.Blocksmith.MAX_VOXELS;
+import static net.adeptfrog.blocksmith.Blocksmith.MAX_TOTAL_VOXELS;
 
 public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset offset) implements CustomPacketPayload {
     public static final Type<SaveWeaponVoxelsPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(Blocksmith.MOD_ID, "save_weapon_voxels"));
@@ -60,11 +60,20 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
             List<WeaponVoxel> newVoxels = payload.voxels();
             WeaponOffset newOffset = payload.offset();
 
-            // Voxel count limit check
-            if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_VOXELS()) {
+            // Voxel count limit check (across all layers)
+            if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_TOTAL_VOXELS()) {
                 player.sendOverlayMessage(Component.literal("§cInvalid voxel count!"));
                 player.inventoryMenu.broadcastChanges();
                 return;
+            }
+
+            // Layer range check
+            for (WeaponVoxel v : newVoxels) {
+                if (!WeaponVoxel.isValidLayer(v.z())) {
+                    player.sendOverlayMessage(Component.literal("§cInvalid voxel layer!"));
+                    player.inventoryMenu.broadcastChanges();
+                    return;
+                }
             }
 
             // Grip offset limit check

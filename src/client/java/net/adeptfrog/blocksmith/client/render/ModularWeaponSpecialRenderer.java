@@ -73,8 +73,14 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
 
         float resolution = (float) VoxelMaterialRegistry.getGridSize();
         float voxelSize = 1.0f / resolution;
-        float voxelDepth = 1.25f / 16.0f;
-        float zOffset = 0.5f - (voxelDepth / 2.0f);
+        // Each layer is half as thick as the old single slab; the base layer (z = 0) stays centered
+        // and layers -2..+2 stack outward from it.
+        float voxelDepth = (1.25f / 16.0f) / 2.0f;
+        float baseZOffset = 0.5f - (voxelDepth / 2.0f);
+
+        // Occupancy lookup so faces hidden between touching layers are not drawn
+        java.util.Set<Long> occupied = new java.util.HashSet<>();
+        for (WeaponVoxel v : state.voxels()) occupied.add(cellKey(v.x(), v.y(), v.z()));
 
         collector.submitCustomGeometry(poseStack, VOXEL_RENDER_TYPE, (pose, consumer) -> {
             Matrix4f baseMatrix = pose.pose();
@@ -92,9 +98,13 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
             for (WeaponVoxel voxel : state.voxels()) {
                 Matrix4f voxelMatrix = new Matrix4f(baseMatrix)
                         // Translates voxels by the player's custom grip offset
-                        .translate((voxel.x() + applyOffX) * voxelSize, (voxel.y() + applyOffY) * voxelSize, zOffset);
+                        .translate((voxel.x() + applyOffX) * voxelSize, (voxel.y() + applyOffY) * voxelSize,
+                                baseZOffset + voxel.z() * voxelDepth);
 
-                renderSolidCube(voxelMatrix, consumer, voxelSize, voxelDepth, voxel.getColorRgb(), lightCoords, overlayCoords);
+                boolean hideBack = occupied.contains(cellKey(voxel.x(), voxel.y(), voxel.z() - 1));
+                boolean hideFront = occupied.contains(cellKey(voxel.x(), voxel.y(), voxel.z() + 1));
+
+                renderSolidCube(voxelMatrix, consumer, voxelSize, voxelDepth, voxel.getColorRgb(), lightCoords, overlayCoords, hideBack, hideFront);
             }
         });
     }
@@ -105,7 +115,11 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
         output.accept(new Vector3f(1.0f, 1.0f, 1.0f));
     }
 
-    private void renderSolidCube(Matrix4f matrix, VertexConsumer consumer, float size, float depth, int argb, int light, int overlay) {
+    private static long cellKey(int x, int y, int z) {
+        return ((long) (z + 8) << 48) | ((long) (x & 0xFFFFFF) << 24) | (y & 0xFFFFFFL);
+    }
+
+    private void renderSolidCube(Matrix4f matrix, VertexConsumer consumer, float size, float depth, int argb, int light, int overlay, boolean hideBack, boolean hideFront) {
         int a = (argb >> 24) & 0xFF;
         if (a == 0) a = 255;
         int r = (argb >> 16) & 0xFF;
@@ -125,16 +139,20 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
         consumer.addVertex(matrix, size, size, 0).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(0, 1, 0);
 
         // NORTH (-Z)
+        if (!hideBack) {
         consumer.addVertex(matrix, 0, 0, 0).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(0, 0, -1);
         consumer.addVertex(matrix, 0, size, 0).setColor(r, g, b, a).setUv(0, 1).setOverlay(overlay).setLight(light).setNormal(0, 0, -1);
         consumer.addVertex(matrix, size, size, 0).setColor(r, g, b, a).setUv(1, 1).setOverlay(overlay).setLight(light).setNormal(0, 0, -1);
         consumer.addVertex(matrix, size, 0, 0).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(0, 0, -1);
+        }
 
         // SOUTH (+Z)
+        if (!hideFront) {
         consumer.addVertex(matrix, 0, 0, depth).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(0, 0, 1);
         consumer.addVertex(matrix, size, 0, depth).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(0, 0, 1);
         consumer.addVertex(matrix, size, size, depth).setColor(r, g, b, a).setUv(1, 1).setOverlay(overlay).setLight(light).setNormal(0, 0, 1);
         consumer.addVertex(matrix, 0, size, depth).setColor(r, g, b, a).setUv(0, 1).setOverlay(overlay).setLight(light).setNormal(0, 0, 1);
+        }
 
         // WEST (-X)
         consumer.addVertex(matrix, 0, 0, 0).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(-1, 0, 0);

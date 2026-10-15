@@ -6,6 +6,14 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+
+import static net.adeptfrog.blocksmith.Blocksmith.MAX_LAYER;
+import static net.adeptfrog.blocksmith.Blocksmith.MIN_LAYER;
+
 public record WeaponVoxel(int x, int y, int z, String materialId, int shade) {
     public static final Codec<WeaponVoxel> CODEC = RecordCodecBuilder.create(instance ->
             instance.group(
@@ -28,6 +36,20 @@ public record WeaponVoxel(int x, int y, int z, String materialId, int shade) {
 
     public WeaponVoxel(int x, int y, int z, VoxelMaterial mat, int shade) {
         this(x, y, z, mat.id(), shade);
+    }
+
+    public static boolean isValidLayer(int z) {
+        return z >= MIN_LAYER && z <= MAX_LAYER;
+    }
+
+    /**
+     * Returns the voxels ordered from the back layer (-Z) to the front layer (+Z), so that flat 2D previews
+     * that draw them in order end up showing the front-most voxel of each column on top.
+     */
+    public static List<WeaponVoxel> sortedBackToFront(Collection<WeaponVoxel> voxels) {
+        List<WeaponVoxel> sorted = new ArrayList<>(voxels);
+        sorted.sort(Comparator.comparingInt(WeaponVoxel::z));
+        return sorted;
     }
 
     public VoxelMaterial material() {

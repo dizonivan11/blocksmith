@@ -234,7 +234,7 @@ public class DesignLibraryScreen extends Screen {
             guiGraphics.fill(lThumbX, lThumbY, lThumbX + LARGE_THUMB_SIZE, lThumbY + LARGE_THUMB_SIZE, 0xFF141414);
 
             float lScale = (float) LARGE_THUMB_SIZE / maxGrid;
-            for (WeaponVoxel v : detail.voxels()) {
+            for (WeaponVoxel v : WeaponVoxel.sortedBackToFront(detail.voxels())) {
                 if (v.x() < 0 || v.x() >= maxGrid || v.y() < 0 || v.y() >= maxGrid) continue;
                 int vx = lThumbX + (int) (v.x() * lScale);
                 int vy = lThumbY + (int) ((maxGrid - 1 - v.y()) * lScale);
@@ -377,7 +377,7 @@ public class DesignLibraryScreen extends Screen {
             int slotX = (i % SLOTS_PER_ROW) * THUMB_SIZE + 3;
             int slotY = (i / SLOTS_PER_ROW) * THUMB_SIZE + 3;
 
-            for (WeaponVoxel v : entry.voxels()) {
+            for (WeaponVoxel v : WeaponVoxel.sortedBackToFront(entry.voxels())) {
                 if (v.x() < 0 || v.x() >= maxGrid || v.y() < 0 || v.y() >= maxGrid) continue;
 
                 int px = slotX + (int) (v.x() * scale);
