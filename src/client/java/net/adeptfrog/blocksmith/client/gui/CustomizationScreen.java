@@ -972,13 +972,16 @@ public class CustomizationScreen extends Screen {
             workingRawDur += m.getBonusDurability();
         }
 
-        double savedDmg = savedRawDmg / gridArea;
-        double savedSpd = savedRawSpd / gridArea;
-        int savedDur = (int) Math.round(savedRawDur / gridArea);
+        int savedCount = savedVoxels.size();
+        int workingCount = workingVoxels.size();
 
-        this.cachedCurrentDmg = workingRawDmg / gridArea;
-        this.cachedCurrentSpd = workingRawSpd / gridArea;
-        this.cachedCurrentDur = (int) Math.round(workingRawDur / gridArea);
+        double savedDmg = StatScaling.scale(savedRawDmg, savedCount) / gridArea;
+        double savedSpd = StatScaling.scale(savedRawSpd, savedCount) / gridArea;
+        int savedDur = (int) Math.round(StatScaling.scale(savedRawDur, savedCount) / gridArea);
+
+        this.cachedCurrentDmg = StatScaling.scale(workingRawDmg, workingCount) / gridArea;
+        this.cachedCurrentSpd = StatScaling.scale(workingRawSpd, workingCount) / gridArea;
+        this.cachedCurrentDur = (int) Math.round(StatScaling.scale(workingRawDur, workingCount) / gridArea);
 
         this.cachedDiffDmg = this.cachedCurrentDmg - savedDmg;
         this.cachedDiffSpd = this.cachedCurrentSpd - savedSpd;

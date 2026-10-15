@@ -2,6 +2,7 @@ package net.adeptfrog.blocksmith.mixin;
 
 import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
+import net.adeptfrog.blocksmith.data.StatScaling;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
@@ -18,6 +19,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import java.util.List;
 
 import static net.adeptfrog.blocksmith.item.ModularBowItem.BONUS_BASE_DAMAGE;
 
@@ -63,10 +66,11 @@ public class ProjectileMixin {
             int gridSize = VoxelMaterialRegistry.getGridSize();
             double gridArea = gridSize * gridSize;
             double rawDamage = 0;
-            for (WeaponVoxel voxel : ModularBowItem.getVoxels(bow)) {
+            List<WeaponVoxel> bowVoxels = ModularBowItem.getVoxels(bow);
+            for (WeaponVoxel voxel : bowVoxels) {
                 rawDamage += voxel.material().getBonusDamage();
             }
-            double voxelDamageBonus = rawDamage / gridArea;
+            double voxelDamageBonus = StatScaling.scale(rawDamage, bowVoxels.size()) / gridArea;
 
             // Add flat voxel bonus damage to vanilla calculated damage with Power & Crits
             originalDamage = (float) (originalDamage + voxelDamageBonus + BONUS_BASE_DAMAGE);

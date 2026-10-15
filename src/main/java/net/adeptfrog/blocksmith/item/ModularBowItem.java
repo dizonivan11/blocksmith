@@ -4,6 +4,7 @@ import net.adeptfrog.blocksmith.ability.BurstFireScheduler;
 import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
+import net.adeptfrog.blocksmith.data.StatScaling;
 import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
@@ -57,7 +58,7 @@ public class ModularBowItem extends BowItem {
         for (WeaponVoxel voxel : defaults) {
             rawDurability += voxel.material().getBonusDurability();
         }
-        return BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        return BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, defaults.size()) / gridArea);
     }
 
     public static void recalculateStats(ItemStack stack) {
@@ -70,7 +71,7 @@ public class ModularBowItem extends BowItem {
             rawDurability += voxel.material().getBonusDurability();
         }
 
-        int bonusDurability = BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        int bonusDurability = BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, voxels.size()) / gridArea);
         stack.set(DataComponents.MAX_DAMAGE, bonusDurability);
     }
 
@@ -192,7 +193,7 @@ public class ModularBowItem extends BowItem {
         for (WeaponVoxel voxel : voxels) {
             rawSpeed += voxel.material().getBonusSpeed();
         }
-        double bonusSpeed = rawSpeed / gridArea;
+        double bonusSpeed = StatScaling.scale(rawSpeed, voxels.size()) / gridArea;
         float speedMultiplier = 1.0F + (float) bonusSpeed;
 
         // Apply ability modifiers

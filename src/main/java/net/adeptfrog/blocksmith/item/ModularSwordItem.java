@@ -49,7 +49,7 @@ public class ModularSwordItem extends Item {
         for (WeaponVoxel voxel : defaults) {
             rawDurability += voxel.material().getBonusDurability();
         }
-        return BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        return BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, defaults.size()) / gridArea);
     }
 
     public static void recalculateAttributes(ItemStack stack) {
@@ -68,9 +68,10 @@ public class ModularSwordItem extends Item {
             rawDurability += mat.getBonusDurability();
         }
 
-        double bonusDamage = rawDamage / gridArea;
-        double bonusSpeed = rawSpeed / gridArea;
-        int bonusDurability = BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        int count = voxels.size();
+        double bonusDamage = StatScaling.scale(rawDamage, count) / gridArea;
+        double bonusSpeed = StatScaling.scale(rawSpeed, count) / gridArea;
+        int bonusDurability = BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, count) / gridArea);
 
         stack.set(DataComponents.MAX_DAMAGE, bonusDurability);
 
@@ -112,8 +113,8 @@ public class ModularSwordItem extends Item {
             rawSpeed += mat.getBonusSpeed();
         }
 
-        double bonusDamage = rawDamage / gridArea;
-        double bonusSpeed = rawSpeed / gridArea;
+        double bonusDamage = StatScaling.scale(rawDamage, defaults.size()) / gridArea;
+        double bonusSpeed = StatScaling.scale(rawSpeed, defaults.size()) / gridArea;
 
         return ItemAttributeModifiers.builder()
                 .add(
