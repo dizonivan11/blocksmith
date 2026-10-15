@@ -1,6 +1,8 @@
 package net.adeptfrog.blocksmith.client.gui;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
+import net.adeptfrog.blocksmith.client.render.VoxelRaycaster;
 import net.adeptfrog.blocksmith.client.utils.StringUtils;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.*;
@@ -15,6 +17,7 @@ import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPosition
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -29,6 +32,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import static net.adeptfrog.blocksmith.Blocksmith.LAYER_COUNT;
 import static net.adeptfrog.blocksmith.Blocksmith.MAX_LAYER;
 import static net.adeptfrog.blocksmith.Blocksmith.MAX_TOTAL_VOXELS;
 import static net.adeptfrog.blocksmith.Blocksmith.MIN_LAYER;
@@ -46,7 +50,25 @@ public class CustomizationScreen extends Screen {
     private int exportFeedbackTimer = 0;
     private int importFeedbackTimer = 0;
     private int materialIndexOffset = 0;
-    private int activeLayer = 0; // Layer being edited: MIN_LAYER..MAX_LAYER, 0 = base layer
+    private int activeLayer = 0; // 2D mode only: layer being edited, MIN_LAYER..MAX_LAYER, 0 = base layer
+
+    // 3D editor
+    private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ORBIT = 2;
+    private static final String[] TOOL_NAMES = {"Add", "Recolor", "Orbit"};
+    private static final int VIEW_BTN_Y = 177, TOOL_BTN_Y = 196, RESET_BTN_Y = 215; // relative to the window top
+    private boolean view3d = true;
+    private int tool3d = TOOL_ADD;
+    private boolean orbiting = false;
+    private int strokeAxis = -1;   // axis of the plane a paint-drag stays on, -1 when no stroke is active
+    private int strokeIndex = 0;
+    private boolean sceneDirty = true;
+    private int lastHoverKey = -2;
+    private VoxelRaycaster.Hit hoverHit = null;
+    private VoxelRaycaster raycaster;
+    private int[] pixelBuffer;
+    private DynamicTexture viewTexture;
+    private NativeImage viewImage;
+    private Identifier viewTextureId;
 
     private int workingOffsetX;
     private int workingOffsetY;
@@ -147,6 +169,14 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        // Scrolling over the 3D view zooms it
+        if (this.view3d && verticalAmount != 0 && isInsideWorkspace((int) mouseX, (int) mouseY)) {
+            ensureRaycaster();
+            this.raycaster.zoom(Math.pow(1.12, verticalAmount));
+            this.sceneDirty = true;
+            return true;
+        }
+
         List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
         int maxOffset = Math.max(0, mats.size() - VISIBLE_SLOTS);
 
@@ -189,121 +219,125 @@ public class CustomizationScreen extends Screen {
         int gridX = leftPos + WORKSPACE_OFFSET_X;
         int gridY = topPos + WORKSPACE_OFFSET_Y;
 
-        java.util.Arrays.fill(this.occupiedGrid, false);
-        java.util.Arrays.fill(this.colorGrid, 0);
+        if (this.view3d) {
+            render3dWorkspace(guiGraphics, gridX, gridY, mouseX, mouseY);
+        } else {
+            java.util.Arrays.fill(this.occupiedGrid, false);
+            java.util.Arrays.fill(this.colorGrid, 0);
 
-        // Other layers are drawn as faint ghosts under the layer being edited
-        for (WeaponVoxel v : WeaponVoxel.sortedBackToFront(workingVoxels)) {
-            if (v.z() == this.activeLayer) continue;
-            if (v.x() < 0 || v.x() >= this.gridSize || v.y() < 0 || v.y() >= this.gridSize) continue;
-            int gx = gridX + v.x() * this.cellSize;
-            int gy = gridY + (this.gridSize - 1 - v.y()) * this.cellSize;
-            guiGraphics.fill(gx, gy, gx + this.cellSize, gy + this.cellSize, (v.getColorRgb() & 0xFFFFFF) | 0x55000000);
-        }
-
-        for (WeaponVoxel v : workingVoxels) {
-            if (v.z() != this.activeLayer) continue;
-            if (v.x() >= 0 && v.x() < this.gridSize && v.y() >= 0 && v.y() < this.gridSize) {
-                int idx = v.x() + v.y() * this.gridSize;
-                this.occupiedGrid[idx] = true;
-                this.colorGrid[idx] = v.getColorRgb() | 0xFF000000;
+            // Other layers are drawn as faint ghosts under the layer being edited
+            for (WeaponVoxel v : WeaponVoxel.sortedBackToFront(workingVoxels)) {
+                if (v.z() == this.activeLayer) continue;
+                if (v.x() < 0 || v.x() >= this.gridSize || v.y() < 0 || v.y() >= this.gridSize) continue;
+                int gx = gridX + v.x() * this.cellSize;
+                int gy = gridY + (this.gridSize - 1 - v.y()) * this.cellSize;
+                guiGraphics.fill(gx, gy, gx + this.cellSize, gy + this.cellSize, (v.getColorRgb() & 0xFFFFFF) | 0x55000000);
             }
-        }
 
-        for (int y = 0; y < this.gridSize; y++) {
-            int py = gridY + (this.gridSize - 1 - y) * this.cellSize;
-            int x = 0;
+            for (WeaponVoxel v : workingVoxels) {
+                if (v.z() != this.activeLayer) continue;
+                if (v.x() >= 0 && v.x() < this.gridSize && v.y() >= 0 && v.y() < this.gridSize) {
+                    int idx = v.x() + v.y() * this.gridSize;
+                    this.occupiedGrid[idx] = true;
+                    this.colorGrid[idx] = v.getColorRgb() | 0xFF000000;
+                }
+            }
 
-            while (x < this.gridSize) {
-                int idx = x + y * this.gridSize;
-                if (!this.occupiedGrid[idx]) {
-                    x++;
-                    continue;
+            for (int y = 0; y < this.gridSize; y++) {
+                int py = gridY + (this.gridSize - 1 - y) * this.cellSize;
+                int x = 0;
+
+                while (x < this.gridSize) {
+                    int idx = x + y * this.gridSize;
+                    if (!this.occupiedGrid[idx]) {
+                        x++;
+                        continue;
+                    }
+
+                    int color = this.colorGrid[idx];
+                    int startX = x;
+
+                    while (x < this.gridSize && this.occupiedGrid[x + y * this.gridSize] && this.colorGrid[x + y * this.gridSize] == color) {
+                        x++;
+                    }
+
+                    int px1 = gridX + startX * this.cellSize;
+                    int px2 = gridX + x * this.cellSize;
+                    guiGraphics.fill(px1, py, px2, py + this.cellSize, color);
+                }
+            }
+
+            int outlineColor = 0xFFFFFFFF;
+            for (int y = 0; y < this.gridSize; y++) {
+                int py = gridY + (this.gridSize - 1 - y) * this.cellSize;
+
+                int x = 0;
+                while (x < this.gridSize) {
+                    boolean isTopExposed = isOccupied(x, y) && !isOccupied(x, y + 1);
+                    if (!isTopExposed) {
+                        x++;
+                        continue;
+                    }
+
+                    int startX = x;
+                    while (x < this.gridSize && isOccupied(x, y) && !isOccupied(x, y + 1)) {
+                        x++;
+                    }
+
+                    guiGraphics.fill(gridX + startX * this.cellSize, py - 1, gridX + x * this.cellSize, py, outlineColor);
                 }
 
-                int color = this.colorGrid[idx];
-                int startX = x;
+                x = 0;
+                while (x < this.gridSize) {
+                    boolean isBottomExposed = isOccupied(x, y) && !isOccupied(x, y - 1);
+                    if (!isBottomExposed) {
+                        x++;
+                        continue;
+                    }
 
-                while (x < this.gridSize && this.occupiedGrid[x + y * this.gridSize] && this.colorGrid[x + y * this.gridSize] == color) {
-                    x++;
+                    int startX = x;
+                    while (x < this.gridSize && isOccupied(x, y) && !isOccupied(x, y - 1)) {
+                        x++;
+                    }
+
+                    guiGraphics.fill(gridX + startX * this.cellSize, py + this.cellSize, gridX + x * this.cellSize, py + this.cellSize + 1, outlineColor);
                 }
-
-                int px1 = gridX + startX * this.cellSize;
-                int px2 = gridX + x * this.cellSize;
-                guiGraphics.fill(px1, py, px2, py + this.cellSize, color);
             }
-        }
 
-        int outlineColor = 0xFFFFFFFF;
-        for (int y = 0; y < this.gridSize; y++) {
-            int py = gridY + (this.gridSize - 1 - y) * this.cellSize;
+            for (WeaponVoxel voxel : workingVoxels) {
+                if (voxel.z() != this.activeLayer) continue;
+                int vx = voxel.x();
+                int vy = voxel.y();
+                if (vx < 0 || vx >= this.gridSize || vy < 0 || vy >= this.gridSize) continue;
 
-            int x = 0;
-            while (x < this.gridSize) {
-                boolean isTopExposed = isOccupied(x, y) && !isOccupied(x, y + 1);
-                if (!isTopExposed) {
-                    x++;
-                    continue;
+                int px = gridX + vx * this.cellSize;
+                int py = gridY + (this.gridSize - 1 - vy) * this.cellSize;
+
+                if (!isOccupied(vx - 1, vy)) guiGraphics.fill(px - 1, py, px, py + this.cellSize, outlineColor);
+                if (!isOccupied(vx + 1, vy)) guiGraphics.fill(px + this.cellSize, py, px + this.cellSize + 1, py + this.cellSize, outlineColor);
+
+                if (!isOccupied(vx, vy + 1) && !isOccupied(vx + 1, vy) && !isOccupied(vx + 1, vy + 1)) {
+                    guiGraphics.fill(px + this.cellSize, py - 1, px + this.cellSize + 1, py, outlineColor);
                 }
-
-                int startX = x;
-                while (x < this.gridSize && isOccupied(x, y) && !isOccupied(x, y + 1)) {
-                    x++;
+                if (!isOccupied(vx, vy + 1) && !isOccupied(vx - 1, vy) && !isOccupied(vx - 1, vy + 1)) {
+                    guiGraphics.fill(px - 1, py - 1, px, py, outlineColor);
                 }
-
-                guiGraphics.fill(gridX + startX * this.cellSize, py - 1, gridX + x * this.cellSize, py, outlineColor);
-            }
-
-            x = 0;
-            while (x < this.gridSize) {
-                boolean isBottomExposed = isOccupied(x, y) && !isOccupied(x, y - 1);
-                if (!isBottomExposed) {
-                    x++;
-                    continue;
+                if (!isOccupied(vx, vy - 1) && !isOccupied(vx + 1, vy) && !isOccupied(vx + 1, vy - 1)) {
+                    guiGraphics.fill(px + this.cellSize, py + this.cellSize, px + this.cellSize + 1, py + this.cellSize + 1, outlineColor);
                 }
-
-                int startX = x;
-                while (x < this.gridSize && isOccupied(x, y) && !isOccupied(x, y - 1)) {
-                    x++;
+                if (!isOccupied(vx, vy - 1) && !isOccupied(vx - 1, vy) && !isOccupied(vx - 1, vy - 1)) {
+                    guiGraphics.fill(px - 1, py + this.cellSize, px, py + this.cellSize + 1, outlineColor);
                 }
-
-                guiGraphics.fill(gridX + startX * this.cellSize, py + this.cellSize, gridX + x * this.cellSize, py + this.cellSize + 1, outlineColor);
             }
-        }
 
-        for (WeaponVoxel voxel : workingVoxels) {
-            if (voxel.z() != this.activeLayer) continue;
-            int vx = voxel.x();
-            int vy = voxel.y();
-            if (vx < 0 || vx >= this.gridSize || vy < 0 || vy >= this.gridSize) continue;
-
-            int px = gridX + vx * this.cellSize;
-            int py = gridY + (this.gridSize - 1 - vy) * this.cellSize;
-
-            if (!isOccupied(vx - 1, vy)) guiGraphics.fill(px - 1, py, px, py + this.cellSize, outlineColor);
-            if (!isOccupied(vx + 1, vy)) guiGraphics.fill(px + this.cellSize, py, px + this.cellSize + 1, py + this.cellSize, outlineColor);
-
-            if (!isOccupied(vx, vy + 1) && !isOccupied(vx + 1, vy) && !isOccupied(vx + 1, vy + 1)) {
-                guiGraphics.fill(px + this.cellSize, py - 1, px + this.cellSize + 1, py, outlineColor);
+            // Hover cursor
+            int hX = (mouseX - gridX) / this.cellSize;
+            int hY = (mouseY - gridY) / this.cellSize;
+            if (hX >= 0 && hX < this.gridSize && hY >= 0 && hY < this.gridSize) {
+                int px = gridX + hX * this.cellSize;
+                int py = gridY + hY * this.cellSize;
+                guiGraphics.fill(px, py, px + this.cellSize, py + this.cellSize, 0x44FFFFFF);
             }
-            if (!isOccupied(vx, vy + 1) && !isOccupied(vx - 1, vy) && !isOccupied(vx - 1, vy + 1)) {
-                guiGraphics.fill(px - 1, py - 1, px, py, outlineColor);
-            }
-            if (!isOccupied(vx, vy - 1) && !isOccupied(vx + 1, vy) && !isOccupied(vx + 1, vy - 1)) {
-                guiGraphics.fill(px + this.cellSize, py + this.cellSize, px + this.cellSize + 1, py + this.cellSize + 1, outlineColor);
-            }
-            if (!isOccupied(vx, vy - 1) && !isOccupied(vx - 1, vy) && !isOccupied(vx - 1, vy - 1)) {
-                guiGraphics.fill(px - 1, py + this.cellSize, px, py + this.cellSize + 1, outlineColor);
-            }
-        }
-
-        // Hover cursor
-        int hX = (mouseX - gridX) / this.cellSize;
-        int hY = (mouseY - gridY) / this.cellSize;
-        if (hX >= 0 && hX < this.gridSize && hY >= 0 && hY < this.gridSize) {
-            int px = gridX + hX * this.cellSize;
-            int py = gridY + hY * this.cellSize;
-            guiGraphics.fill(px, py, px + this.cellSize, py + this.cellSize, 0x44FFFFFF);
         }
 
         // Stats panel
@@ -345,7 +379,8 @@ public class CustomizationScreen extends Screen {
         else if (this.cachedDiffDur < 0) durStr += " §c(" + this.cachedDiffDur + ")";
         guiGraphics.text(this.font, Component.literal(durStr), statsX + 6, statsY + 88, 0xFFFFFFFF, false);
 
-        guiGraphics.text(this.font, Component.literal("[Left] Paint"), statsX + 6, statsY + 104, FONT_COLOR, false);
+        String leftLabel = this.view3d ? "[Left] " + TOOL_NAMES[this.tool3d] : "[Left] Paint";
+        guiGraphics.text(this.font, Component.literal(leftLabel), statsX + 6, statsY + 104, FONT_COLOR, false);
 
         Component eraseText = Component.literal("[Right] Erase ");
         guiGraphics.text(this.font, eraseText, statsX + 6, statsY + 114, FONT_COLOR, false);
@@ -438,18 +473,45 @@ public class CustomizationScreen extends Screen {
         drawSmallHeaderButton(guiGraphics, subBtnX, rotCWBtnY, subBtnW, subBtnH, "Rot CW", rotCWHovered);
         drawSmallHeaderButton(guiGraphics, subBtnX, rotCCWBtnY, subBtnW, subBtnH, "Rot CCW", rotCCWHovered);
 
-        // Layer buttons
+        // Layer buttons (2D mode) / 3D controls
         int layerUpBtnY = rotCCWBtnY + subBtnH + 4;
         int layerDownBtnY = layerUpBtnY + subBtnH + 4;
 
-        boolean layerUpHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerUpBtnY && mouseY <= layerUpBtnY + subBtnH;
-        boolean layerDownHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerDownBtnY && mouseY <= layerDownBtnY + subBtnH;
+        if (!this.view3d) {
+            boolean layerUpHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerUpBtnY && mouseY <= layerUpBtnY + subBtnH;
+            boolean layerDownHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerDownBtnY && mouseY <= layerDownBtnY + subBtnH;
 
-        drawSmallHeaderButton(guiGraphics, subBtnX, layerUpBtnY, subBtnW, subBtnH, "Layer +", layerUpHovered);
-        drawSmallHeaderButton(guiGraphics, subBtnX, layerDownBtnY, subBtnW, subBtnH, "Layer -", layerDownHovered);
+            drawSmallHeaderButton(guiGraphics, subBtnX, layerUpBtnY, subBtnW, subBtnH, "Layer +", layerUpHovered);
+            drawSmallHeaderButton(guiGraphics, subBtnX, layerDownBtnY, subBtnW, subBtnH, "Layer -", layerDownHovered);
 
-        String layerText = this.activeLayer == 0 ? "Layer 0 (Base)" : String.format("Layer %+d", this.activeLayer);
-        guiGraphics.text(this.font, Component.literal(layerText), subBtnX - 1, layerDownBtnY + subBtnH + 5, 0xFFFFFFFF, true);
+            String layerText = this.activeLayer == 0 ? "Layer 0 (Base)" : String.format("Layer %+d", this.activeLayer);
+            guiGraphics.text(this.font, Component.literal(layerText), subBtnX - 1, layerDownBtnY + subBtnH + 5, 0xFFFFFFFF, true);
+        }
+
+        int viewBtnY = topPos + VIEW_BTN_Y;
+        int toolBtnY = topPos + TOOL_BTN_Y;
+        int resetBtnY = topPos + RESET_BTN_Y;
+        boolean viewHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= viewBtnY && mouseY <= viewBtnY + subBtnH;
+        drawSmallHeaderButton(guiGraphics, subBtnX, viewBtnY, subBtnW, subBtnH, this.view3d ? "View: 3D" : "View: 2D", viewHovered);
+
+        if (this.view3d) {
+            boolean toolHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= toolBtnY && mouseY <= toolBtnY + subBtnH;
+            boolean resetHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= resetBtnY && mouseY <= resetBtnY + subBtnH;
+            drawSmallHeaderButton(guiGraphics, subBtnX, toolBtnY, subBtnW, subBtnH, TOOL_NAMES[this.tool3d], toolHovered);
+            drawSmallHeaderButton(guiGraphics, subBtnX, resetBtnY, subBtnW, subBtnH, "Reset View", resetHovered);
+
+            if (toolHovered) {
+                List<ClientTooltipComponent> toolTooltip = List.of(
+                        ClientTooltipComponent.create(Component.literal("§eLeft-click tool (click to cycle)").getVisualOrderText()),
+                        ClientTooltipComponent.create(Component.literal("§7Add: place a voxel on the face you point at").getVisualOrderText()),
+                        ClientTooltipComponent.create(Component.literal("§7Recolor: repaint the voxel you point at").getVisualOrderText()),
+                        ClientTooltipComponent.create(Component.literal("§7Orbit: drag to rotate the view").getVisualOrderText()),
+                        ClientTooltipComponent.create(Component.literal("§7Right-click erases, middle-drag orbits,").getVisualOrderText()),
+                        ClientTooltipComponent.create(Component.literal("§7scroll wheel zooms.").getVisualOrderText())
+                );
+                guiGraphics.tooltip(this.font, toolTooltip, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+            }
+        }
 
         // Materials and Shades
         int slotsY = topPos + SLOTS_Y;
@@ -694,14 +756,43 @@ public class CustomizationScreen extends Screen {
         int layerUpBtnY = rotCCWBtnY + subBtnH + 4;
         int layerDownBtnY = layerUpBtnY + subBtnH + 4;
 
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerUpBtnY && mouseY <= layerUpBtnY + subBtnH) {
+        if (!this.view3d && mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerUpBtnY && mouseY <= layerUpBtnY + subBtnH) {
             if (this.activeLayer < MAX_LAYER) this.activeLayer++;
             this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             return true;
         }
 
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerDownBtnY && mouseY <= layerDownBtnY + subBtnH) {
+        if (!this.view3d && mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerDownBtnY && mouseY <= layerDownBtnY + subBtnH) {
             if (this.activeLayer > MIN_LAYER) this.activeLayer--;
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            return true;
+        }
+
+        // View toggle, tool and reset buttons
+        int viewBtnY = topPos + VIEW_BTN_Y;
+        int toolBtnY = topPos + TOOL_BTN_Y;
+        int resetBtnY = topPos + RESET_BTN_Y;
+        boolean inLeftColumn = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW;
+
+        if (inLeftColumn && mouseY >= viewBtnY && mouseY <= viewBtnY + subBtnH) {
+            this.view3d = !this.view3d;
+            this.orbiting = false;
+            this.strokeAxis = -1;
+            this.sceneDirty = true;
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            return true;
+        }
+
+        if (this.view3d && inLeftColumn && mouseY >= toolBtnY && mouseY <= toolBtnY + subBtnH) {
+            this.tool3d = (this.tool3d + 1) % TOOL_NAMES.length;
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            return true;
+        }
+
+        if (this.view3d && inLeftColumn && mouseY >= resetBtnY && mouseY <= resetBtnY + subBtnH) {
+            ensureRaycaster();
+            this.raycaster.resetView();
+            this.sceneDirty = true;
             this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             return true;
         }
@@ -826,7 +917,18 @@ public class CustomizationScreen extends Screen {
         }
 
         // Grid painting and erasing
-        if (handleGridInteraction(mouseX, mouseY, event.button())) {
+        if (this.view3d) {
+            if (isInsideWorkspace(mouseX, mouseY)) {
+                int btn = event.button();
+                this.strokeAxis = -1;
+                if (btn == 2 || (btn == 0 && this.tool3d == TOOL_ORBIT)) {
+                    this.orbiting = true;
+                    return true;
+                }
+                handle3dInteraction(mouseX, mouseY, btn, false);
+                return true;
+            }
+        } else if (handleGridInteraction(mouseX, mouseY, event.button())) {
             return true;
         }
 
@@ -835,10 +937,28 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
-        if (handleGridInteraction((int) event.x(), (int) event.y(), event.button())) {
+        if (this.view3d) {
+            if (this.orbiting) {
+                ensureRaycaster();
+                this.raycaster.orbit(-deltaX * 0.012, deltaY * 0.012);
+                this.sceneDirty = true;
+                return true;
+            }
+            if (handle3dInteraction((int) event.x(), (int) event.y(), event.button(), true)) {
+                return true;
+            }
+        } else if (handleGridInteraction((int) event.x(), (int) event.y(), event.button())) {
             return true;
         }
         return super.mouseDragged(event, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseReleased(@NonNull MouseButtonEvent event) {
+        this.orbiting = false;
+        this.strokeAxis = -1;
+        this.sceneDirty = true;
+        return super.mouseReleased(event);
     }
 
     private boolean handleGridInteraction(int mouseX, int mouseY, int button) {
@@ -850,50 +970,170 @@ public class CustomizationScreen extends Screen {
         int cellX = (mouseX - gridX) / this.cellSize;
         int cellY = (mouseY - gridY) / this.cellSize;
 
-        if (cellX >= 0 && cellX < this.gridSize && cellY >= 0 && cellY < this.gridSize) {
+        if (mouseX >= gridX && mouseY >= gridY && cellX >= 0 && cellX < this.gridSize && cellY >= 0 && cellY < this.gridSize) {
             int voxelY = (this.gridSize - 1) - cellY;
-
-            WeaponVoxel existing = null;
-            for (WeaponVoxel v : workingVoxels) {
-                if (v.x() == cellX && v.y() == voxelY && v.z() == this.activeLayer) {
-                    existing = v;
-                    break;
-                }
-            }
-
-            if (button == 0) { // Left-Click = Paint
-                boolean isCreative = this.minecraft.player != null && this.minecraft.player.getAbilities().instabuild;
-
-                if (existing == null) {
-                    if (!isCreative && getAvailableCount(selectedMaterial) <= 0) {
-                        return false;
-                    }
-                    if (workingVoxels.size() < MAX_TOTAL_VOXELS()) {
-                        workingVoxels.add(new WeaponVoxel(cellX, voxelY, this.activeLayer, selectedMaterial, selectedShade));
-                        recalculateCachedStats();
-                        return true;
-                    }
-                } else if (!existing.materialId().equalsIgnoreCase(selectedMaterial.id()) || existing.shade() != selectedShade) {
-                    if (!existing.materialId().equalsIgnoreCase(selectedMaterial.id()) && !isCreative && getAvailableCount(selectedMaterial) <= 0) {
-                        return false;
-                    }
-                    workingVoxels.remove(existing);
-                    workingVoxels.add(new WeaponVoxel(cellX, voxelY, this.activeLayer, selectedMaterial, selectedShade));
-                    recalculateCachedStats();
-                    return true;
-                }
-            } else if (button == 1) { // Right-Click = Erase
-                if (existing != null) {
-                    if (workingVoxels.size() <= MIN_VOXELS) {
-                        return false;
-                    }
-                    workingVoxels.remove(existing);
-                    recalculateCachedStats();
-                    return true;
-                }
-            }
+            if (button == 0) return paintAt(cellX, voxelY, this.activeLayer); // Left-Click = Paint
+            if (button == 1) return eraseAt(cellX, voxelY, this.activeLayer); // Right-Click = Erase
         }
         return false;
+    }
+
+    private boolean isInsideWorkspace(int mouseX, int mouseY) {
+        int gridX = (this.width - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
+        int gridY = (this.height - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
+        return mouseX >= gridX && mouseX < gridX + WORKSPACE_DIM && mouseY >= gridY && mouseY < gridY + WORKSPACE_DIM;
+    }
+
+    private WeaponVoxel findVoxel(int x, int y, int layer) {
+        for (WeaponVoxel v : workingVoxels) {
+            if (v.x() == x && v.y() == y && v.z() == layer) return v;
+        }
+        return null;
+    }
+
+    /** Places a voxel of the selected material, or recolors the one already there. */
+    private boolean paintAt(int x, int y, int layer) {
+        if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize || !WeaponVoxel.isValidLayer(layer)) return false;
+        WeaponVoxel existing = findVoxel(x, y, layer);
+        boolean isCreative = this.minecraft.player != null && this.minecraft.player.getAbilities().instabuild;
+
+        if (existing == null) {
+            if (!isCreative && getAvailableCount(selectedMaterial) <= 0) {
+                return false;
+            }
+            if (workingVoxels.size() < MAX_TOTAL_VOXELS()) {
+                workingVoxels.add(new WeaponVoxel(x, y, layer, selectedMaterial, selectedShade));
+                recalculateCachedStats();
+                return true;
+            }
+        } else if (!existing.materialId().equalsIgnoreCase(selectedMaterial.id()) || existing.shade() != selectedShade) {
+            if (!existing.materialId().equalsIgnoreCase(selectedMaterial.id()) && !isCreative && getAvailableCount(selectedMaterial) <= 0) {
+                return false;
+            }
+            workingVoxels.remove(existing);
+            workingVoxels.add(new WeaponVoxel(x, y, layer, selectedMaterial, selectedShade));
+            recalculateCachedStats();
+            return true;
+        }
+        return false;
+    }
+
+    private boolean eraseAt(int x, int y, int layer) {
+        WeaponVoxel existing = findVoxel(x, y, layer);
+        if (existing == null || workingVoxels.size() <= MIN_VOXELS) {
+            return false;
+        }
+        workingVoxels.remove(existing);
+        recalculateCachedStats();
+        return true;
+    }
+
+    // ----- 3D editor -----
+
+    private void ensureRaycaster() {
+        if (this.raycaster == null) {
+            this.raycaster = new VoxelRaycaster(this.gridSize, LAYER_COUNT, WORKSPACE_DIM, WORKSPACE_DIM);
+            this.pixelBuffer = new int[WORKSPACE_DIM * WORKSPACE_DIM];
+        }
+    }
+
+    private void ensureViewTexture() {
+        ensureRaycaster();
+        if (this.viewImage == null) {
+            this.viewImage = new NativeImage(WORKSPACE_DIM, WORKSPACE_DIM, true);
+            this.viewTexture = new DynamicTexture(() -> "blocksmith_forge_view", this.viewImage);
+            this.viewTextureId = Identifier.fromNamespaceAndPath("blocksmith", "forge_view_" + System.identityHashCode(this));
+            this.minecraft.getTextureManager().register(this.viewTextureId, this.viewTexture);
+            this.sceneDirty = true;
+        }
+    }
+
+    private void rebuildScene() {
+        this.raycaster.clear();
+        for (WeaponVoxel v : workingVoxels) {
+            this.raycaster.setCell(v.x(), v.y(), v.z() + MAX_LAYER, v.getColorRgb() | 0xFF000000);
+        }
+    }
+
+    private void render3dWorkspace(GuiGraphicsExtractor guiGraphics, int gridX, int gridY, int mouseX, int mouseY) {
+        ensureViewTexture();
+
+        int px = mouseX - gridX;
+        int py = mouseY - gridY;
+        boolean inside = px >= 0 && py >= 0 && px < WORKSPACE_DIM && py < WORKSPACE_DIM;
+        int hoverKey = (inside && !this.orbiting) ? (px << 16) | py : -1;
+
+        if (this.sceneDirty || hoverKey != this.lastHoverKey) {
+            if (this.sceneDirty) rebuildScene();
+            this.hoverHit = hoverKey >= 0 ? this.raycaster.pick(px, py) : null;
+            this.raycaster.render(this.pixelBuffer, this.hoverHit);
+            for (int y = 0; y < WORKSPACE_DIM; y++) {
+                for (int x = 0; x < WORKSPACE_DIM; x++) {
+                    this.viewImage.setPixel(x, y, this.pixelBuffer[y * WORKSPACE_DIM + x]);
+                }
+            }
+            this.viewTexture.upload();
+            this.sceneDirty = false;
+            this.lastHoverKey = hoverKey;
+        }
+
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM);
+
+        guiGraphics.text(this.font, Component.literal("Mid-drag: Orbit  Wheel: Zoom"), gridX + 2, gridY + WORKSPACE_DIM + 2, FONT_COLOR, false);
+    }
+
+    private boolean handle3dInteraction(int mouseX, int mouseY, int button, boolean drag) {
+        if (!isInsideWorkspace(mouseX, mouseY)) return false;
+        ensureRaycaster();
+
+        int gridX = (this.width - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
+        int gridY = (this.height - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
+        int px = mouseX - gridX;
+        int py = mouseY - gridY;
+
+        if (button == 1) { // Right-Click = Erase whatever voxel is under the cursor
+            VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
+            if (hit == null || hit.floor()) return false;
+            return eraseAt(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
+        }
+
+        if (button != 0) return false;
+
+        if (this.tool3d == TOOL_RECOLOR) {
+            VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
+            if (hit == null || hit.floor()) return false;
+            return paintAt(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
+        }
+
+        // Add tool: place on the face under the cursor; a drag stays on the plane of the first voxel placed
+        int[] target;
+        if (drag && this.strokeAxis >= 0) {
+            target = this.raycaster.pickOnPlane(px, py, this.strokeAxis, this.strokeIndex);
+        } else {
+            VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
+            if (hit == null) return false;
+            target = hit.placeCell();
+            if (!this.raycaster.inBounds(target[0], target[1], target[2])) return false;
+            this.strokeAxis = hit.normalAxis();
+            this.strokeIndex = target[this.strokeAxis];
+        }
+        if (target == null) return false;
+        return paintAt(target[0], target[1], target[2] - MAX_LAYER);
+    }
+
+    @Override
+    public void removed() {
+        if (this.viewTexture != null) {
+            this.viewTexture.close();
+            this.viewTexture = null;
+        }
+        if (this.viewTextureId != null) {
+            this.minecraft.getTextureManager().release(this.viewTextureId);
+            this.viewTextureId = null;
+        }
+        this.viewImage = null;
+        this.sceneDirty = true;
+        super.removed();
     }
 
     private boolean isOccupied(int x, int y) {
@@ -953,6 +1193,7 @@ public class CustomizationScreen extends Screen {
     }
 
     private void recalculateCachedStats() {
+        this.sceneDirty = true;
         double gridArea = this.gridSize * this.gridSize;
 
         List<WeaponVoxel> savedVoxels = ModularSwordItem.getVoxels(weaponStack);
