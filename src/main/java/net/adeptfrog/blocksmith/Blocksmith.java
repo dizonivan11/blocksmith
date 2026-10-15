@@ -1,11 +1,18 @@
 package net.adeptfrog.blocksmith;
 
+import net.adeptfrog.blocksmith.ability.BurstFireScheduler;
+import net.adeptfrog.blocksmith.ability.DoubleAttackScheduler;
+import net.adeptfrog.blocksmith.ability.PhantomSlashScheduler;
+import net.adeptfrog.blocksmith.ability.SingularityVortexScheduler;
 import net.adeptfrog.blocksmith.block.WeaponTableBlock;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.network.SaveWeaponVoxelsPayload;
+import net.adeptfrog.blocksmith.network.StartVortexPayload;
 import net.fabricmc.api.ModInitializer;
 
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
@@ -27,9 +34,10 @@ import java.util.function.Function;
 
 public class Blocksmith implements ModInitializer {
 	public static final String MOD_ID = "blocksmith";
-	public static int BASE_GRID_SIZE = 16; // This is where we reference the weapon stats
+	public static int BASE_GRID_SIZE = 32;
 	public static final int MIN_VOXELS = 8;
-	public static int MAX_VOXELS() { return (VoxelMaterialRegistry.getGridSize() * VoxelMaterialRegistry.getGridSize()) / 2; }
+	public static int MAX_VOXELS() { return Math.powExact(VoxelMaterialRegistry.getGridSize(), 2); }
+	public static int ABILITY_MIN_VOXELS = 25; // In percentage
 	public static final int BASE_DURABILITY = ToolMaterial.NETHERITE.durability();
 
 	// This logger is used to write text to the console and the log file.
@@ -129,6 +137,17 @@ public class Blocksmith implements ModInitializer {
 		ModDataComponents.initialize();
 		SaveWeaponVoxelsPayload.register();
 		Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, BLOCKSMITH_TAB_KEY, BLOCKSMITH_TAB);
+
+		// Register ability timers
+		ServerTickEvents.END_SERVER_TICK.register(_ -> {
+			PhantomSlashScheduler.tick();
+			BurstFireScheduler.tick();
+			DoubleAttackScheduler.tick();
+			SingularityVortexScheduler.tick();
+		});
+
+		// Handles Singularity Ability particle spawning
+		PayloadTypeRegistry.clientboundPlay().register(StartVortexPayload.TYPE, StartVortexPayload.STREAM_CODEC);
 	}
 
 	public static Identifier id(String path) {

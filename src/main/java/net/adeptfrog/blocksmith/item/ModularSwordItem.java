@@ -1,15 +1,20 @@
 package net.adeptfrog.blocksmith.item;
 
+import net.adeptfrog.blocksmith.ability.WeaponAbility;
+import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.*;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EquipmentSlotGroup;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
+import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -130,6 +135,21 @@ public class ModularSwordItem extends Item {
                         EquipmentSlotGroup.MAINHAND
                 )
                 .build();
+    }
+
+    @Override
+    public void postHurtEnemy(@NonNull ItemStack stack, @NonNull LivingEntity target, @NonNull LivingEntity attacker) {
+        // Fire all unlocked WeaponAbility's onMeleeHit method
+        if (attacker instanceof Player player && !player.level().isClientSide()) {
+            if (!player.getCooldowns().isOnCooldown(stack)) {
+                for (WeaponAbility ability : WeaponAbilityRegistry.getUnlockedAbilities(stack)) {
+                    if (ability.weaponType() == WeaponAbility.WeaponType.SWORD || ability.weaponType() == WeaponAbility.WeaponType.ANY) {
+                        ability.onMeleeHit(stack, player, target);
+                    }
+                }
+            }
+        }
+        super.postHurtEnemy(stack, target, attacker);
     }
 
     public static List<WeaponVoxel> getDefaultVoxels() {

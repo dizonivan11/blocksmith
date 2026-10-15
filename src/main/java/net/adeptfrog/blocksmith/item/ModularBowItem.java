@@ -1,5 +1,8 @@
 package net.adeptfrog.blocksmith.item;
 
+import net.adeptfrog.blocksmith.ability.BurstFireScheduler;
+import net.adeptfrog.blocksmith.ability.WeaponAbility;
+import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
@@ -10,6 +13,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.stats.Stats;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
@@ -26,6 +31,8 @@ import java.util.List;
 import static net.adeptfrog.blocksmith.Blocksmith.BASE_DURABILITY;
 
 public class ModularBowItem extends BowItem {
+    public static final double BONUS_BASE_DAMAGE = 4.0F;
+
     public ModularBowItem(Properties properties) {
         super(properties);
     }
@@ -68,32 +75,59 @@ public class ModularBowItem extends BowItem {
     }
 
     @Override
+    public void onUseTick(@NonNull Level level, @NonNull LivingEntity entity, @NonNull ItemStack stack, int remainingUseDuration) {
+        if (entity instanceof Player player && !level.isClientSide()) {
+            int useTicks = this.getUseDuration(stack, entity) - remainingUseDuration;
+            int requiredTicks = getRequiredDrawTicks(stack);
+
+            // Check if the bow has reached 100% full draw power
+            if (useTicks >= requiredTicks) {
+                if (WeaponAbilityRegistry.hasUnlockedAbilities(stack, "auto")) {
+                    player.releaseUsingItem();
+                    // Re-arm delay: arm lowers and reaches for the next arrow
+                    player.getCooldowns().addCooldown(stack.getItem().getDefaultInstance(), 5);
+                    return;
+                }
+            }
+
+            // Immobilize user when charging an arrow with Sniper ability
+            if (WeaponAbilityRegistry.hasUnlockedAbilities(stack, "sniper")) {
+                player.addEffect(new MobEffectInstance(MobEffects.SLOWNESS, 40, 255, false, false, false));
+                player.setDeltaMovement(0.0, Math.min(0.0, player.getDeltaMovement().y), 0.0);
+            }
+        }
+        super.onUseTick(level, entity, stack, remainingUseDuration);
+    }
+
+    @Override
     public boolean releaseUsing(@NonNull ItemStack stack, @NonNull Level level, @NonNull LivingEntity entity, int timeLeft) {
         if (!(entity instanceof Player player)) return false;
 
         ItemStack projectileStack = player.getProjectile(stack);
         if (projectileStack.isEmpty()) return false;
 
-        List<WeaponVoxel> voxels = getVoxels(stack);
-        int gridSize = VoxelMaterialRegistry.getGridSize();
-        double gridArea = gridSize * gridSize;
-
-        double rawSpeed = 0;
-        for (WeaponVoxel voxel : voxels) {
-            rawSpeed += voxel.material().getBonusSpeed();
-        }
-
-        // Draw speed multiplier (draws bow faster with speed voxels)
-        double bonusSpeed = rawSpeed / gridArea;
-        float speedMultiplier = 1.0f + (float) (bonusSpeed * 5.0f);
-        int useDuration = (int) ((this.getUseDuration(stack, entity) - timeLeft) * speedMultiplier);
-
-        float power = getPowerForTime(useDuration);
+        int actualTicksHeld = this.getUseDuration(stack, entity) - timeLeft;
+        float power = Math.min(1.0F, (float) actualTicksHeld / getRequiredDrawTicks(stack));
         if ((double) power < 0.1) return false;
 
         List<ItemStack> list = draw(stack, projectileStack, player);
         if (level instanceof ServerLevel serverLevel && !list.isEmpty()) {
-            this.shoot(serverLevel, player, player.getUsedItemHand(), stack, list, power * 3.0F, 1.0F, power == 1.0F, null);
+            float uncertainty = 1.0F;
+
+            // If Sniper ability is active and arrow is charged at full power, arrow will be accurate
+            if (WeaponAbilityRegistry.hasUnlockedAbilities(stack, "sniper")) {
+                uncertainty = 0.0F;
+            }
+
+            // Shoot the arrow
+            this.shoot(serverLevel, player, player.getUsedItemHand(), stack, list, power * 3.0F, uncertainty, power == 1.0F, null);
+
+            // If Burst Fire ability is active and arrow is charged at full power, schedule additional arrows
+            if (power >= 1.0F) {
+                if (WeaponAbilityRegistry.hasUnlockedAbilities(stack, "burst")) {
+                    BurstFireScheduler.scheduleBurst(serverLevel, player, stack, power);
+                }
+            }
         }
 
         level.playSound(
@@ -120,15 +154,16 @@ public class ModularBowItem extends BowItem {
                     : shooter.getOffhandItem();
 
             if (bow.getItem() instanceof ModularBowItem) {
-                int gridSize = VoxelMaterialRegistry.getGridSize();
-                double gridArea = gridSize * gridSize;
-
-                double rawDamage = 0;
-                for (WeaponVoxel voxel : getVoxels(bow)) {
-                    rawDamage += voxel.material().getBonusDamage();
+                // Fire all unlocked WeaponAbility's onArrowFired method
+                // Assign WeaponAbility tag to the arrow for onArrowHit method
+                if (velocity >= 3.0F) {
+                    for (WeaponAbility ability : WeaponAbilityRegistry.getUnlockedAbilities(bow)) {
+                        if (ability.weaponType() == WeaponAbility.WeaponType.BOW || ability.weaponType() == WeaponAbility.WeaponType.ANY) {
+                            ability.onArrowFired(shooter, projectile, index, velocity, inaccuracy, angle, target);
+                            arrow.addTag("blocksmith_ability:" + ability.id());
+                        }
+                    }
                 }
-                // Default vanilla arrow base damage is 2.0
-                arrow.setBaseDamage(2.0 + (rawDamage / gridArea));
             }
         }
     }
@@ -144,5 +179,38 @@ public class ModularBowItem extends BowItem {
 
     public static WeaponOffset getDefaultBowOffset() {
         return VoxelDesignSerializer.getDefaultBowOffset();
+    }
+
+    // Calculates draw speed from voxel materials and abilities
+    public static float getDrawSpeedMultiplier(ItemStack stack) {
+        List<WeaponVoxel> voxels = getVoxels(stack);
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        double gridArea = gridSize * gridSize;
+
+        // Calculate voxel speed bonus
+        double rawSpeed = 0;
+        for (WeaponVoxel voxel : voxels) {
+            rawSpeed += voxel.material().getBonusSpeed();
+        }
+        double bonusSpeed = rawSpeed / gridArea;
+        float speedMultiplier = 1.0F + (float) bonusSpeed;
+
+        // Apply ability modifiers
+        if (WeaponAbilityRegistry.hasUnlockedAbilities(stack, "sniper")) {
+            // Sniper draws 10x slower
+            speedMultiplier *= (1.0F / 10.0F);
+        }
+        if (WeaponAbilityRegistry.hasUnlockedAbilities(stack, "singularity")) {
+            // Singularity draws 3x slower
+            speedMultiplier *= (1.0F / 3.0F);
+        }
+
+        return Math.max(0.05F, speedMultiplier);
+    }
+
+    // Returns the exact integer ticks required to reach 100% full draw charge (Vanilla = 20 ticks)
+    public static int getRequiredDrawTicks(ItemStack stack) {
+        float multiplier = getDrawSpeedMultiplier(stack);
+        return Math.max(1, Math.round(20.0F / multiplier));
     }
 }

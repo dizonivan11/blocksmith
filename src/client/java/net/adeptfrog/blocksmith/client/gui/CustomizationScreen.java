@@ -1,11 +1,9 @@
 package net.adeptfrog.blocksmith.client.gui;
 
+import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
+import net.adeptfrog.blocksmith.client.utils.StringUtils;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
-import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
-import net.adeptfrog.blocksmith.data.VoxelMaterial;
-import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
-import net.adeptfrog.blocksmith.data.WeaponOffset;
-import net.adeptfrog.blocksmith.data.WeaponVoxel;
+import net.adeptfrog.blocksmith.data.*;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
 import net.adeptfrog.blocksmith.network.SaveWeaponVoxelsPayload;
@@ -23,8 +21,12 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.item.ItemStack;
 import org.jspecify.annotations.NonNull;
+import net.adeptfrog.blocksmith.data.DesignFileManager.DesignEntry;
 
+import java.awt.*;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
 import static net.adeptfrog.blocksmith.Blocksmith.MAX_VOXELS;
@@ -45,6 +47,9 @@ public class CustomizationScreen extends Screen {
 
     private int workingOffsetX;
     private int workingOffsetY;
+    private String recentFileName = "";
+    private String recentCrafter = "";
+    private String recentAttribution = "";
 
     private static final int FONT_COLOR = 0xFF3F3F3F;
 
@@ -79,6 +84,7 @@ public class CustomizationScreen extends Screen {
 
     private final int[] cachedAvailableCounts = new int[VISIBLE_SLOTS];
     private final ItemStack[] cachedMaterialStacks = new ItemStack[VISIBLE_SLOTS];
+    private final Collection<MaterialGroup> cachedMaterialGroups;
     private double cachedCurrentDmg = 0;
     private double cachedCurrentSpd = 0;
     private int cachedCurrentDur = 0;
@@ -101,6 +107,11 @@ public class CustomizationScreen extends Screen {
 
         this.occupiedGrid = new boolean[this.gridSize * this.gridSize];
         this.colorGrid = new int[this.gridSize * this.gridSize];
+
+        List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
+        if (!mats.isEmpty()) selectedMaterial = mats.getFirst();
+
+        cachedMaterialGroups = WeaponAbilityRegistry.getAllGroups();
 
         WeaponOffset savedOffset = (weaponStack.getItem() instanceof ModularBowItem)
                 ? ModularBowItem.getOffset(weaponStack)
@@ -376,20 +387,42 @@ public class CustomizationScreen extends Screen {
         guiGraphics.text(this.font, saveLabel, btnX + (btnW - labelWidth) / 2, saveBtnY + 6, 0xFFFFFFFF, false);
 
         // Side buttons
-        int subBtnW = 39;
+        int subBtnW = 45;
         int subBtnH = 16;
         int subBtnX = leftPos - subBtnW - 4;
+
+        // Copy and Paste buttons
         int exportBtnY = topPos + 1;
         int importBtnY = exportBtnY + subBtnH + 4;
 
         boolean exportHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= exportBtnY && mouseY <= exportBtnY + subBtnH;
         boolean importHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= importBtnY && mouseY <= importBtnY + subBtnH;
 
-        String exportLabel = exportFeedbackTimer > 0 ? "§aCopied!" : "Copy";
-        String importLabel = importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : "Paste");
+        String exportLabel = exportFeedbackTimer > 0 ? "§aCopied!" : "Export";
+        String importLabel = importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : "Import");
 
         drawSmallHeaderButton(guiGraphics, subBtnX, exportBtnY, subBtnW, subBtnH, exportLabel, exportHovered);
         drawSmallHeaderButton(guiGraphics, subBtnX, importBtnY, subBtnW, subBtnH, importLabel, importHovered);
+
+        // Flip buttons
+        int flipHBtnY = importBtnY + subBtnH + 4;
+        int flipVBtnY = flipHBtnY + subBtnH + 4;
+
+        boolean flipHHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= flipHBtnY && mouseY <= flipHBtnY + subBtnH;
+        boolean flipVHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= flipVBtnY && mouseY <= flipVBtnY + subBtnH;
+
+        drawSmallHeaderButton(guiGraphics, subBtnX, flipHBtnY, subBtnW, subBtnH, "Flip H", flipHHovered);
+        drawSmallHeaderButton(guiGraphics, subBtnX, flipVBtnY, subBtnW, subBtnH, "Flip V", flipVHovered);
+
+        // Rotate buttons
+        int rotCWBtnY = flipVBtnY + subBtnH + 4;
+        int rotCCWBtnY = rotCWBtnY + subBtnH + 4;
+
+        boolean rotCWHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rotCWBtnY && mouseY <= rotCWBtnY + subBtnH;
+        boolean rotCCWHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rotCCWBtnY && mouseY <= rotCCWBtnY + subBtnH;
+
+        drawSmallHeaderButton(guiGraphics, subBtnX, rotCWBtnY, subBtnW, subBtnH, "Rot CW", rotCWHovered);
+        drawSmallHeaderButton(guiGraphics, subBtnX, rotCCWBtnY, subBtnW, subBtnH, "Rot CCW", rotCCWHovered);
 
         // Materials and Shades
         int slotsY = topPos + SLOTS_Y;
@@ -422,6 +455,14 @@ public class CustomizationScreen extends Screen {
             VoxelMaterial mat = mats.get(i + materialIndexOffset);
             int sX = leftPos + MAT_START_X + (i * MAT_SLOT_SPACING);
             boolean isSelected = (mat.id().equalsIgnoreCase(selectedMaterial.id()));
+
+            // Display the group's color
+            for (MaterialGroup group : cachedMaterialGroups) {
+                if (Arrays.asList(group.materials().split("[,|/]")).contains(mat.id())) {
+                    guiGraphics.fill(sX, slotsY, sX + SLOT_SIZE, slotsY + SLOT_SIZE, group.color());
+                    break;
+                }
+            }
 
             // Selected highlight overlay
             if (isSelected) {
@@ -467,7 +508,7 @@ public class CustomizationScreen extends Screen {
 
         // Material tooltip
         if (hoveredMaterial != null) {
-            String name = hoveredMaterial.toString().substring(0, 1).toUpperCase() + hoveredMaterial.toString().substring(1);
+            String name = StringUtils.capitalize(hoveredMaterial.id());
             boolean isBowMaterial = weaponStack.getItem() instanceof ModularBowItem;
 
             String dmgSign = hoveredMaterial.getBonusDamage() > 0 ? "+" : "";
@@ -495,6 +536,19 @@ public class CustomizationScreen extends Screen {
             String pctText = entry.percent() + "%";
             guiGraphics.text(this.font, Component.literal(pctText), breakdownX + 19, rowY + 4, 0xFFFFFFFF, true);
         }
+
+        // Ability Codex book button
+        int bookBtnY = topPos + WINDOW_HEIGHT - subBtnH - 1;
+
+        boolean bookHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= bookBtnY && mouseY <= bookBtnY + subBtnH;
+        drawSmallHeaderButton(guiGraphics, subBtnX, bookBtnY, subBtnW, subBtnH, "Codex", bookHovered);
+
+        if (bookHovered) {
+            List<ClientTooltipComponent> bookTooltip = List.of(
+                    ClientTooltipComponent.create(Component.literal("§eAbility Codex (Guide)").getVisualOrderText())
+            );
+            guiGraphics.tooltip(this.font, bookTooltip, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+        }
     }
 
     @Override
@@ -507,40 +561,106 @@ public class CustomizationScreen extends Screen {
         int statsX = leftPos + 212;
         int statsY = topPos + 35;
 
-        // Copy button click
-        int subBtnW = 39;
+        // Side buttons
+        int subBtnW = 45;
         int subBtnH = 16;
         int subBtnX = leftPos - subBtnW - 4;
+
+        // Export and Import button click
         int exportBtnY = topPos + 1;
         int importBtnY = exportBtnY + subBtnH + 4;
 
         if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= exportBtnY && mouseY <= exportBtnY + subBtnH) {
-            WeaponOffset currentOffset = new WeaponOffset(this.workingOffsetX, this.workingOffsetY);
-            String json = VoxelDesignSerializer.exportToJson(workingVoxels, currentOffset, this.gridSize);
-            this.minecraft.keyboardHandler.setClipboard(json);
             this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            this.exportFeedbackTimer = 40;
+            WeaponOffset currentOffset = new WeaponOffset(this.workingOffsetX, this.workingOffsetY);
+            this.minecraft.setScreen(new ExportDesignScreen(this, new DesignEntry(
+                    this.recentFileName,
+                    false,
+                    this.workingVoxels,
+                    currentOffset,
+                    this.recentAttribution,
+                    this.recentCrafter), this.gridSize));
             return true;
         }
 
-        // Paste button click
         if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= importBtnY && mouseY <= importBtnY + subBtnH) {
-            try {
-                String clipboard = this.minecraft.keyboardHandler.getClipboard();
-                VoxelDesignSerializer.BlueprintData blueprint = VoxelDesignSerializer.importBlueprint(clipboard, this.gridSize);
-
-                this.workingVoxels.clear();
-                this.workingVoxels.addAll(blueprint.voxels());
-                this.workingOffsetX = blueprint.offset().x();
-                this.workingOffsetY = blueprint.offset().y();
-                recalculateCachedStats();
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ANVIL_USE, 1.2F));
-                this.importFeedbackTimer = 40;
-            } catch (Exception e) {
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                this.importFeedbackTimer = -40;
-            }
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            this.minecraft.setScreen(new DesignLibraryScreen(this));
             return true;
+        }
+
+        // Flip buttons click
+        int flipHBtnY = importBtnY + subBtnH + 4;
+        int flipVBtnY = flipHBtnY + subBtnH + 4;
+
+        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= flipHBtnY && mouseY <= flipHBtnY + subBtnH) {
+            if (!workingVoxels.isEmpty()) {
+                List<WeaponVoxel> flipped = new ArrayList<>();
+                for (WeaponVoxel v : workingVoxels) {
+                    int newX = (this.gridSize - 1) - v.x();
+                    flipped.add(new WeaponVoxel(newX, v.y(), v.z(), v.materialId(), v.shade()));
+                }
+                this.workingVoxels.clear();
+                this.workingVoxels.addAll(flipped);
+                recalculateCachedStats();
+
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                return true;
+            }
+        }
+
+        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= flipVBtnY && mouseY <= flipVBtnY + subBtnH) {
+            if (!workingVoxels.isEmpty()) {
+                List<WeaponVoxel> flipped = new ArrayList<>();
+                for (WeaponVoxel v : workingVoxels) {
+                    int newY = (this.gridSize - 1) - v.y();
+                    flipped.add(new WeaponVoxel(v.x(), newY, v.z(), v.materialId(), v.shade()));
+                }
+                this.workingVoxels.clear();
+                this.workingVoxels.addAll(flipped);
+                recalculateCachedStats();
+
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                return true;
+            }
+        }
+
+        // Rotate buttons click
+        int rotCWBtnY = flipVBtnY + subBtnH + 4;
+        int rotCCWBtnY = rotCWBtnY + subBtnH + 4;
+
+        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rotCWBtnY && mouseY <= rotCWBtnY + subBtnH) {
+            if (!workingVoxels.isEmpty()) {
+                List<WeaponVoxel> rotated = new ArrayList<>();
+                for (WeaponVoxel v : workingVoxels) {
+                    int newX = v.y();
+                    int newY = (this.gridSize - 1) - v.x();
+                    rotated.add(new WeaponVoxel(newX, newY, v.z(), v.materialId(), v.shade()));
+                }
+                this.workingVoxels.clear();
+                this.workingVoxels.addAll(rotated);
+
+                recalculateCachedStats();
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                return true;
+            }
+        }
+
+        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rotCCWBtnY && mouseY <= rotCCWBtnY + subBtnH) {
+            if (!workingVoxels.isEmpty()) {
+                List<WeaponVoxel> rotated = new ArrayList<>();
+                for (WeaponVoxel v : workingVoxels) {
+                    int newX = (this.gridSize - 1) - v.y();
+                    int newY = v.x();
+                    rotated.add(new WeaponVoxel(newX, newY, v.z(), v.materialId(), v.shade()));
+                }
+                this.workingVoxels.clear();
+                this.workingVoxels.addAll(rotated);
+
+                recalculateCachedStats();
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                return true;
+            }
         }
 
         // Grip offset buttons click
@@ -651,6 +771,15 @@ public class CustomizationScreen extends Screen {
                 this.selectedShade = s;
                 return true;
             }
+        }
+
+        // Check Ability Codex book button click
+        int bookBtnY = topPos + WINDOW_HEIGHT - subBtnH - 1;
+
+        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= bookBtnY && mouseY <= bookBtnY + subBtnH) {
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BOOK_PAGE_TURN, 1.0F));
+            this.minecraft.setScreen(new AbilityBookScreen(this));
+            return true;
         }
 
         // Grid painting and erasing
@@ -839,10 +968,26 @@ public class CustomizationScreen extends Screen {
 
             for (int i = 0; i < sorted.size() && i < MAX_BREAKDOWN; i++) {
                 java.util.Map.Entry<VoxelMaterial, Integer> entry = sorted.get(i);
-                int p = (int) Math.round((entry.getValue() * 100.0) / total);
+                int p = (int) Math.floor((entry.getValue() * 100.0) / total);
                 this.cachedBreakdown.add(new MaterialBreakdown(entry.getKey(), entry.getKey().getIconItem().getDefaultInstance(), p));
             }
         }
+    }
+
+    public void loadImportedDesign(DesignEntry entry) {
+        this.workingVoxels.clear();
+        this.workingVoxels.addAll(entry.voxels());
+        this.workingOffsetX = entry.offset().x();
+        this.workingOffsetY = entry.offset().y();
+        this.recentFileName = entry.fileName();
+        this.recentCrafter = entry.crafter();
+        this.recentAttribution = entry.attribution();
+        recalculateCachedStats();
+        this.importFeedbackTimer = 40;
+    }
+
+    public void triggerExportFeedback() {
+        this.exportFeedbackTimer = 40;
     }
 
     private void drawSmallHeaderButton(GuiGraphicsExtractor g, int x, int y, int w, int h, String text, boolean hovered) {

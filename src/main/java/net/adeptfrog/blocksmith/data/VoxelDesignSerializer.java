@@ -1,7 +1,11 @@
 package net.adeptfrog.blocksmith.data;
 
 import com.google.gson.*;
+
+import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
@@ -12,189 +16,195 @@ public class VoxelDesignSerializer {
 
     private static final String DEFAULT_SWORD_BLUEPRINT_JSON = """
     {
-       "format": "blocksmith_blueprint",
-       "version": 1,
-       "gridSize": 16,
-       "offsetX": -1,
-       "offsetY": -1,
-       "voxels": [
-         { "x": 15, "y": 15, "m": "amethyst", "s": 4 },
-         { "x": 14, "y": 15, "m": "amethyst", "s": 4 },
-         { "x": 13, "y": 15, "m": "amethyst", "s": 4 },
-         { "x": 15, "y": 14, "m": "amethyst", "s": 4 },
-         { "x": 15, "y": 13, "m": "amethyst", "s": 4 },
-         { "x": 12, "y": 14, "m": "amethyst", "s": 4 },
-         { "x": 11, "y": 13, "m": "amethyst", "s": 4 },
-         { "x": 14, "y": 12, "m": "amethyst", "s": 4 },
-         { "x": 13, "y": 11, "m": "amethyst", "s": 4 },
-         { "x": 12, "y": 10, "m": "amethyst", "s": 3 },
-         { "x": 11, "y": 9, "m": "amethyst", "s": 3 },
-         { "x": 10, "y": 12, "m": "amethyst", "s": 3 },
-         { "x": 9, "y": 11, "m": "amethyst", "s": 3 },
-         { "x": 8, "y": 10, "m": "amethyst", "s": 2 },
-         { "x": 7, "y": 9, "m": "amethyst", "s": 2 },
-         { "x": 10, "y": 8, "m": "amethyst", "s": 2 },
-         { "x": 9, "y": 7, "m": "amethyst", "s": 2 },
-         { "x": 8, "y": 8, "m": "amethyst", "s": 1 },
-         { "x": 9, "y": 9, "m": "amethyst", "s": 1 },
-         { "x": 10, "y": 10, "m": "amethyst", "s": 1 },
-         { "x": 11, "y": 11, "m": "amethyst", "s": 2 },
-         { "x": 12, "y": 12, "m": "amethyst", "s": 2 },
-         { "x": 13, "y": 13, "m": "amethyst", "s": 3 },
-         { "x": 6, "y": 8, "m": "amethyst", "s": 1 },
-         { "x": 8, "y": 6, "m": "amethyst", "s": 1 },
-         { "x": 13, "y": 14, "m": "amethyst", "s": 3 },
-         { "x": 14, "y": 14, "m": "amethyst", "s": 3 },
-         { "x": 14, "y": 13, "m": "amethyst", "s": 3 },
-         { "x": 12, "y": 13, "m": "amethyst", "s": 3 },
-         { "x": 13, "y": 12, "m": "amethyst", "s": 3 },
-         { "x": 8, "y": 2, "m": "netherite", "s": 0 },
-         { "x": 9, "y": 2, "m": "netherite", "s": 0 },
-         { "x": 9, "y": 3, "m": "netherite", "s": 0 },
-         { "x": 7, "y": 3, "m": "netherite", "s": 0 },
-         { "x": 6, "y": 3, "m": "netherite", "s": 0 },
-         { "x": 5, "y": 4, "m": "netherite", "s": 0 },
-         { "x": 4, "y": 3, "m": "netherite", "s": 0 },
-         { "x": 3, "y": 2, "m": "netherite", "s": 0 },
-         { "x": 2, "y": 1, "m": "netherite", "s": 0 },
-         { "x": 2, "y": 0, "m": "netherite", "s": 0 },
-         { "x": 1, "y": 0, "m": "netherite", "s": 0 },
-         { "x": 0, "y": 0, "m": "netherite", "s": 0 },
-         { "x": 0, "y": 1, "m": "netherite", "s": 1 },
-         { "x": 0, "y": 2, "m": "netherite", "s": 1 },
-         { "x": 1, "y": 2, "m": "netherite", "s": 1 },
-         { "x": 2, "y": 3, "m": "netherite", "s": 1 },
-         { "x": 3, "y": 4, "m": "netherite", "s": 1 },
-         { "x": 4, "y": 5, "m": "netherite", "s": 1 },
-         { "x": 3, "y": 6, "m": "netherite", "s": 1 },
-         { "x": 3, "y": 7, "m": "netherite", "s": 1 },
-         { "x": 2, "y": 8, "m": "netherite", "s": 1 },
-         { "x": 2, "y": 9, "m": "netherite", "s": 1 },
-         { "x": 3, "y": 9, "m": "netherite", "s": 1 },
-         { "x": 4, "y": 8, "m": "netherite", "s": 1 },
-         { "x": 8, "y": 4, "m": "netherite", "s": 0 },
-         { "x": 7, "y": 5, "m": "netherite", "s": 0 },
-         { "x": 5, "y": 7, "m": "netherite", "s": 0 },
-         { "x": 8, "y": 3, "m": "netherite", "s": 1 },
-         { "x": 3, "y": 8, "m": "netherite", "s": 2 },
-         { "x": 1, "y": 1, "m": "netherite", "s": 3 },
-         { "x": 2, "y": 2, "m": "netherite", "s": 2 },
-         { "x": 4, "y": 4, "m": "netherite", "s": 2 },
-         { "x": 3, "y": 3, "m": "netherite", "s": 3 },
-         { "x": 11, "y": 12, "m": "amethyst", "s": 2 },
-         { "x": 12, "y": 11, "m": "amethyst", "s": 2 },
-         { "x": 10, "y": 11, "m": "amethyst", "s": 2 },
-         { "x": 11, "y": 10, "m": "amethyst", "s": 2 },
-         { "x": 9, "y": 10, "m": "amethyst", "s": 1 },
-         { "x": 10, "y": 9, "m": "amethyst", "s": 1 },
-         { "x": 8, "y": 9, "m": "amethyst", "s": 1 },
-         { "x": 9, "y": 8, "m": "amethyst", "s": 1 },
-         { "x": 7, "y": 8, "m": "amethyst", "s": 1 },
-         { "x": 8, "y": 7, "m": "amethyst", "s": 1 },
-         { "x": 7, "y": 7, "m": "amethyst", "s": 0 },
-         { "x": 6, "y": 7, "m": "amethyst", "s": 0 },
-         { "x": 7, "y": 6, "m": "amethyst", "s": 0 },
-         { "x": 6, "y": 4, "m": "netherite", "s": 1 },
-         { "x": 7, "y": 4, "m": "netherite", "s": 1 },
-         { "x": 6, "y": 5, "m": "netherite", "s": 1 },
-         { "x": 6, "y": 6, "m": "netherite", "s": 2 },
-         { "x": 4, "y": 7, "m": "netherite", "s": 3 },
-         { "x": 4, "y": 6, "m": "netherite", "s": 3 },
-         { "x": 5, "y": 6, "m": "netherite", "s": 3 },
-         { "x": 5, "y": 5, "m": "netherite", "s": 2 }
-       ]
+      "format": "blocksmith_blueprint",
+      "version": 1,
+      "gridSize": 16,
+      "offsetX": -1,
+      "offsetY": -1,
+      "attribution": "\\"Forged Sword\\" by adeptfrog.",
+      "crafter": "adeptfrog",
+      "voxels": [
+        { "x": 8, "y": 2, "m": "flint", "s": 0 },
+        { "x": 9, "y": 2, "m": "flint", "s": 0 },
+        { "x": 9, "y": 3, "m": "flint", "s": 0 },
+        { "x": 7, "y": 3, "m": "flint", "s": 0 },
+        { "x": 6, "y": 3, "m": "flint", "s": 0 },
+        { "x": 5, "y": 4, "m": "flint", "s": 0 },
+        { "x": 4, "y": 3, "m": "flint", "s": 0 },
+        { "x": 3, "y": 2, "m": "flint", "s": 0 },
+        { "x": 2, "y": 1, "m": "flint", "s": 0 },
+        { "x": 2, "y": 0, "m": "flint", "s": 0 },
+        { "x": 1, "y": 0, "m": "flint", "s": 0 },
+        { "x": 0, "y": 0, "m": "flint", "s": 0 },
+        { "x": 0, "y": 1, "m": "flint", "s": 1 },
+        { "x": 0, "y": 2, "m": "flint", "s": 1 },
+        { "x": 1, "y": 2, "m": "flint", "s": 1 },
+        { "x": 2, "y": 3, "m": "flint", "s": 1 },
+        { "x": 3, "y": 4, "m": "flint", "s": 1 },
+        { "x": 4, "y": 5, "m": "flint", "s": 1 },
+        { "x": 3, "y": 6, "m": "flint", "s": 1 },
+        { "x": 3, "y": 7, "m": "flint", "s": 1 },
+        { "x": 2, "y": 8, "m": "flint", "s": 1 },
+        { "x": 2, "y": 9, "m": "flint", "s": 1 },
+        { "x": 3, "y": 9, "m": "flint", "s": 1 },
+        { "x": 4, "y": 8, "m": "flint", "s": 1 },
+        { "x": 8, "y": 4, "m": "flint", "s": 0 },
+        { "x": 8, "y": 3, "m": "flint", "s": 1 },
+        { "x": 3, "y": 8, "m": "flint", "s": 2 },
+        { "x": 1, "y": 1, "m": "flint", "s": 3 },
+        { "x": 2, "y": 2, "m": "flint", "s": 2 },
+        { "x": 4, "y": 4, "m": "flint", "s": 2 },
+        { "x": 3, "y": 3, "m": "flint", "s": 3 },
+        { "x": 6, "y": 4, "m": "flint", "s": 1 },
+        { "x": 7, "y": 4, "m": "flint", "s": 1 },
+        { "x": 6, "y": 5, "m": "flint", "s": 1 },
+        { "x": 6, "y": 6, "m": "flint", "s": 2 },
+        { "x": 4, "y": 7, "m": "flint", "s": 3 },
+        { "x": 4, "y": 6, "m": "flint", "s": 3 },
+        { "x": 5, "y": 6, "m": "flint", "s": 3 },
+        { "x": 5, "y": 5, "m": "flint", "s": 2 },
+        { "x": 6, "y": 7, "m": "coal", "s": 0 },
+        { "x": 7, "y": 7, "m": "coal", "s": 0 },
+        { "x": 7, "y": 6, "m": "coal", "s": 0 },
+        { "x": 7, "y": 8, "m": "coal", "s": 1 },
+        { "x": 8, "y": 8, "m": "coal", "s": 1 },
+        { "x": 8, "y": 7, "m": "coal", "s": 1 },
+        { "x": 8, "y": 9, "m": "coal", "s": 1 },
+        { "x": 9, "y": 9, "m": "coal", "s": 1 },
+        { "x": 9, "y": 8, "m": "coal", "s": 1 },
+        { "x": 10, "y": 11, "m": "coal", "s": 2 },
+        { "x": 11, "y": 11, "m": "coal", "s": 2 },
+        { "x": 11, "y": 10, "m": "coal", "s": 2 },
+        { "x": 13, "y": 12, "m": "coal", "s": 3 },
+        { "x": 13, "y": 13, "m": "coal", "s": 3 },
+        { "x": 12, "y": 13, "m": "coal", "s": 3 },
+        { "x": 5, "y": 7, "m": "coal", "s": 0 },
+        { "x": 7, "y": 5, "m": "coal", "s": 0 },
+        { "x": 8, "y": 6, "m": "coal", "s": 0 },
+        { "x": 6, "y": 8, "m": "coal", "s": 0 },
+        { "x": 7, "y": 9, "m": "coal", "s": 0 },
+        { "x": 8, "y": 10, "m": "coal", "s": 0 },
+        { "x": 9, "y": 11, "m": "coal", "s": 0 },
+        { "x": 10, "y": 12, "m": "coal", "s": 0 },
+        { "x": 11, "y": 13, "m": "coal", "s": 0 },
+        { "x": 12, "y": 14, "m": "coal", "s": 0 },
+        { "x": 13, "y": 15, "m": "coal", "s": 0 },
+        { "x": 14, "y": 15, "m": "coal", "s": 0 },
+        { "x": 15, "y": 15, "m": "coal", "s": 0 },
+        { "x": 15, "y": 14, "m": "coal", "s": 0 },
+        { "x": 15, "y": 13, "m": "coal", "s": 0 },
+        { "x": 14, "y": 12, "m": "coal", "s": 0 },
+        { "x": 13, "y": 11, "m": "coal", "s": 0 },
+        { "x": 12, "y": 10, "m": "coal", "s": 0 },
+        { "x": 11, "y": 9, "m": "coal", "s": 0 },
+        { "x": 10, "y": 8, "m": "coal", "s": 0 },
+        { "x": 9, "y": 7, "m": "coal", "s": 0 },
+        { "x": 9, "y": 10, "m": "coal", "s": 2 },
+        { "x": 10, "y": 10, "m": "coal", "s": 2 },
+        { "x": 10, "y": 9, "m": "coal", "s": 2 },
+        { "x": 11, "y": 12, "m": "coal", "s": 3 },
+        { "x": 12, "y": 12, "m": "coal", "s": 3 },
+        { "x": 12, "y": 11, "m": "coal", "s": 3 },
+        { "x": 13, "y": 14, "m": "coal", "s": 4 },
+        { "x": 14, "y": 14, "m": "coal", "s": 4 },
+        { "x": 14, "y": 13, "m": "coal", "s": 4 }
+      ]
     }
     """;
 
     private static final String DEFAULT_BOW_BLUEPRINT_JSON = """
     {
-       "format": "blocksmith_blueprint",
-       "version": 1,
-       "gridSize": 16,
-       "voxels": [
-         { "x": 1, "y": 0, "m": "netherite", "s": 1 },
-         { "x": 2, "y": 0, "m": "netherite", "s": 0 },
-         { "x": 0, "y": 0, "m": "netherite", "s": 1 },
-         { "x": 0, "y": 1, "m": "netherite", "s": 2 },
-         { "x": 1, "y": 1, "m": "netherite", "s": 4 },
-         { "x": 2, "y": 1, "m": "netherite", "s": 3 },
-         { "x": 2, "y": 2, "m": "netherite", "s": 3 },
-         { "x": 2, "y": 3, "m": "netherite", "s": 2 },
-         { "x": 2, "y": 4, "m": "netherite", "s": 3 },
-         { "x": 1, "y": 2, "m": "netherite", "s": 0 },
-         { "x": 1, "y": 3, "m": "netherite", "s": 0 },
-         { "x": 1, "y": 4, "m": "netherite", "s": 0 },
-         { "x": 2, "y": 5, "m": "netherite", "s": 0 },
-         { "x": 2, "y": 6, "m": "netherite", "s": 0 },
-         { "x": 2, "y": 7, "m": "netherite", "s": 0 },
-         { "x": 3, "y": 1, "m": "netherite", "s": 0 },
-         { "x": 3, "y": 2, "m": "netherite", "s": 0 },
-         { "x": 3, "y": 3, "m": "netherite", "s": 0 },
-         { "x": 3, "y": 4, "m": "netherite", "s": 0 },
-         { "x": 3, "y": 6, "m": "netherite", "s": 1 },
-         { "x": 3, "y": 5, "m": "netherite", "s": 2 },
-         { "x": 3, "y": 7, "m": "netherite", "s": 3 },
-         { "x": 4, "y": 6, "m": "netherite", "s": 0 },
-         { "x": 5, "y": 7, "m": "netherite", "s": 0 },
-         { "x": 5, "y": 8, "m": "netherite", "s": 0 },
-         { "x": 4, "y": 8, "m": "netherite", "s": 0 },
-         { "x": 6, "y": 9, "m": "netherite", "s": 0 },
-         { "x": 7, "y": 10, "m": "netherite", "s": 0 },
-         { "x": 7, "y": 11, "m": "netherite", "s": 0 },
-         { "x": 8, "y": 10, "m": "netherite", "s": 0 },
-         { "x": 9, "y": 11, "m": "netherite", "s": 0 },
-         { "x": 11, "y": 12, "m": "netherite", "s": 0 },
-         { "x": 12, "y": 12, "m": "netherite", "s": 0 },
-         { "x": 13, "y": 12, "m": "netherite", "s": 0 },
-         { "x": 14, "y": 12, "m": "netherite", "s": 0 },
-         { "x": 15, "y": 13, "m": "netherite", "s": 0 },
-         { "x": 15, "y": 14, "m": "netherite", "s": 1 },
-         { "x": 15, "y": 15, "m": "netherite", "s": 1 },
-         { "x": 14, "y": 15, "m": "netherite", "s": 2 },
-         { "x": 13, "y": 14, "m": "netherite", "s": 0 },
-         { "x": 12, "y": 14, "m": "netherite", "s": 0 },
-         { "x": 11, "y": 14, "m": "netherite", "s": 0 },
-         { "x": 10, "y": 13, "m": "netherite", "s": 0 },
-         { "x": 9, "y": 13, "m": "netherite", "s": 0 },
-         { "x": 8, "y": 13, "m": "netherite", "s": 0 },
-         { "x": 8, "y": 12, "m": "netherite", "s": 3 },
-         { "x": 10, "y": 12, "m": "netherite", "s": 2 },
-         { "x": 9, "y": 12, "m": "netherite", "s": 1 },
-         { "x": 14, "y": 14, "m": "netherite", "s": 4 },
-         { "x": 14, "y": 13, "m": "netherite", "s": 3 },
-         { "x": 13, "y": 13, "m": "netherite", "s": 3 },
-         { "x": 11, "y": 13, "m": "netherite", "s": 3 },
-         { "x": 12, "y": 13, "m": "netherite", "s": 2 },
-         { "x": 4, "y": 7, "m": "netherite", "s": 1 },
-         { "x": 8, "y": 11, "m": "netherite", "s": 1 },
-         { "x": 1, "y": 8, "m": "netherite", "s": 4 },
-         { "x": 7, "y": 14, "m": "netherite", "s": 4 },
-         { "x": 2, "y": 8, "m": "netherite", "s": 3 },
-         { "x": 7, "y": 13, "m": "netherite", "s": 3 },
-         { "x": 3, "y": 9, "m": "netherite", "s": 0 },
-         { "x": 6, "y": 12, "m": "netherite", "s": 0 },
-         { "x": 4, "y": 2, "m": "netherite", "s": 0 },
-         { "x": 5, "y": 3, "m": "netherite", "s": 0 },
-         { "x": 13, "y": 11, "m": "netherite", "s": 0 },
-         { "x": 12, "y": 10, "m": "netherite", "s": 0 },
-         { "x": 6, "y": 4, "m": "netherite", "s": 1 },
-         { "x": 7, "y": 5, "m": "netherite", "s": 1 },
-         { "x": 11, "y": 9, "m": "netherite", "s": 1 },
-         { "x": 10, "y": 8, "m": "netherite", "s": 1 },
-         { "x": 8, "y": 6, "m": "netherite", "s": 2 },
-         { "x": 9, "y": 7, "m": "netherite", "s": 2 },
-         { "x": 5, "y": 10, "m": "amethyst", "s": 4 },
-         { "x": 4, "y": 9, "m": "amethyst", "s": 4 },
-         { "x": 6, "y": 11, "m": "amethyst", "s": 4 },
-         { "x": 6, "y": 10, "m": "amethyst", "s": 3 },
-         { "x": 5, "y": 9, "m": "amethyst", "s": 3 },
-         { "x": 5, "y": 11, "m": "amethyst", "s": 2 },
-         { "x": 4, "y": 10, "m": "amethyst", "s": 2 },
-         { "x": 2, "y": 9, "m": "amethyst", "s": 2 },
-         { "x": 3, "y": 8, "m": "amethyst", "s": 2 },
-         { "x": 6, "y": 13, "m": "amethyst", "s": 2 },
-         { "x": 7, "y": 12, "m": "amethyst", "s": 2 }
-       ]
+      "format": "blocksmith_blueprint",
+      "version": 1,
+      "gridSize": 16,
+      "offsetX": 0,
+      "offsetY": 0,
+      "attribution": "\\"Forged Bow\\" by adeptfrog.",
+      "crafter": "adeptfrog",
+      "voxels": [
+        { "x": 1, "y": 0, "m": "flint", "s": 1 },
+        { "x": 2, "y": 0, "m": "flint", "s": 0 },
+        { "x": 0, "y": 0, "m": "flint", "s": 1 },
+        { "x": 0, "y": 1, "m": "flint", "s": 2 },
+        { "x": 1, "y": 1, "m": "flint", "s": 4 },
+        { "x": 2, "y": 1, "m": "flint", "s": 3 },
+        { "x": 2, "y": 2, "m": "flint", "s": 3 },
+        { "x": 2, "y": 3, "m": "flint", "s": 2 },
+        { "x": 2, "y": 4, "m": "flint", "s": 3 },
+        { "x": 1, "y": 2, "m": "flint", "s": 0 },
+        { "x": 1, "y": 3, "m": "flint", "s": 0 },
+        { "x": 1, "y": 4, "m": "flint", "s": 0 },
+        { "x": 2, "y": 5, "m": "flint", "s": 0 },
+        { "x": 2, "y": 6, "m": "flint", "s": 0 },
+        { "x": 2, "y": 7, "m": "flint", "s": 0 },
+        { "x": 3, "y": 1, "m": "flint", "s": 0 },
+        { "x": 3, "y": 2, "m": "flint", "s": 0 },
+        { "x": 3, "y": 3, "m": "flint", "s": 0 },
+        { "x": 3, "y": 4, "m": "flint", "s": 0 },
+        { "x": 3, "y": 6, "m": "flint", "s": 1 },
+        { "x": 3, "y": 5, "m": "flint", "s": 2 },
+        { "x": 3, "y": 7, "m": "flint", "s": 3 },
+        { "x": 4, "y": 6, "m": "flint", "s": 0 },
+        { "x": 5, "y": 7, "m": "flint", "s": 0 },
+        { "x": 5, "y": 8, "m": "flint", "s": 0 },
+        { "x": 4, "y": 8, "m": "flint", "s": 0 },
+        { "x": 6, "y": 9, "m": "flint", "s": 0 },
+        { "x": 7, "y": 10, "m": "flint", "s": 0 },
+        { "x": 7, "y": 11, "m": "flint", "s": 0 },
+        { "x": 8, "y": 10, "m": "flint", "s": 0 },
+        { "x": 9, "y": 11, "m": "flint", "s": 0 },
+        { "x": 11, "y": 12, "m": "flint", "s": 0 },
+        { "x": 12, "y": 12, "m": "flint", "s": 0 },
+        { "x": 13, "y": 12, "m": "flint", "s": 0 },
+        { "x": 14, "y": 12, "m": "flint", "s": 0 },
+        { "x": 15, "y": 13, "m": "flint", "s": 0 },
+        { "x": 15, "y": 14, "m": "flint", "s": 1 },
+        { "x": 15, "y": 15, "m": "flint", "s": 1 },
+        { "x": 14, "y": 15, "m": "flint", "s": 2 },
+        { "x": 13, "y": 14, "m": "flint", "s": 0 },
+        { "x": 12, "y": 14, "m": "flint", "s": 0 },
+        { "x": 11, "y": 14, "m": "flint", "s": 0 },
+        { "x": 10, "y": 13, "m": "flint", "s": 0 },
+        { "x": 9, "y": 13, "m": "flint", "s": 0 },
+        { "x": 8, "y": 13, "m": "flint", "s": 0 },
+        { "x": 8, "y": 12, "m": "flint", "s": 3 },
+        { "x": 10, "y": 12, "m": "flint", "s": 2 },
+        { "x": 9, "y": 12, "m": "flint", "s": 1 },
+        { "x": 14, "y": 14, "m": "flint", "s": 4 },
+        { "x": 14, "y": 13, "m": "flint", "s": 3 },
+        { "x": 13, "y": 13, "m": "flint", "s": 3 },
+        { "x": 11, "y": 13, "m": "flint", "s": 3 },
+        { "x": 12, "y": 13, "m": "flint", "s": 2 },
+        { "x": 4, "y": 7, "m": "flint", "s": 1 },
+        { "x": 8, "y": 11, "m": "flint", "s": 1 },
+        { "x": 1, "y": 8, "m": "flint", "s": 4 },
+        { "x": 7, "y": 14, "m": "flint", "s": 4 },
+        { "x": 2, "y": 8, "m": "flint", "s": 3 },
+        { "x": 7, "y": 13, "m": "flint", "s": 3 },
+        { "x": 3, "y": 9, "m": "flint", "s": 0 },
+        { "x": 6, "y": 12, "m": "flint", "s": 0 },
+        { "x": 4, "y": 2, "m": "flint", "s": 0 },
+        { "x": 5, "y": 3, "m": "flint", "s": 0 },
+        { "x": 13, "y": 11, "m": "flint", "s": 0 },
+        { "x": 12, "y": 10, "m": "flint", "s": 0 },
+        { "x": 6, "y": 4, "m": "flint", "s": 1 },
+        { "x": 7, "y": 5, "m": "flint", "s": 1 },
+        { "x": 11, "y": 9, "m": "flint", "s": 1 },
+        { "x": 10, "y": 8, "m": "flint", "s": 1 },
+        { "x": 8, "y": 6, "m": "flint", "s": 2 },
+        { "x": 9, "y": 7, "m": "flint", "s": 2 },
+        { "x": 5, "y": 10, "m": "coal", "s": 4 },
+        { "x": 4, "y": 9, "m": "coal", "s": 4 },
+        { "x": 6, "y": 11, "m": "coal", "s": 4 },
+        { "x": 6, "y": 10, "m": "coal", "s": 3 },
+        { "x": 5, "y": 9, "m": "coal", "s": 3 },
+        { "x": 5, "y": 11, "m": "coal", "s": 2 },
+        { "x": 4, "y": 10, "m": "coal", "s": 2 },
+        { "x": 2, "y": 9, "m": "coal", "s": 2 },
+        { "x": 3, "y": 8, "m": "coal", "s": 2 },
+        { "x": 6, "y": 13, "m": "coal", "s": 2 },
+        { "x": 7, "y": 12, "m": "coal", "s": 2 }
+      ]
     }
     """;
 
@@ -222,7 +232,7 @@ public class VoxelDesignSerializer {
         COMPILED_DEFAULT_BOW_VOXELS = Collections.unmodifiableList(bowList);
     }
 
-    public record BlueprintData(List<WeaponVoxel> voxels, WeaponOffset offset) {}
+    public record BlueprintData(List<WeaponVoxel> voxels, WeaponOffset offset, String attribution, String crafter) {}
 
     public static List<WeaponVoxel> getDefaultVoxels() {
         try {
@@ -256,13 +266,17 @@ public class VoxelDesignSerializer {
         }
     }
 
-    public static String exportToJson(List<WeaponVoxel> voxels, WeaponOffset offset, int gridSize) {
+    public static String exportToJson(List<WeaponVoxel> voxels, WeaponOffset offset, int gridSize, String attribution, String crafter) {
         JsonObject root = new JsonObject();
         root.addProperty("format", "blocksmith_blueprint");
         root.addProperty("version", 1);
         root.addProperty("gridSize", gridSize);
         root.addProperty("offsetX", offset.x());
         root.addProperty("offsetY", offset.y());
+
+        // Attribution & Source
+        root.addProperty("attribution", attribution != null ? attribution.trim() : "");
+        root.addProperty("crafter", crafter != null ? crafter.trim() : "");
 
         JsonArray array = new JsonArray();
         for (WeaponVoxel v : voxels) {
@@ -287,13 +301,16 @@ public class VoxelDesignSerializer {
         int srcOffX = root.has("offsetX") ? root.get("offsetX").getAsInt() : 0;
         int srcOffY = root.has("offsetY") ? root.get("offsetY").getAsInt() : 0;
 
-        // Dynamically scale the grip offset to match the new grid size
+        // Read attribution metadata with empty string fallbacks
+        String attribution = root.has("attribution") ? root.get("attribution").getAsString() : "";
+        String crafter = root.has("crafter") ? root.get("crafter").getAsString() : "";
+
         double scale = (double) targetGridSize / sourceGridSize;
         int targetOffX = (int) Math.round(srcOffX * scale);
         int targetOffY = (int) Math.round(srcOffY * scale);
 
         List<WeaponVoxel> voxels = scaleAndConvertVoxels(root.getAsJsonArray("voxels"), sourceGridSize, targetGridSize);
-        return new BlueprintData(voxels, new WeaponOffset(targetOffX, targetOffY));
+        return new BlueprintData(voxels, new WeaponOffset(targetOffX, targetOffY), attribution, crafter);
     }
 
     public static List<WeaponVoxel> importFromJson(String jsonStr, int targetGridSize) {
@@ -340,5 +357,59 @@ public class VoxelDesignSerializer {
         }
 
         return new ArrayList<>(scaledMap.values());
+    }
+
+    public static List<WeaponVoxel> convertImageToVoxels(Image rawImage, int targetGridSize) {
+        BufferedImage img = new BufferedImage(targetGridSize, targetGridSize, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.drawImage(rawImage, 0, 0, targetGridSize, targetGridSize, null);
+        g.dispose();
+
+        List<WeaponVoxel> list = new ArrayList<>();
+        Collection<VoxelMaterial> materials = VoxelMaterialRegistry.getAll();
+
+        for (int ix = 0; ix < targetGridSize; ix++) {
+            for (int iy = 0; iy < targetGridSize; iy++) {
+                int argb = img.getRGB(ix, iy);
+                int a = (argb >> 24) & 0xFF;
+                if (a < 15) continue; // Skip transparent pixels
+
+                int r = (argb >> 16) & 0xFF;
+                int gCol = (argb >> 8) & 0xFF;
+                int b = argb & 0xFF;
+
+                VoxelMaterial bestMat = VoxelMaterialRegistry.FALLBACK;
+                int bestShade = 2;
+                double minDistance = Double.MAX_VALUE;
+
+                for (VoxelMaterial mat : materials) {
+                    int[] palette = mat.getPalette();
+                    if (palette == null) continue;
+
+                    for (int s = 0; s < palette.length; s++) {
+                        int c = palette[s];
+                        int cr = (c >> 16) & 0xFF;
+                        int cg = (c >> 8) & 0xFF;
+                        int cb = c & 0xFF;
+
+                        double dist = 2 * Math.pow(r - cr, 2) + 4 * Math.pow(gCol - cg, 2) + 3 * Math.pow(b - cb, 2);
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            bestMat = mat;
+                            bestShade = s;
+                        }
+                    }
+                }
+
+                int voxelY = (targetGridSize - 1) - iy;
+                list.add(new WeaponVoxel(ix, voxelY, 0, bestMat.id(), bestShade));
+            }
+        }
+
+        if (list.isEmpty()) {
+            throw new IllegalArgumentException("No visible pixels found in image!");
+        }
+
+        return list;
     }
 }

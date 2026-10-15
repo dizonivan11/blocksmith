@@ -2,8 +2,8 @@
 	"schemaVersion": 1,
 	"id": "blocksmith",
 	"version": "${version}",
-	"name": "Blocksmith",
-	"description": "Adds a customizable voxel-based weapon with dynamic stats!",
+	"name": "Blocksmith - Voxel Weapons",
+	"description": "Create your custom weapons voxel by voxel with dynamic stats!",
 	"authors": [
 		"adeptfrog"
 	],
@@ -11,7 +11,7 @@
 		"homepage": "https://fabricmc.net/",
 		"sources": "https://github.com/dizonivan11/blocksmith"
 	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/blocksmith/icon.png",
 	"environment": "*",
 	"entrypoints": {
