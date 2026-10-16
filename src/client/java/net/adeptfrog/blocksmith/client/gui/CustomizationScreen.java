@@ -65,7 +65,10 @@ public class CustomizationScreen extends Screen {
     private int lastHoverKey = -2;
     private VoxelRaycaster.Hit hoverHit = null;
     private VoxelRaycaster raycaster;
-    private int[] pixelBuffer;
+    private int[] pixelBuffer;   // composited (opaque) pixels uploaded to the texture
+    private int[] fgBase;        // ray-cast model without hover highlight
+    private int[] fgView;        // fgBase plus hover highlight
+    private final long animStartNanos = System.nanoTime();
     private DynamicTexture viewTexture;
     private NativeImage viewImage;
     private Identifier viewTextureId;
@@ -484,8 +487,9 @@ public class CustomizationScreen extends Screen {
             drawSmallHeaderButton(guiGraphics, subBtnX, layerUpBtnY, subBtnW, subBtnH, "Layer +", layerUpHovered);
             drawSmallHeaderButton(guiGraphics, subBtnX, layerDownBtnY, subBtnW, subBtnH, "Layer -", layerDownHovered);
 
-            String layerText = this.activeLayer == 0 ? "Layer 0 (Base)" : String.format("Layer %+d", this.activeLayer);
-            guiGraphics.text(this.font, Component.literal(layerText), subBtnX - 1, layerDownBtnY + subBtnH + 5, 0xFFFFFFFF, true);
+            String layerText = String.format("Layer %+d", this.activeLayer).replace("+0", "0");
+            int layerTextX = subBtnX + (subBtnW - this.font.width(layerText)) / 2; // centred under the buttons
+            guiGraphics.text(this.font, Component.literal(layerText), layerTextX, layerDownBtnY + subBtnH + 5, 0xFFFFFFFF, true);
         }
 
         int viewBtnY = topPos + VIEW_BTN_Y;
@@ -498,7 +502,7 @@ public class CustomizationScreen extends Screen {
             boolean toolHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= toolBtnY && mouseY <= toolBtnY + subBtnH;
             boolean resetHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= resetBtnY && mouseY <= resetBtnY + subBtnH;
             drawSmallHeaderButton(guiGraphics, subBtnX, toolBtnY, subBtnW, subBtnH, TOOL_NAMES[this.tool3d], toolHovered);
-            drawSmallHeaderButton(guiGraphics, subBtnX, resetBtnY, subBtnW, subBtnH, "Reset View", resetHovered);
+            drawSmallHeaderButton(guiGraphics, subBtnX, resetBtnY, subBtnW, subBtnH, "Reset", resetHovered);
 
             if (toolHovered) {
                 List<ClientTooltipComponent> toolTooltip = List.of(
@@ -1034,6 +1038,8 @@ public class CustomizationScreen extends Screen {
         if (this.raycaster == null) {
             this.raycaster = new VoxelRaycaster(this.gridSize, LAYER_COUNT, WORKSPACE_DIM, WORKSPACE_DIM);
             this.pixelBuffer = new int[WORKSPACE_DIM * WORKSPACE_DIM];
+            this.fgBase = new int[WORKSPACE_DIM * WORKSPACE_DIM];
+            this.fgView = new int[WORKSPACE_DIM * WORKSPACE_DIM];
         }
     }
 
@@ -1063,23 +1069,40 @@ public class CustomizationScreen extends Screen {
         boolean inside = px >= 0 && py >= 0 && px < WORKSPACE_DIM && py < WORKSPACE_DIM;
         int hoverKey = (inside && !this.orbiting) ? (px << 16) | py : -1;
 
-        if (this.sceneDirty || hoverKey != this.lastHoverKey) {
-            if (this.sceneDirty) rebuildScene();
-            this.hoverHit = hoverKey >= 0 ? this.raycaster.pick(px, py) : null;
-            this.raycaster.render(this.pixelBuffer, this.hoverHit);
-            for (int y = 0; y < WORKSPACE_DIM; y++) {
-                for (int x = 0; x < WORKSPACE_DIM; x++) {
-                    this.viewImage.setPixel(x, y, this.pixelBuffer[y * WORKSPACE_DIM + x]);
-                }
-            }
-            this.viewTexture.upload();
+        // Heavy pass: only when the model or camera changed
+        boolean rebuilt = this.sceneDirty;
+        if (rebuilt) {
+            rebuildScene();
+            this.raycaster.render(this.fgBase, null);
             this.sceneDirty = false;
+        }
+
+        // Light pass: re-trace just the hovered voxel when the cursor moves
+        if (rebuilt || hoverKey != this.lastHoverKey) {
+            this.hoverHit = hoverKey >= 0 ? this.raycaster.pick(px, py) : null;
+            this.raycaster.renderWithHighlight(this.fgBase, this.fgView, this.hoverHit);
             this.lastHoverKey = hoverKey;
         }
 
+        // Every frame: lay the model over the animated background and upload
+        double seconds = (System.nanoTime() - this.animStartNanos) / 1.0e9;
+        this.raycaster.composite(this.fgView, this.pixelBuffer, seconds);
+        for (int y = 0; y < WORKSPACE_DIM; y++) {
+            for (int x = 0; x < WORKSPACE_DIM; x++) {
+                this.viewImage.setPixel(x, y, this.pixelBuffer[y * WORKSPACE_DIM + x]);
+            }
+        }
+        this.viewTexture.upload();
+
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM);
 
-        guiGraphics.text(this.font, Component.literal("Mid-drag: Orbit  Wheel: Zoom"), gridX + 2, gridY + WORKSPACE_DIM + 2, FONT_COLOR, false);
+        // Control hint sits inside the view on a dark pill so it stays readable on the bright background
+        String hint = this.tool3d == TOOL_ORBIT ? "Drag: orbit  Wheel: zoom" : "Mid-drag: orbit  Wheel: zoom";
+        int hintW = this.font.width(hint);
+        int hintX = gridX + 4;
+        int hintY = gridY + WORKSPACE_DIM - 13;
+        guiGraphics.fill(hintX - 3, hintY - 2, hintX + hintW + 3, hintY + 10, 0xB0141C2C);
+        guiGraphics.text(this.font, Component.literal(hint), hintX, hintY, 0xFFFFFFFF, false);
     }
 
     private boolean handle3dInteraction(int mouseX, int mouseY, int button, boolean drag) {
