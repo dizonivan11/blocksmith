@@ -106,13 +106,13 @@ public class CustomizationScreen extends Screen {
     private static final int FONT_COLOR = 0xFF3F3F3F;
 
     // Container Window Dimensions
-    private static final int WINDOW_WIDTH = 317;
-    private static final int WINDOW_HEIGHT = 253;
+    private static final int WINDOW_WIDTH = 381;
+    private static final int WINDOW_HEIGHT = 317;
 
     // Workspace Allocated Area
     private static final int WORKSPACE_OFFSET_X = 12;
     private static final int WORKSPACE_OFFSET_Y = 12;
-    private static final int WORKSPACE_DIM = 192;
+    private static final int WORKSPACE_DIM = 256;
 
     // Bottom Slot Configuration
     private static final int VISIBLE_SLOTS = 8;
@@ -122,7 +122,7 @@ public class CustomizationScreen extends Screen {
 
     private static final int MAT_START_X = 8;
     private static final int SHADE_START_X = 164;
-    private static final int SLOTS_Y = 229;
+    private static final int SLOTS_Y = 293;
 
     // Arrow Buttons
     private static final int ARROW_BTN_W = 10;
@@ -368,7 +368,7 @@ public class CustomizationScreen extends Screen {
         }
 
         // Stats panel
-        int statsX = leftPos + 212;
+        int statsX = leftPos + 276;
         int statsY = topPos + 35;
 
         boolean isBow = weaponStack.getItem() instanceof ModularBowItem;
@@ -502,7 +502,7 @@ public class CustomizationScreen extends Screen {
         this.materialIndexOffset = Math.clamp(this.materialIndexOffset, 0, maxOffset);
 
         // Material navigator buttons
-        int arrowY = topPos + 216;
+        int arrowY = topPos + 280;
         int leftArrowX = leftPos + 126;
         int rightArrowX = leftPos + 140;
 
@@ -612,7 +612,7 @@ public class CustomizationScreen extends Screen {
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
 
-        int statsX = leftPos + 212;
+        int statsX = leftPos + 276;
         int statsY = topPos + 35;
 
         // Icon buttons
@@ -693,7 +693,7 @@ public class CustomizationScreen extends Screen {
         }
 
         // Material navigator buttons click
-        int arrowY = topPos + 216;
+        int arrowY = topPos + 280;
         int leftArrowX = leftPos + 126;
         int rightArrowX = leftPos + 140;
 
