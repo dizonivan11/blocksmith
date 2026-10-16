@@ -85,6 +85,7 @@ public class CustomizationScreen extends Screen {
     private int lastHoverKey = -2;
     private VoxelRaycaster.Hit hoverHit = null;
     private VoxelRaycaster raycaster;
+    private int rcW, rcH, bgW, bgH; // workspace size (GUI px) and background buffer size the raycaster/textures were built for
     private int renderScale = 0;   // render pixels per GUI pixel the raycaster and textures were built for
     private int[] fgBase;          // model layer (model + floor grid + outline) at native resolution, no hover highlight
     private int[] fgView;          // fgBase plus hover highlight
@@ -129,7 +130,12 @@ public class CustomizationScreen extends Screen {
     private static final int ARROW_BTN_H = 8;
 
     public final int gridSize;
-    private final int cellSize;
+    private int cellSize;
+
+    // Workspace rectangle (GUI pixels). In the expanded layout the window is pinned to the right and the workspace
+    // fills the rest of the screen; on very narrow screens the classic centred 192x192 layout is used instead.
+    private int wsX, wsY, wsW = WORKSPACE_DIM, wsH = WORKSPACE_DIM;
+    private int gridOX, gridOY; // 2D grid origin (the grid is centred inside the workspace)
 
     private final boolean[] occupiedGrid;
     private final int[] colorGrid;
@@ -196,6 +202,7 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        updateLayout();
         // Scrolling over the 3D view zooms it
         if (this.view3d && verticalAmount != 0 && isInsideWorkspace((int) mouseX, (int) mouseY)) {
             ensureRaycaster();
@@ -228,6 +235,7 @@ public class CustomizationScreen extends Screen {
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
+        updateLayout();
 
         if (saveFeedbackTimer > 0) saveFeedbackTimer--;
         else if (saveFeedbackTimer < 0) saveFeedbackTimer++;
@@ -236,19 +244,33 @@ public class CustomizationScreen extends Screen {
         if (importFeedbackTimer > 0) importFeedbackTimer--;
         else if (importFeedbackTimer < 0) importFeedbackTimer++;
 
-        int leftPos = (this.width - WINDOW_WIDTH) / 2;
-        int topPos = (this.height - WINDOW_HEIGHT) / 2;
+        int leftPos = windowLeft();
+        int topPos = windowTop();
 
         // Background texture
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, GUI_TEXTURE, leftPos, topPos, 0.0F, 0.0F, WINDOW_WIDTH, WINDOW_HEIGHT, 512, 512);
 
         // Workspace
-        int gridX = leftPos + WORKSPACE_OFFSET_X;
-        int gridY = topPos + WORKSPACE_OFFSET_Y;
+        int gridX = this.gridOX;
+        int gridY = this.gridOY;
+        boolean expanded = expandedLayout();
+        int slotX = leftPos + WORKSPACE_OFFSET_X, slotY = topPos + WORKSPACE_OFFSET_Y;
 
         if (this.view3d) {
-            render3dWorkspace(guiGraphics, gridX, gridY, mouseX, mouseY);
+            render3dWorkspace(guiGraphics, mouseX, mouseY);
+            if (expanded) drawWindowPreview(guiGraphics, slotX, slotY);
         } else {
+            if (expanded) {
+                // Backdrop and guide grid for the enlarged 2D editor
+                guiGraphics.fill(this.wsX - 1, this.wsY - 1, this.wsX + this.wsW + 1, this.wsY + this.wsH + 1, 0xFF373737);
+                guiGraphics.fill(this.wsX, this.wsY, this.wsX + this.wsW, this.wsY + this.wsH, 0xFF262B36);
+                int gridPx = this.cellSize * this.gridSize;
+                for (int i = 0; i <= this.gridSize; i++) {
+                    guiGraphics.fill(gridX + i * this.cellSize, gridY, gridX + i * this.cellSize + 1, gridY + gridPx, 0x22FFFFFF);
+                    guiGraphics.fill(gridX, gridY + i * this.cellSize, gridX + gridPx, gridY + i * this.cellSize + 1, 0x22FFFFFF);
+                }
+                guiGraphics.fill(slotX, slotY, slotX + WORKSPACE_DIM, slotY + WORKSPACE_DIM, 0xFF262B36);
+            }
             java.util.Arrays.fill(this.occupiedGrid, false);
             java.util.Arrays.fill(this.colorGrid, 0);
 
@@ -607,8 +629,9 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        int leftPos = (this.width - WINDOW_WIDTH) / 2;
-        int topPos = (this.height - WINDOW_HEIGHT) / 2;
+        updateLayout();
+        int leftPos = windowLeft();
+        int topPos = windowTop();
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
 
@@ -762,6 +785,7 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
+        updateLayout();
         if (this.view3d) {
             if (this.orbiting) {
                 ensureRaycaster();
@@ -794,10 +818,10 @@ public class CustomizationScreen extends Screen {
     }
 
     private boolean handleGridInteraction(int mouseX, int mouseY, int button) {
-        int leftPos = (this.width - WINDOW_WIDTH) / 2;
-        int topPos = (this.height - WINDOW_HEIGHT) / 2;
-        int gridX = leftPos + WORKSPACE_OFFSET_X;
-        int gridY = topPos + WORKSPACE_OFFSET_Y;
+        int leftPos = windowLeft();
+        int topPos = windowTop();
+        int gridX = this.gridOX;
+        int gridY = this.gridOY;
 
         int cellX = (mouseX - gridX) / this.cellSize;
         int cellY = (mouseY - gridY) / this.cellSize;
@@ -811,9 +835,7 @@ public class CustomizationScreen extends Screen {
     }
 
     private boolean isInsideWorkspace(int mouseX, int mouseY) {
-        int gridX = (this.width - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
-        int gridY = (this.height - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
-        return mouseX >= gridX && mouseX < gridX + WORKSPACE_DIM && mouseY >= gridY && mouseY < gridY + WORKSPACE_DIM;
+        return mouseX >= this.wsX && mouseX < this.wsX + this.wsW && mouseY >= this.wsY && mouseY < this.wsY + this.wsH;
     }
 
     private WeaponVoxel findVoxel(int x, int y, int layer) {
@@ -870,8 +892,9 @@ public class CustomizationScreen extends Screen {
     }
 
     private void ensureRaycaster() {
+        updateLayout();
         int wanted = desiredRenderScale();
-        if (this.raycaster != null && wanted == this.renderScale) return;
+        if (this.raycaster != null && wanted == this.renderScale && this.wsW == this.rcW && this.wsH == this.rcH) return;
 
         // (Re)build for the current GUI scale, keeping the camera where the player left it
         boolean hadView = this.raycaster != null;
@@ -886,15 +909,22 @@ public class CustomizationScreen extends Screen {
         releaseViewTextures();
 
         this.renderScale = wanted;
-        int n = WORKSPACE_DIM * wanted;
-        this.raycaster = new VoxelRaycaster(this.gridSize, LAYER_COUNT, n, n, wanted);
+        this.rcW = this.wsW;
+        this.rcH = this.wsH;
+        int nW = this.wsW * wanted, nH = this.wsH * wanted;
+        this.raycaster = new VoxelRaycaster(this.gridSize, LAYER_COUNT, nW, nH, wanted);
         if (hadView) {
             this.raycaster.setView(yaw, pitch, zoom);
             this.raycaster.setPan(panR, panU);
         }
-        this.fgBase = new int[n * n];
-        this.fgView = new int[n * n];
-        this.bgBuffer = new int[WORKSPACE_DIM * WORKSPACE_DIM];
+        this.fgBase = new int[nW * nH];
+        this.fgView = new int[nW * nH];
+        // The animated background is smooth, so large workspaces use a coarser buffer that is scaled up when drawn
+        long area = (long) this.wsW * this.wsH;
+        int bgDiv = area <= 60000 ? 1 : (area <= 240000 ? 2 : 4);
+        this.bgW = Math.max(1, (this.wsW + bgDiv - 1) / bgDiv);
+        this.bgH = Math.max(1, (this.wsH + bgDiv - 1) / bgDiv);
+        this.bgBuffer = new int[this.bgW * this.bgH];
         this.sceneDirty = true;
         this.lastHoverKey = -2;
     }
@@ -902,13 +932,12 @@ public class CustomizationScreen extends Screen {
     private void ensureViewTexture() {
         ensureRaycaster();
         if (this.viewImage == null) {
-            int n = WORKSPACE_DIM * this.renderScale;
-            this.viewImage = new NativeImage(n, n, true);
+            this.viewImage = new NativeImage(this.wsW * this.renderScale, this.wsH * this.renderScale, true);
             this.viewTexture = new DynamicTexture(() -> "blocksmith_forge_view", this.viewImage);
             this.viewTextureId = Identifier.fromNamespaceAndPath("blocksmith", "forge_view_" + System.identityHashCode(this));
             this.minecraft.getTextureManager().register(this.viewTextureId, this.viewTexture);
 
-            this.bgImage = new NativeImage(WORKSPACE_DIM, WORKSPACE_DIM, true);
+            this.bgImage = new NativeImage(this.bgW, this.bgH, true);
             this.bgTexture = new DynamicTexture(() -> "blocksmith_forge_bg", this.bgImage);
             this.bgTextureId = Identifier.fromNamespaceAndPath("blocksmith", "forge_bg_" + System.identityHashCode(this));
             this.minecraft.getTextureManager().register(this.bgTextureId, this.bgTexture);
@@ -945,14 +974,15 @@ public class CustomizationScreen extends Screen {
         }
     }
 
-    private void render3dWorkspace(GuiGraphicsExtractor guiGraphics, int gridX, int gridY, int mouseX, int mouseY) {
+    private void render3dWorkspace(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY) {
         ensureViewTexture();
         final int scale = this.renderScale;
-        final int n = WORKSPACE_DIM * scale;
+        final int nW = this.wsW * scale, nH = this.wsH * scale;
+        final int gridX = this.wsX, gridY = this.wsY;
 
         int px = mouseX - gridX;
         int py = mouseY - gridY;
-        boolean inside = px >= 0 && py >= 0 && px < WORKSPACE_DIM && py < WORKSPACE_DIM;
+        boolean inside = px >= 0 && py >= 0 && px < this.wsW && py < this.wsH;
         int hoverKey = (inside && !this.orbiting && !this.panning) ? (px << 16) | py : -1;
 
         boolean modelLayerChanged = false;
@@ -976,32 +1006,32 @@ public class CustomizationScreen extends Screen {
         }
 
         if (modelLayerChanged) {
-            for (int y = 0; y < n; y++) {
-                for (int x = 0; x < n; x++) {
-                    this.viewImage.setPixel(x, y, this.fgView[y * n + x]);
+            for (int y = 0; y < nH; y++) {
+                for (int x = 0; x < nW; x++) {
+                    this.viewImage.setPixel(x, y, this.fgView[y * nW + x]);
                 }
             }
             this.viewTexture.upload();
         }
 
-        // Every frame: the small animated background
+        // Every frame: the animated background (a coarse buffer, scaled up when drawn)
         double seconds = (System.nanoTime() - this.animStartNanos) / 1.0e9;
-        VoxelRaycaster.renderBackground(this.bgBuffer, WORKSPACE_DIM, WORKSPACE_DIM, seconds);
-        for (int y = 0; y < WORKSPACE_DIM; y++) {
-            for (int x = 0; x < WORKSPACE_DIM; x++) {
-                this.bgImage.setPixel(x, y, this.bgBuffer[y * WORKSPACE_DIM + x]);
+        VoxelRaycaster.renderBackground(this.bgBuffer, this.bgW, this.bgH, seconds);
+        for (int y = 0; y < this.bgH; y++) {
+            for (int x = 0; x < this.bgW; x++) {
+                this.bgImage.setPixel(x, y, this.bgBuffer[y * this.bgW + x]);
             }
         }
         this.bgTexture.upload();
 
-        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.bgTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM);
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.bgTextureId, gridX, gridY, 0.0F, 0.0F, this.wsW, this.wsH, this.bgW, this.bgH, this.bgW, this.bgH);
         // The model layer is rendered at native resolution (scale x the GUI size) and drawn scaled down 1:scale
-        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, n, n, n, n);
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, this.wsW, this.wsH, nW, nH, nW, nH);
 
         // Control hint sits inside the view on a dark pill so it stays readable on the bright background
         String[] hints = {"Right-drag: orbit", "Mid-drag: pan  Wheel: zoom"};
         int hintX = gridX + 4;
-        int hintY = gridY + WORKSPACE_DIM - 13 - 12 * (hints.length - 1);
+        int hintY = gridY + this.wsH - 13 - 12 * (hints.length - 1);
         for (String hint : hints) {
             int hintW = this.font.width(hint);
             guiGraphics.fill(hintX - 3, hintY - 2, hintX + hintW + 3, hintY + 10, 0xB0141C2C);
@@ -1010,12 +1040,24 @@ public class CustomizationScreen extends Screen {
         }
     }
 
+    /** In the expanded layout the window's own workspace slot shows a small centred copy of the 3D view. */
+    private void drawWindowPreview(GuiGraphicsExtractor guiGraphics, int slotX, int slotY) {
+        if (this.viewTextureId == null || this.bgTextureId == null) return;
+        final int nW = this.wsW * this.renderScale, nH = this.wsH * this.renderScale;
+        final int side = Math.min(nW, nH);
+        final float u = (nW - side) / 2.0F, v = (nH - side) / 2.0F;
+        final int bgSide = Math.min(this.bgW, this.bgH);
+        final float bu = (this.bgW - bgSide) / 2.0F, bv = (this.bgH - bgSide) / 2.0F;
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.bgTextureId, slotX, slotY, bu, bv, WORKSPACE_DIM, WORKSPACE_DIM, bgSide, bgSide, this.bgW, this.bgH);
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, slotX, slotY, u, v, WORKSPACE_DIM, WORKSPACE_DIM, side, side, nW, nH);
+    }
+
     private boolean handle3dInteraction(int mouseX, int mouseY, int button, boolean drag) {
         if (!isInsideWorkspace(mouseX, mouseY)) return false;
         ensureRaycaster();
 
-        int gridX = (this.width - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
-        int gridY = (this.height - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
+        int gridX = this.wsX;
+        int gridY = this.wsY;
         // GUI pixel -> centre of the matching block of render pixels
         final int scale = this.renderScale;
         int px = (mouseX - gridX) * scale + scale / 2;
@@ -1302,6 +1344,36 @@ public class CustomizationScreen extends Screen {
             }
             default -> { }
         }
+    }
+
+    private boolean expandedLayout() {
+        return this.width - WINDOW_WIDTH - 4 - (ICON_BTN + 12) >= 192 && this.height >= 200;
+    }
+
+    private int windowLeft() {
+        return expandedLayout() ? this.width - WINDOW_WIDTH - 4 : (this.width - WINDOW_WIDTH) / 2;
+    }
+
+    private int windowTop() {
+        return (this.height - WINDOW_HEIGHT) / 2;
+    }
+
+    private void updateLayout() {
+        int left = windowLeft(), top = windowTop();
+        if (expandedLayout()) {
+            this.wsX = 4;
+            this.wsY = 4;
+            this.wsW = left - ICON_BTN - 12;
+            this.wsH = this.height - 8;
+        } else {
+            this.wsX = left + WORKSPACE_OFFSET_X;
+            this.wsY = top + WORKSPACE_OFFSET_Y;
+            this.wsW = WORKSPACE_DIM;
+            this.wsH = WORKSPACE_DIM;
+        }
+        this.cellSize = Math.max(1, Math.min(this.wsW, this.wsH) / this.gridSize);
+        this.gridOX = this.wsX + (this.wsW - this.cellSize * this.gridSize) / 2;
+        this.gridOY = this.wsY + (this.wsH - this.cellSize * this.gridSize) / 2;
     }
 
     private void drawSmallHeaderButton(GuiGraphicsExtractor g, int x, int y, int w, int h, String text, boolean hovered) {
