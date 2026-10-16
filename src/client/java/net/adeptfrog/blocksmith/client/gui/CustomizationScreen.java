@@ -75,6 +75,7 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_LAYER_UP = new ItemStack(Items.LIME_CONCRETE);
     private static final ItemStack ICON_LAYER_DOWN = new ItemStack(Items.RED_CONCRETE);
     private static final ItemStack ICON_CODEX = new ItemStack(Items.ENCHANTED_BOOK);
+    private boolean view3d = true;
     private int tool3d = TOOL_ADD;
     private boolean orbiting = false; // right-drag in the 3D view
     private boolean panning = false; // middle-drag in the 3D view
