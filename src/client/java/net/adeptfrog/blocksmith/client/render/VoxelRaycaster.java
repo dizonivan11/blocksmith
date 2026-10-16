@@ -12,9 +12,11 @@ package net.adeptfrog.blocksmith.client.render;
  * <p>
  * Rendering is split in two so the background can animate cheaply:
  * <ol>
- *   <li>{@link #render} ray-casts the model (2x2 supersampled) into a <i>foreground</i> with alpha. Only needed
- *       when the model, camera or hovered face changes.</li>
- *   <li>{@link #composite} lays the foreground over a bright animated background. Cheap enough to run every frame.</li>
+ *   <li>{@link #render} ray-casts the model into a transparent <i>foreground</i> (model, floor grid and a soft
+ *       outline). It can run at several render pixels per GUI pixel so the result is sharp on a scaled GUI, and is
+ *       only needed when the model, camera or hovered face changes.</li>
+ *   <li>{@link #renderBackground} fills a small bright animated background. It is cheap, runs every frame, and is
+ *       drawn underneath the foreground.</li>
  * </ol>
  */
 public final class VoxelRaycaster {
@@ -36,16 +38,16 @@ public final class VoxelRaycaster {
     }
 
     private static final double BG_DISTANCE = 400.0;
-    private static final int SS = 2; // supersampling per axis
-
     // Floor grid look
-    private static final double LINE_HALF_WIDTH_PX = 0.6; // grid lines stay ~1.2 px wide however far you zoom out
     private static final int MAJOR_LINE_EVERY = 8;
 
     private final int gridSize;
     private final int layers;
     private final int width;
     private final int height;
+    private final int pixelScale;      // render pixels per GUI pixel; widths below are tuned in GUI pixels
+    private final int ss;              // supersampling per axis (only needed when rendering at low resolution)
+    private final double lineHalfWidth; // half width of floor grid lines in render pixels
     private final int[] cells;
 
     private double yaw;
@@ -63,10 +65,21 @@ public final class VoxelRaycaster {
     private double sr, sg, sb, sa;
 
     public VoxelRaycaster(int gridSize, int layers, int width, int height) {
+        this(gridSize, layers, width, height, 1);
+    }
+
+    /**
+     * @param pixelScale render pixels per GUI pixel (1 = low resolution, 2-3 = match a scaled GUI so the image is
+     *                   sharp on screen). Line and edge widths scale with it so they look the same at any resolution.
+     */
+    public VoxelRaycaster(int gridSize, int layers, int width, int height, int pixelScale) {
         this.gridSize = gridSize;
         this.layers = layers;
         this.width = width;
         this.height = height;
+        this.pixelScale = Math.max(1, pixelScale);
+        this.ss = this.pixelScale >= 2 ? 1 : 2;
+        this.lineHalfWidth = Math.max(0.6, 0.4 * this.pixelScale);
         this.cells = new int[gridSize * gridSize * layers];
         // Fit the model's bounding sphere so deep (many layer) models never clip at the corners
         double depth = layers * LAYER_THICKNESS;
@@ -111,6 +124,17 @@ public final class VoxelRaycaster {
     public void orbit(double deltaYaw, double deltaPitch) {
         yaw += deltaYaw;
         pitch = Math.max(Math.toRadians(-89), Math.min(Math.toRadians(89), pitch + deltaPitch));
+    }
+
+    public double yaw() { return yaw; }
+    public double pitch() { return pitch; }
+    /** Zoom relative to the default view (1.0 = default), independent of render resolution. */
+    public double zoomLevel() { return scale / defaultScale; }
+
+    public void setView(double yaw, double pitch, double zoomLevel) {
+        this.yaw = yaw;
+        this.pitch = Math.max(Math.toRadians(-89), Math.min(Math.toRadians(89), pitch));
+        this.scale = Math.max(defaultScale * 0.5, Math.min(defaultScale * 4.0, defaultScale * zoomLevel));
     }
 
     public void zoom(double factor) {
@@ -271,17 +295,30 @@ public final class VoxelRaycaster {
 
     // ----- rendering -----
 
+    /** Full-quality render. See {@link #render(int[], Hit, int)}. */
+    public void render(int[] fg, Hit highlight) {
+        render(fg, highlight, 1);
+    }
+
     /**
      * Ray-casts the model into {@code fg} (length width*height) as straight-alpha ARGB: fully transparent where
-     * nothing is drawn, partially transparent for the floor grid and anti-aliased edges. {@code highlight} may be null.
+     * nothing is drawn, partially transparent for the floor grid and the soft outline around the model.
+     * {@code highlight} may be null. {@code step > 1} renders one sample per step x step block, a fast low-detail
+     * preview for use while the camera is being dragged.
      */
-    public void render(int[] fg, Hit highlight) {
+    public void render(int[] fg, Hit highlight, int step) {
         updateBasis();
-        for (int py = 0; py < height; py++) {
-            for (int px = 0; px < width; px++) {
-                fg[py * width + px] = renderPixel(px, py, highlight);
+        step = Math.max(1, step);
+        for (int by = 0; by < height; by += step) {
+            for (int bx = 0; bx < width; bx += step) {
+                int color = renderPixel(bx, by, highlight, step);
+                int xEnd = Math.min(width, bx + step), yEnd = Math.min(height, by + step);
+                for (int y = by; y < yEnd; y++) {
+                    for (int x = bx; x < xEnd; x++) fg[y * width + x] = color;
+                }
             }
         }
+        bakeOutline(fg);
     }
 
     /**
@@ -304,22 +341,25 @@ public final class VoxelRaycaster {
             minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
             minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
         }
-        int x0 = Math.max(0, (int) Math.floor(minX) - 2), x1 = Math.min(width - 1, (int) Math.ceil(maxX) + 2);
-        int y0 = Math.max(0, (int) Math.floor(minY) - 2), y1 = Math.min(height - 1, (int) Math.ceil(maxY) + 2);
+        int margin = 2 * pixelScale;
+        int x0 = Math.max(0, (int) Math.floor(minX) - margin), x1 = Math.min(width - 1, (int) Math.ceil(maxX) + margin);
+        int y0 = Math.max(0, (int) Math.floor(minY) - margin), y1 = Math.min(height - 1, (int) Math.ceil(maxY) + margin);
         for (int py = y0; py <= y1; py++) {
             for (int px = x0; px <= x1; px++) {
-                fg[py * width + px] = renderPixel(px, py, highlight);
+                int c = renderPixel(px, py, highlight, 1);
+                // Only recolour model pixels; floor guide and outline pixels already baked into the base stay as they are
+                if ((c >>> 24) == 0xFF) fg[py * width + px] = c;
             }
         }
     }
 
-    /** One supersampled output pixel as straight-alpha ARGB. Requires {@link #updateBasis} to have been called. */
-    private int renderPixel(int px, int py, Hit highlight) {
-        final double step = 1.0 / SS;
-        final int n = SS * SS;
+    /** One output pixel (or block of {@code span} pixels) as straight-alpha ARGB. Needs {@link #updateBasis} first. */
+    private int renderPixel(int px, int py, Hit highlight, int span) {
+        final double step = (double) span / ss;
+        final int n = ss * ss;
         double accA = 0, accR = 0, accG = 0, accB = 0; // alpha-weighted sums
-        for (int j = 0; j < SS; j++) {
-            for (int i = 0; i < SS; i++) {
+        for (int j = 0; j < ss; j++) {
+            for (int i = 0; i < ss; i++) {
                 sampleAt(px + (i + 0.5) * step, py + (j + 0.5) * step, highlight);
                 if (sa > 0) {
                     accA += sa;
@@ -332,6 +372,49 @@ public final class VoxelRaycaster {
         if (accA <= 0) return 0;
         int a = clamp255(accA / n * 255.0);
         return (a << 24) | (clamp255(accR / accA) << 16) | (clamp255(accG / accA) << 8) | clamp255(accB / accA);
+    }
+
+    /**
+     * Adds a soft dark outline just outside the model's silhouette, baked into the foreground, so very light and
+     * very dark voxels both stay readable on any background.
+     */
+    private void bakeOutline(int[] fg) {
+        final int radius = Math.max(1, (int) Math.round(pixelScale * 0.7));
+        final int w = width, h = height;
+        boolean[] solid = new boolean[w * h];
+        for (int i = 0; i < solid.length; i++) solid[i] = (fg[i] >>> 24) > 0xE6;
+
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int idx = y * w + x;
+                if (solid[idx]) continue;
+                // distance (in pixels, Chebyshev) to the nearest solid pixel within the radius
+                int nearest = 0;
+                search:
+                for (int d = 1; d <= radius; d++) {
+                    int xa = Math.max(0, x - d), xb = Math.min(w - 1, x + d);
+                    int ya = Math.max(0, y - d), yb = Math.min(h - 1, y + d);
+                    for (int yy = ya; yy <= yb; yy++) {
+                        boolean edgeRow = yy == y - d || yy == y + d;
+                        for (int xx = xa; xx <= xb; xx++) {
+                            if (!edgeRow && xx != x - d && xx != x + d) continue; // only the ring at distance d
+                            if (solid[yy * w + xx]) { nearest = d; break search; }
+                        }
+                    }
+                }
+                if (nearest == 0) continue;
+
+                double oa = 0.85 * (1.0 - (nearest - 1) / (radius + 0.5));
+                int dst = fg[idx];
+                double da = ((dst >>> 24) & 0xFF) / 255.0;
+                double na = oa + da * (1 - oa);
+                double dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
+                double r = (0x16 * oa + dr * da * (1 - oa)) / na;
+                double g = (0x1F * oa + dg * da * (1 - oa)) / na;
+                double b = (0x33 * oa + db * da * (1 - oa)) / na;
+                fg[idx] = (clamp255(na * 255.0) << 24) | (clamp255(r) << 16) | (clamp255(g) << 8) | clamp255(b);
+            }
+        }
     }
 
     private void sampleAt(double pixelX, double pixelY, Hit highlight) {
@@ -359,7 +442,7 @@ public final class VoxelRaycaster {
         if (hnx != 0) { u = frac(py); v = frac(pz); }
         else if (hny != 0) { u = frac(px); v = frac(pz); }
         else { u = frac(px); v = frac(py); }
-        double edge = Math.max(0.08, 0.6 / scale);
+        double edge = Math.max(0.08, 0.6 * pixelScale / scale);
         double du = Math.min(u, 1 - u), dv = Math.min(v, 1 - v);
         double rim = Math.min(du, dv);
         if (rim < edge) {
@@ -393,7 +476,7 @@ public final class VoxelRaycaster {
         double r = 255, g = 255, b = 255;
 
         // Fade fine lines out when they would be denser than ~1 per 2 pixels (grazing angles / far zoom-out)
-        double foot = Math.max(floorFootX, floorFootY);
+        double foot = Math.max(floorFootX, floorFootY) * pixelScale; // cells per GUI pixel
         double fade = clamp01(1.0 - (foot - 0.35) / 0.5);
 
         double minor = Math.max(lineCoverage(fxc, floorFootX, 1), lineCoverage(fyc, floorFootY, 1)) * fade;
@@ -414,88 +497,31 @@ public final class VoxelRaycaster {
      * Coverage (0..1) of grid lines spaced {@code spacing} cells apart at floor coordinate {@code coord}, where one
      * pixel spans {@code footprint} cells. Line width is fixed in pixels, so lines are always ~1px and anti-aliased.
      */
-    private static double lineCoverage(double coord, double footprint, int spacing) {
+    private double lineCoverage(double coord, double footprint, int spacing) {
         double c = coord / spacing;
         double d = Math.min(frac(c), 1 - frac(c)) * spacing; // distance to nearest line, in cells
         double dPx = d / Math.max(footprint, 1e-6);
-        return clamp01(0.5 + LINE_HALF_WIDTH_PX - dPx);
+        return clamp01(0.5 + lineHalfWidth - dPx);
     }
 
     // ----- background -----
 
     private static final int BG_CELLS = 48; // background is evaluated on a coarse lattice and interpolated
 
-    private final double[] bgLattice = new double[(BG_CELLS + 1) * (BG_CELLS + 1) * 3];
-
     /**
-     * Lays the foreground from {@link #render} over a bright, softly animated background and writes opaque ARGB
-     * pixels to {@code out}. A thin dark outline is drawn around the model so voxels of any colour, including very
-     * light or very dark ones, stay readable. {@code seconds} drives the animation.
+     * Fills {@code out} (w*h, opaque ARGB) with a bright, softly animated background: slowly drifting sky blue,
+     * lavender and mint with a couple of wandering light patches. Independent of the model, so it can be drawn as
+     * its own small texture under the (sharper, higher resolution) foreground. {@code seconds} drives the animation.
      */
-    public void composite(int[] fg, int[] out, double seconds) {
-        fillBackgroundLattice(seconds);
-        final int w = width, h = height;
-        for (int py = 0; py < h; py++) {
-            double gy = (double) py / (h - 1) * BG_CELLS;
-            int y0 = Math.min((int) gy, BG_CELLS - 1);
-            double ty = gy - y0;
-            for (int px = 0; px < w; px++) {
-                double gx = (double) px / (w - 1) * BG_CELLS;
-                int x0 = Math.min((int) gx, BG_CELLS - 1);
-                double tx = gx - x0;
-
-                int i00 = (y0 * (BG_CELLS + 1) + x0) * 3;
-                int i10 = i00 + 3;
-                int i01 = i00 + (BG_CELLS + 1) * 3;
-                int i11 = i01 + 3;
-                double r = bilerp(bgLattice[i00], bgLattice[i10], bgLattice[i01], bgLattice[i11], tx, ty);
-                double g = bilerp(bgLattice[i00 + 1], bgLattice[i10 + 1], bgLattice[i01 + 1], bgLattice[i11 + 1], tx, ty);
-                double b = bilerp(bgLattice[i00 + 2], bgLattice[i10 + 2], bgLattice[i01 + 2], bgLattice[i11 + 2], tx, ty);
-
-                int idx = py * w + px;
-                int f = fg[idx];
-                double a = ((f >>> 24) & 0xFF) / 255.0;
-
-                // Silhouette outline: pixels next to solid model pixels get a soft dark rim
-                if (a < 1.0) {
-                    double nb = 0;
-                    if (px > 0) nb = Math.max(nb, solid(fg[idx - 1]));
-                    if (px < w - 1) nb = Math.max(nb, solid(fg[idx + 1]));
-                    if (py > 0) nb = Math.max(nb, solid(fg[idx - w]));
-                    if (py < h - 1) nb = Math.max(nb, solid(fg[idx + w]));
-                    double o = nb * (1.0 - a) * 0.80;
-                    if (o > 0) {
-                        r = r * (1 - o) + 0x16 * o;
-                        g = g * (1 - o) + 0x1F * o;
-                        b = b * (1 - o) + 0x33 * o;
-                    }
-                }
-
-                if (a > 0) {
-                    r = r * (1 - a) + ((f >> 16) & 0xFF) * a;
-                    g = g * (1 - a) + ((f >> 8) & 0xFF) * a;
-                    b = b * (1 - a) + (f & 0xFF) * a;
-                }
-                out[idx] = 0xFF000000 | (clamp255(r) << 16) | (clamp255(g) << 8) | clamp255(b);
-            }
-        }
-    }
-
-    /** Alpha of a foreground pixel counted only when it is (nearly) model rather than floor guide. */
-    private static double solid(int argb) {
-        double a = ((argb >>> 24) & 0xFF) / 255.0;
-        return a > 0.9 ? a : 0.0;
-    }
-
-    private void fillBackgroundLattice(double t) {
+    public static void renderBackground(int[] out, int w, int h, double seconds) {
+        double[] lattice = new double[(BG_CELLS + 1) * (BG_CELLS + 1) * 3];
         for (int j = 0; j <= BG_CELLS; j++) {
             double v = (double) j / BG_CELLS;
             for (int i = 0; i <= BG_CELLS; i++) {
                 double u = (double) i / BG_CELLS;
 
-                // Slow drifting blend between sky blue, soft lavender and mint
-                double k1 = 0.5 + 0.5 * Math.sin(t * 0.30 + u * 2.4 + v * 1.8);
-                double k2 = 0.5 + 0.5 * Math.sin(t * 0.21 - u * 1.7 + v * 2.9 + 1.7);
+                double k1 = 0.5 + 0.5 * Math.sin(seconds * 0.30 + u * 2.4 + v * 1.8);
+                double k2 = 0.5 + 0.5 * Math.sin(seconds * 0.21 - u * 1.7 + v * 2.9 + 1.7);
                 double r = 168 * (1 - k1) + 214 * k1;
                 double g = 214 * (1 - k1) + 196 * k1;
                 double b = 240 * (1 - k1) + 244 * k1;
@@ -503,22 +529,36 @@ public final class VoxelRaycaster {
                 g = g * (1 - 0.45 * k2) + 236 * 0.45 * k2;
                 b = b * (1 - 0.45 * k2) + 222 * 0.45 * k2;
 
-                // Two soft light blobs wandering across the view
                 double lift = 0;
                 for (int blob = 0; blob < 2; blob++) {
-                    double cx = 0.5 + 0.38 * Math.sin(t * (0.37 + 0.11 * blob) + blob * 2.1);
-                    double cy = 0.5 + 0.38 * Math.cos(t * (0.29 + 0.07 * blob) + blob * 1.3);
+                    double cx = 0.5 + 0.38 * Math.sin(seconds * (0.37 + 0.11 * blob) + blob * 2.1);
+                    double cy = 0.5 + 0.38 * Math.cos(seconds * (0.29 + 0.07 * blob) + blob * 1.3);
                     double d2 = (u - cx) * (u - cx) + (v - cy) * (v - cy);
                     lift += 34 * Math.exp(-d2 / 0.07);
                 }
-
-                // Faint diagonal sheen drifting across
-                lift += 7 * (0.5 + 0.5 * Math.sin((u + v) * 14.0 - t * 0.8));
+                lift += 7 * (0.5 + 0.5 * Math.sin((u + v) * 14.0 - seconds * 0.8));
 
                 int o = (j * (BG_CELLS + 1) + i) * 3;
-                bgLattice[o] = r + lift;
-                bgLattice[o + 1] = g + lift;
-                bgLattice[o + 2] = b + lift;
+                lattice[o] = r + lift;
+                lattice[o + 1] = g + lift;
+                lattice[o + 2] = b + lift;
+            }
+        }
+
+        for (int py = 0; py < h; py++) {
+            double gy = (double) py / Math.max(1, h - 1) * BG_CELLS;
+            int y0 = Math.min((int) gy, BG_CELLS - 1);
+            double ty = gy - y0;
+            for (int px = 0; px < w; px++) {
+                double gx = (double) px / Math.max(1, w - 1) * BG_CELLS;
+                int x0 = Math.min((int) gx, BG_CELLS - 1);
+                double tx = gx - x0;
+                int i00 = (y0 * (BG_CELLS + 1) + x0) * 3, i10 = i00 + 3;
+                int i01 = i00 + (BG_CELLS + 1) * 3, i11 = i01 + 3;
+                double r = bilerp(lattice[i00], lattice[i10], lattice[i01], lattice[i11], tx, ty);
+                double g = bilerp(lattice[i00 + 1], lattice[i10 + 1], lattice[i01 + 1], lattice[i11 + 1], tx, ty);
+                double b = bilerp(lattice[i00 + 2], lattice[i10 + 2], lattice[i01 + 2], lattice[i11 + 2], tx, ty);
+                out[py * w + px] = 0xFF000000 | (clamp255(r) << 16) | (clamp255(g) << 8) | clamp255(b);
             }
         }
     }

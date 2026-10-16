@@ -65,13 +65,17 @@ public class CustomizationScreen extends Screen {
     private int lastHoverKey = -2;
     private VoxelRaycaster.Hit hoverHit = null;
     private VoxelRaycaster raycaster;
-    private int[] pixelBuffer;   // composited (opaque) pixels uploaded to the texture
-    private int[] fgBase;        // ray-cast model without hover highlight
-    private int[] fgView;        // fgBase plus hover highlight
+    private int renderScale = 0;   // render pixels per GUI pixel the raycaster and textures were built for
+    private int[] fgBase;          // model layer (model + floor grid + outline) at native resolution, no hover highlight
+    private int[] fgView;          // fgBase plus hover highlight
+    private int[] bgBuffer;        // animated background, one pixel per GUI pixel
     private final long animStartNanos = System.nanoTime();
     private DynamicTexture viewTexture;
     private NativeImage viewImage;
     private Identifier viewTextureId;
+    private DynamicTexture bgTexture;
+    private NativeImage bgImage;
+    private Identifier bgTextureId;
 
     private int workingOffsetX;
     private int workingOffsetY;
@@ -1034,24 +1038,75 @@ public class CustomizationScreen extends Screen {
 
     // ----- 3D editor -----
 
+    /** Render pixels per GUI pixel to use so the 3D view is sharp on screen at the player's GUI scale (1..3). */
+    private int desiredRenderScale() {
+        var window = this.minecraft.getWindow();
+        int guiScaledWidth = Math.max(1, window.getGuiScaledWidth());
+        return Math.max(1, Math.min(3, (int) Math.round(window.getWidth() / (double) guiScaledWidth)));
+    }
+
     private void ensureRaycaster() {
-        if (this.raycaster == null) {
-            this.raycaster = new VoxelRaycaster(this.gridSize, LAYER_COUNT, WORKSPACE_DIM, WORKSPACE_DIM);
-            this.pixelBuffer = new int[WORKSPACE_DIM * WORKSPACE_DIM];
-            this.fgBase = new int[WORKSPACE_DIM * WORKSPACE_DIM];
-            this.fgView = new int[WORKSPACE_DIM * WORKSPACE_DIM];
+        int wanted = desiredRenderScale();
+        if (this.raycaster != null && wanted == this.renderScale) return;
+
+        // (Re)build for the current GUI scale, keeping the camera where the player left it
+        boolean hadView = this.raycaster != null;
+        double yaw = 0, pitch = 0, zoom = 1;
+        if (hadView) {
+            yaw = this.raycaster.yaw();
+            pitch = this.raycaster.pitch();
+            zoom = this.raycaster.zoomLevel();
         }
+        releaseViewTextures();
+
+        this.renderScale = wanted;
+        int n = WORKSPACE_DIM * wanted;
+        this.raycaster = new VoxelRaycaster(this.gridSize, LAYER_COUNT, n, n, wanted);
+        if (hadView) this.raycaster.setView(yaw, pitch, zoom);
+        this.fgBase = new int[n * n];
+        this.fgView = new int[n * n];
+        this.bgBuffer = new int[WORKSPACE_DIM * WORKSPACE_DIM];
+        this.sceneDirty = true;
+        this.lastHoverKey = -2;
     }
 
     private void ensureViewTexture() {
         ensureRaycaster();
         if (this.viewImage == null) {
-            this.viewImage = new NativeImage(WORKSPACE_DIM, WORKSPACE_DIM, true);
+            int n = WORKSPACE_DIM * this.renderScale;
+            this.viewImage = new NativeImage(n, n, true);
             this.viewTexture = new DynamicTexture(() -> "blocksmith_forge_view", this.viewImage);
             this.viewTextureId = Identifier.fromNamespaceAndPath("blocksmith", "forge_view_" + System.identityHashCode(this));
             this.minecraft.getTextureManager().register(this.viewTextureId, this.viewTexture);
+
+            this.bgImage = new NativeImage(WORKSPACE_DIM, WORKSPACE_DIM, true);
+            this.bgTexture = new DynamicTexture(() -> "blocksmith_forge_bg", this.bgImage);
+            this.bgTextureId = Identifier.fromNamespaceAndPath("blocksmith", "forge_bg_" + System.identityHashCode(this));
+            this.minecraft.getTextureManager().register(this.bgTextureId, this.bgTexture);
+
             this.sceneDirty = true;
         }
+    }
+
+    private void releaseViewTextures() {
+        if (this.viewTexture != null) {
+            this.viewTexture.close();
+            this.viewTexture = null;
+        }
+        if (this.bgTexture != null) {
+            this.bgTexture.close();
+            this.bgTexture = null;
+        }
+        if (this.viewTextureId != null) {
+            this.minecraft.getTextureManager().release(this.viewTextureId);
+            this.viewTextureId = null;
+        }
+        if (this.bgTextureId != null) {
+            this.minecraft.getTextureManager().release(this.bgTextureId);
+            this.bgTextureId = null;
+        }
+        this.viewImage = null;
+        this.bgImage = null;
     }
 
     private void rebuildScene() {
@@ -1063,38 +1118,56 @@ public class CustomizationScreen extends Screen {
 
     private void render3dWorkspace(GuiGraphicsExtractor guiGraphics, int gridX, int gridY, int mouseX, int mouseY) {
         ensureViewTexture();
+        final int scale = this.renderScale;
+        final int n = WORKSPACE_DIM * scale;
 
         int px = mouseX - gridX;
         int py = mouseY - gridY;
         boolean inside = px >= 0 && py >= 0 && px < WORKSPACE_DIM && py < WORKSPACE_DIM;
         int hoverKey = (inside && !this.orbiting) ? (px << 16) | py : -1;
 
-        // Heavy pass: only when the model or camera changed
-        boolean rebuilt = this.sceneDirty;
-        if (rebuilt) {
+        boolean modelLayerChanged = false;
+
+        // Heavy pass: only when the model or camera changed. While the camera is being dragged a coarser,
+        // faster preview is drawn; a full-detail pass follows as soon as the mouse is released.
+        if (this.sceneDirty) {
             rebuildScene();
-            this.raycaster.render(this.fgBase, null);
+            int step = (this.orbiting && scale >= 2) ? 2 : 1;
+            this.raycaster.render(this.fgBase, null, step);
             this.sceneDirty = false;
+            modelLayerChanged = true;
         }
 
         // Light pass: re-trace just the hovered voxel when the cursor moves
-        if (rebuilt || hoverKey != this.lastHoverKey) {
-            this.hoverHit = hoverKey >= 0 ? this.raycaster.pick(px, py) : null;
+        if (modelLayerChanged || hoverKey != this.lastHoverKey) {
+            this.hoverHit = hoverKey >= 0 ? this.raycaster.pick(px * scale + scale / 2, py * scale + scale / 2) : null;
             this.raycaster.renderWithHighlight(this.fgBase, this.fgView, this.hoverHit);
             this.lastHoverKey = hoverKey;
+            modelLayerChanged = true;
         }
 
-        // Every frame: lay the model over the animated background and upload
+        if (modelLayerChanged) {
+            for (int y = 0; y < n; y++) {
+                for (int x = 0; x < n; x++) {
+                    this.viewImage.setPixel(x, y, this.fgView[y * n + x]);
+                }
+            }
+            this.viewTexture.upload();
+        }
+
+        // Every frame: the small animated background
         double seconds = (System.nanoTime() - this.animStartNanos) / 1.0e9;
-        this.raycaster.composite(this.fgView, this.pixelBuffer, seconds);
+        VoxelRaycaster.renderBackground(this.bgBuffer, WORKSPACE_DIM, WORKSPACE_DIM, seconds);
         for (int y = 0; y < WORKSPACE_DIM; y++) {
             for (int x = 0; x < WORKSPACE_DIM; x++) {
-                this.viewImage.setPixel(x, y, this.pixelBuffer[y * WORKSPACE_DIM + x]);
+                this.bgImage.setPixel(x, y, this.bgBuffer[y * WORKSPACE_DIM + x]);
             }
         }
-        this.viewTexture.upload();
+        this.bgTexture.upload();
 
-        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM);
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.bgTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM);
+        // The model layer is rendered at native resolution (scale x the GUI size) and drawn scaled down 1:scale
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, n, n, n, n);
 
         // Control hint sits inside the view on a dark pill so it stays readable on the bright background
         String hint = this.tool3d == TOOL_ORBIT ? "Drag: orbit  Wheel: zoom" : "Mid-drag: orbit  Wheel: zoom";
@@ -1111,8 +1184,10 @@ public class CustomizationScreen extends Screen {
 
         int gridX = (this.width - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
         int gridY = (this.height - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
-        int px = mouseX - gridX;
-        int py = mouseY - gridY;
+        // GUI pixel -> centre of the matching block of render pixels
+        final int scale = this.renderScale;
+        int px = (mouseX - gridX) * scale + scale / 2;
+        int py = (mouseY - gridY) * scale + scale / 2;
 
         if (button == 1) { // Right-Click = Erase whatever voxel is under the cursor
             VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
@@ -1146,15 +1221,7 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public void removed() {
-        if (this.viewTexture != null) {
-            this.viewTexture.close();
-            this.viewTexture = null;
-        }
-        if (this.viewTextureId != null) {
-            this.minecraft.getTextureManager().release(this.viewTextureId);
-            this.viewTextureId = null;
-        }
-        this.viewImage = null;
+        releaseViewTextures();
         this.sceneDirty = true;
         super.removed();
     }
