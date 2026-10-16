@@ -54,16 +54,30 @@ public class CustomizationScreen extends Screen {
     private int activeLayer = 0; // 2D mode only: layer being edited, MIN_LAYER..MAX_LAYER, 0 = base layer
 
     // 3D editor
-    private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ORBIT = 2;
-    private static final String[] TOOL_NAMES = {"Add", "Recolor", "Orbit"};
-    // Editor flyout menu: row ids (row 7/8 are Tool/Reset in 3D and Layer +/- in 2D)
-    private static final int MENU_ROWS = 10, MENU_VIEW = 6, MENU_TOOL = 7, MENU_RESET = 8, MENU_CODEX = 9;
-    // Vanilla item drawn at runtime as the menu icon: nothing is shipped, so there is no asset or licence involved.
-    private static final ItemStack MENU_ICON_STACK = new ItemStack(Items.CRAFTING_TABLE);
-    private boolean menuOpen = false;
-    private boolean view3d = true;
+    private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ERASE = 2;
+    private static final String[] TOOL_NAMES = {"Add", "Recolor", "Erase"};
+    // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
+    // Rows 7/8 are Tool/Reset view in 3D and Layer +/- in 2D.
+    private static final int BTN_EXPORT = 0, BTN_IMPORT = 1, BTN_FLIP_H = 2, BTN_FLIP_V = 3, BTN_ROT_CW = 4,
+            BTN_ROT_CCW = 5, BTN_VIEW = 6, BTN_TOOL = 7, BTN_RESET = 8, BTN_CODEX = 9, BTN_COUNT = 10;
+    private static final int ICON_BTN = 18, ICON_STEP = 20;
+    // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
+    private static final ItemStack ICON_EXPORT = new ItemStack(Items.WRITABLE_BOOK);
+    private static final ItemStack ICON_IMPORT = new ItemStack(Items.CHEST);
+    private static final ItemStack ICON_FLIP_H = new ItemStack(Items.PISTON);
+    private static final ItemStack ICON_FLIP_V = new ItemStack(Items.STICKY_PISTON);
+    private static final ItemStack ICON_ROT_CW = new ItemStack(Items.REPEATER);
+    private static final ItemStack ICON_ROT_CCW = new ItemStack(Items.COMPARATOR);
+    private static final ItemStack ICON_VIEW_3D = new ItemStack(Items.ENDER_EYE);
+    private static final ItemStack ICON_VIEW_2D = new ItemStack(Items.MAP);
+    private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STONE), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE)};
+    private static final ItemStack ICON_RESET = new ItemStack(Items.COMPASS);
+    private static final ItemStack ICON_LAYER_UP = new ItemStack(Items.LIME_CONCRETE);
+    private static final ItemStack ICON_LAYER_DOWN = new ItemStack(Items.RED_CONCRETE);
+    private static final ItemStack ICON_CODEX = new ItemStack(Items.ENCHANTED_BOOK);
     private int tool3d = TOOL_ADD;
-    private boolean orbiting = false;
+    private boolean orbiting = false; // right-drag in the 3D view
+    private boolean panning = false; // middle-drag in the 3D view
     private int strokeAxis = -1;   // axis of the plane a paint-drag stays on, -1 when no stroke is active
     private int strokeIndex = 0;
     private boolean sceneDirty = true;
@@ -394,18 +408,18 @@ public class CustomizationScreen extends Screen {
         String leftLabel = this.view3d ? "[Left] " + TOOL_NAMES[this.tool3d] : "[Left] Paint";
         guiGraphics.text(this.font, Component.literal(leftLabel), statsX + 6, statsY + 104, FONT_COLOR, false);
 
-        Component eraseText = Component.literal("[Right] Erase ");
+        Component eraseText = Component.literal(this.view3d ? "[Right] Orbit" : "[Right] Erase ");
         guiGraphics.text(this.font, eraseText, statsX + 6, statsY + 114, FONT_COLOR, false);
 
         // Erase warning icon
         int infoX = statsX + 6 + this.font.width(eraseText);
         int infoY = statsY + 114;
-        Component infoIcon = Component.literal("§6(!)");
+        Component infoIcon = Component.literal(this.view3d ? "" : "§6(!)");
         guiGraphics.text(this.font, infoIcon, infoX, infoY, 0xFFFFFFFF, false);
 
         // Hover detection for Erase warning icon
         int infoW = this.font.width(infoIcon);
-        if (mouseX >= infoX - 1 && mouseX <= infoX + infoW + 1 && mouseY >= infoY - 1 && mouseY <= infoY + 9) {
+        if (!this.view3d && mouseX >= infoX - 1 && mouseX <= infoX + infoW + 1 && mouseY >= infoY - 1 && mouseY <= infoY + 9) {
             List<ClientTooltipComponent> infoTooltip = List.of(
                     ClientTooltipComponent.create(Component.literal("§cMaterials will be destroyed upon erasing!").getVisualOrderText())
             );
@@ -447,50 +461,31 @@ public class CustomizationScreen extends Screen {
         int labelWidth = this.font.width(saveLabel);
         guiGraphics.text(this.font, saveLabel, btnX + (btnW - labelWidth) / 2, saveBtnY + 6, 0xFFFFFFFF, false);
 
-        // Single tools icon that opens a flyout with every editor action
-        int subBtnW = 45;
-        int subBtnH = 16;
-        int subBtnX = leftPos - subBtnW - 4;
-        int iconSize = 18;
-        int iconX = subBtnX + subBtnW - iconSize;
-        int iconY = topPos + 1;
-        boolean iconHovered = mouseX >= iconX && mouseX < iconX + iconSize && mouseY >= iconY && mouseY < iconY + iconSize;
-        drawSmallHeaderButton(guiGraphics, iconX, iconY, iconSize, iconSize, "", iconHovered || this.menuOpen);
-        guiGraphics.fakeItem(MENU_ICON_STACK, iconX + 1, iconY + 1);
-
-        if (this.menuOpen) {
-            int toolRowHover = -1;
-            for (int row = 0; row < MENU_ROWS; row++) {
-                String label = menuLabel(row);
-                if (label == null) continue;
-                int rowY = menuRowY(topPos, row);
-                boolean hov = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rowY && mouseY <= rowY + subBtnH;
-                drawSmallHeaderButton(guiGraphics, subBtnX, rowY, subBtnW, subBtnH, label, hov);
-                if (hov && row == MENU_TOOL && this.view3d) toolRowHover = row;
+        // Icon buttons (one vanilla item per action) with tooltips
+        int subBtnX = leftPos - ICON_BTN - 4;
+        int hoveredBtn = -1;
+        for (int row = 0; row < BTN_COUNT; row++) {
+            int rowY = buttonY(topPos, row);
+            boolean hov = mouseX >= subBtnX && mouseX < subBtnX + ICON_BTN && mouseY >= rowY && mouseY < rowY + ICON_BTN;
+            if (hov) hoveredBtn = row;
+            drawSmallHeaderButton(guiGraphics, subBtnX, rowY, ICON_BTN, ICON_BTN, "", hov);
+            guiGraphics.fakeItem(buttonIcon(row), subBtnX + 1, rowY + 1);
+            if (!this.view3d && (row == BTN_TOOL || row == BTN_RESET)) {
+                guiGraphics.text(this.font, Component.literal(row == BTN_TOOL ? "+" : "-"), subBtnX + ICON_BTN - 6, rowY + ICON_BTN - 9, 0xFFFFFFFF, true);
             }
+        }
 
-            if (!this.view3d) {
-                String layerText = String.format("Layer %+d", this.activeLayer).replace("+0", "0");
-                int layerTextX = subBtnX + (subBtnW - this.font.width(layerText)) / 2;
-                guiGraphics.text(this.font, Component.literal(layerText), layerTextX, menuRowY(topPos, MENU_ROWS) + 3, 0xFFFFFFFF, true);
-            }
+        if (!this.view3d) {
+            String layerText = String.format("Layer %+d", this.activeLayer).replace("+0", "0");
+            guiGraphics.text(this.font, Component.literal(layerText), subBtnX + ICON_BTN - this.font.width(layerText), buttonY(topPos, BTN_CODEX - 1) + ICON_STEP + 3, 0xFFFFFFFF, true);
+        }
 
-            if (toolRowHover >= 0) {
-                List<ClientTooltipComponent> toolTooltip = List.of(
-                        ClientTooltipComponent.create(Component.literal("§eLeft-click tool (click to cycle)").getVisualOrderText()),
-                        ClientTooltipComponent.create(Component.literal("§7Add: place a voxel on the face you point at").getVisualOrderText()),
-                        ClientTooltipComponent.create(Component.literal("§7Recolor: repaint the voxel you point at").getVisualOrderText()),
-                        ClientTooltipComponent.create(Component.literal("§7Orbit: drag to rotate the view").getVisualOrderText()),
-                        ClientTooltipComponent.create(Component.literal("§7Right-click erases, middle-drag orbits,").getVisualOrderText()),
-                        ClientTooltipComponent.create(Component.literal("§7scroll wheel zooms.").getVisualOrderText())
-                );
-                guiGraphics.tooltip(this.font, toolTooltip, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+        if (hoveredBtn >= 0) {
+            List<ClientTooltipComponent> tip = new ArrayList<>();
+            for (String line : buttonTooltip(hoveredBtn)) {
+                tip.add(ClientTooltipComponent.create(Component.literal(line).getVisualOrderText()));
             }
-        } else if (iconHovered) {
-            guiGraphics.tooltip(this.font, List.of(
-                    ClientTooltipComponent.create(Component.literal("§eEditor menu").getVisualOrderText()),
-                    ClientTooltipComponent.create(Component.literal("§7Export, import, flip, rotate, view, codex").getVisualOrderText())
-            ), mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+            guiGraphics.tooltip(this.font, tip, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
         }
 
         // Materials and Shades
@@ -619,35 +614,17 @@ public class CustomizationScreen extends Screen {
         int statsX = leftPos + 212;
         int statsY = topPos + 35;
 
-        // Editor menu: one icon that opens a flyout with all actions
-        int subBtnW = 45;
-        int subBtnH = 16;
-        int subBtnX = leftPos - subBtnW - 4;
-        int iconSize = 18;
-        int iconX = subBtnX + subBtnW - iconSize;
-        int iconY = topPos + 1;
-
-        if (mouseX >= iconX && mouseX < iconX + iconSize && mouseY >= iconY && mouseY < iconY + iconSize) {
-            this.menuOpen = !this.menuOpen;
-            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            return true;
-        }
-
-        if (this.menuOpen) {
-            int clickedRow = -1;
-            if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW) {
-                for (int row = 0; row < MENU_ROWS; row++) {
-                    int rowY = menuRowY(topPos, row);
-                    if (menuLabel(row) != null && mouseY >= rowY && mouseY <= rowY + subBtnH) { clickedRow = row; break; }
+        // Icon buttons
+        int subBtnX = leftPos - ICON_BTN - 4;
+        if (mouseX >= subBtnX && mouseX < subBtnX + ICON_BTN) {
+            for (int row = 0; row < BTN_COUNT; row++) {
+                int rowY = buttonY(topPos, row);
+                if (mouseY >= rowY && mouseY < rowY + ICON_BTN) {
+                    handleButtonAction(row);
+                    return true;
                 }
             }
-            if (clickedRow >= 0) {
-                handleMenuAction(clickedRow);
-                return true;
-            }
-            this.menuOpen = false; // clicked anywhere else: close the menu and carry on
         }
-
 
         // Grip offset buttons click
         int offsetUiY = statsY + 130;
@@ -764,8 +741,12 @@ public class CustomizationScreen extends Screen {
             if (isInsideWorkspace(mouseX, mouseY)) {
                 int btn = event.button();
                 this.strokeAxis = -1;
-                if (btn == 2 || (btn == 0 && this.tool3d == TOOL_ORBIT)) {
+                if (btn == 1) { // right-drag orbits
                     this.orbiting = true;
+                    return true;
+                }
+                if (btn == 2) { // middle-drag pans
+                    this.panning = true;
                     return true;
                 }
                 handle3dInteraction(mouseX, mouseY, btn, false);
@@ -787,6 +768,12 @@ public class CustomizationScreen extends Screen {
                 this.sceneDirty = true;
                 return true;
             }
+            if (this.panning) {
+                ensureRaycaster();
+                this.raycaster.pan(deltaX * this.renderScale, deltaY * this.renderScale);
+                this.sceneDirty = true;
+                return true;
+            }
             if (handle3dInteraction((int) event.x(), (int) event.y(), event.button(), true)) {
                 return true;
             }
@@ -799,6 +786,7 @@ public class CustomizationScreen extends Screen {
     @Override
     public boolean mouseReleased(@NonNull MouseButtonEvent event) {
         this.orbiting = false;
+        this.panning = false;
         this.strokeAxis = -1;
         this.sceneDirty = true;
         return super.mouseReleased(event);
@@ -886,18 +874,23 @@ public class CustomizationScreen extends Screen {
 
         // (Re)build for the current GUI scale, keeping the camera where the player left it
         boolean hadView = this.raycaster != null;
-        double yaw = 0, pitch = 0, zoom = 1;
+        double yaw = 0, pitch = 0, zoom = 1, panR = 0, panU = 0;
         if (hadView) {
             yaw = this.raycaster.yaw();
             pitch = this.raycaster.pitch();
             zoom = this.raycaster.zoomLevel();
+            panR = this.raycaster.panRight();
+            panU = this.raycaster.panUp();
         }
         releaseViewTextures();
 
         this.renderScale = wanted;
         int n = WORKSPACE_DIM * wanted;
         this.raycaster = new VoxelRaycaster(this.gridSize, LAYER_COUNT, n, n, wanted);
-        if (hadView) this.raycaster.setView(yaw, pitch, zoom);
+        if (hadView) {
+            this.raycaster.setView(yaw, pitch, zoom);
+            this.raycaster.setPan(panR, panU);
+        }
         this.fgBase = new int[n * n];
         this.fgView = new int[n * n];
         this.bgBuffer = new int[WORKSPACE_DIM * WORKSPACE_DIM];
@@ -959,7 +952,7 @@ public class CustomizationScreen extends Screen {
         int px = mouseX - gridX;
         int py = mouseY - gridY;
         boolean inside = px >= 0 && py >= 0 && px < WORKSPACE_DIM && py < WORKSPACE_DIM;
-        int hoverKey = (inside && !this.orbiting) ? (px << 16) | py : -1;
+        int hoverKey = (inside && !this.orbiting && !this.panning) ? (px << 16) | py : -1;
 
         boolean modelLayerChanged = false;
 
@@ -967,7 +960,7 @@ public class CustomizationScreen extends Screen {
         // faster preview is drawn; a full-detail pass follows as soon as the mouse is released.
         if (this.sceneDirty) {
             rebuildScene();
-            int step = (this.orbiting && scale >= 2) ? 2 : 1;
+            int step = ((this.orbiting || this.panning) && scale >= 2) ? 2 : 1;
             this.raycaster.render(this.fgBase, null, step);
             this.sceneDirty = false;
             modelLayerChanged = true;
@@ -1005,12 +998,15 @@ public class CustomizationScreen extends Screen {
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, n, n, n, n);
 
         // Control hint sits inside the view on a dark pill so it stays readable on the bright background
-        String hint = this.tool3d == TOOL_ORBIT ? "Drag: orbit  Wheel: zoom" : "Mid-drag: orbit  Wheel: zoom";
-        int hintW = this.font.width(hint);
+        String[] hints = {"Right-drag: orbit", "Mid-drag: pan  Wheel: zoom"};
         int hintX = gridX + 4;
-        int hintY = gridY + WORKSPACE_DIM - 13;
-        guiGraphics.fill(hintX - 3, hintY - 2, hintX + hintW + 3, hintY + 10, 0xB0141C2C);
-        guiGraphics.text(this.font, Component.literal(hint), hintX, hintY, 0xFFFFFFFF, false);
+        int hintY = gridY + WORKSPACE_DIM - 13 - 12 * (hints.length - 1);
+        for (String hint : hints) {
+            int hintW = this.font.width(hint);
+            guiGraphics.fill(hintX - 3, hintY - 2, hintX + hintW + 3, hintY + 10, 0xB0141C2C);
+            guiGraphics.text(this.font, Component.literal(hint), hintX, hintY, 0xFFFFFFFF, false);
+            hintY += 12;
+        }
     }
 
     private boolean handle3dInteraction(int mouseX, int mouseY, int button, boolean drag) {
@@ -1024,13 +1020,13 @@ public class CustomizationScreen extends Screen {
         int px = (mouseX - gridX) * scale + scale / 2;
         int py = (mouseY - gridY) * scale + scale / 2;
 
-        if (button == 1) { // Right-Click = Erase whatever voxel is under the cursor
+        if (button != 0) return false; // right-drag orbits and middle-drag pans, handled in mouseClicked/Dragged
+
+        if (this.tool3d == TOOL_ERASE) {
             VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
             if (hit == null || hit.floor()) return false;
             return eraseAt(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
         }
-
-        if (button != 0) return false;
 
         if (this.tool3d == TOOL_RECOLOR) {
             VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
@@ -1202,23 +1198,49 @@ public class CustomizationScreen extends Screen {
         this.exportFeedbackTimer = 40;
     }
 
-    private static int menuRowY(int topPos, int row) {
-        return topPos + 22 + row * 18;
+    private static int buttonY(int topPos, int row) {
+        // The codex button is pinned to the bottom of the window, the rest stack from the top
+        return row == BTN_CODEX ? topPos + WINDOW_HEIGHT - ICON_BTN - 1 : topPos + 1 + row * ICON_STEP;
     }
 
-    private String menuLabel(int row) {
+    private ItemStack buttonIcon(int row) {
         return switch (row) {
-            case 0 -> exportFeedbackTimer > 0 ? "§aCopied!" : "Export";
-            case 1 -> importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : "Import");
-            case 2 -> "Flip H";
-            case 3 -> "Flip V";
-            case 4 -> "Rot CW";
-            case 5 -> "Rot CCW";
-            case MENU_VIEW -> this.view3d ? "View: 3D" : "View: 2D";
-            case MENU_TOOL -> this.view3d ? TOOL_NAMES[this.tool3d] : "Layer +";
-            case MENU_RESET -> this.view3d ? "Reset" : "Layer -";
-            case MENU_CODEX -> "Codex";
-            default -> null;
+            case BTN_EXPORT -> ICON_EXPORT;
+            case BTN_IMPORT -> ICON_IMPORT;
+            case BTN_FLIP_H -> ICON_FLIP_H;
+            case BTN_FLIP_V -> ICON_FLIP_V;
+            case BTN_ROT_CW -> ICON_ROT_CW;
+            case BTN_ROT_CCW -> ICON_ROT_CCW;
+            case BTN_VIEW -> this.view3d ? ICON_VIEW_3D : ICON_VIEW_2D;
+            case BTN_TOOL -> this.view3d ? ICON_TOOLS[this.tool3d] : ICON_LAYER_UP;
+            case BTN_RESET -> this.view3d ? ICON_RESET : ICON_LAYER_DOWN;
+            default -> ICON_CODEX;
+        };
+    }
+
+    private String[] buttonTooltip(int row) {
+        return switch (row) {
+            case BTN_EXPORT -> new String[]{exportFeedbackTimer > 0 ? "§aCopied!" : "§eExport design", "§7Save or share this design"};
+            case BTN_IMPORT -> new String[]{importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : "§eImport design"), "§7Open the design library"};
+            case BTN_FLIP_H -> new String[]{"§eFlip horizontally"};
+            case BTN_FLIP_V -> new String[]{"§eFlip vertically"};
+            case BTN_ROT_CW -> new String[]{"§eRotate clockwise"};
+            case BTN_ROT_CCW -> new String[]{"§eRotate counter-clockwise"};
+            case BTN_VIEW -> this.view3d
+                    ? new String[]{"§eView: 3D", "§7Click to switch to the 2D layer editor"}
+                    : new String[]{"§eView: 2D", "§7Click to switch to the 3D editor"};
+            case BTN_TOOL -> this.view3d
+                    ? new String[]{"§eTool: " + TOOL_NAMES[this.tool3d] + " §7(click to cycle)",
+                            "§7Add: place a voxel on the face you point at",
+                            "§7Recolor: repaint the voxel you point at",
+                            "§7Erase: remove the voxel you point at",
+                            "§cErased materials are destroyed!",
+                            "§7Right-drag orbits, middle-drag pans, wheel zooms"}
+                    : new String[]{"§eLayer up", "§7Edit the next layer outward"};
+            case BTN_RESET -> this.view3d
+                    ? new String[]{"§eReset view", "§7Restore the default angle, zoom and position"}
+                    : new String[]{"§eLayer down", "§7Edit the previous layer"};
+            default -> new String[]{"§eAbility Codex (Guide)"};
         };
     }
 
@@ -1232,37 +1254,38 @@ public class CustomizationScreen extends Screen {
         this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
     }
 
-    private void handleMenuAction(int row) {
+    private void handleButtonAction(int row) {
         int n = this.gridSize - 1;
         switch (row) {
-            case 0 -> {
+            case BTN_EXPORT -> {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 WeaponOffset currentOffset = new WeaponOffset(this.workingOffsetX, this.workingOffsetY);
                 this.minecraft.setScreen(new ExportDesignScreen(this, new DesignEntry(
                         this.recentFileName, false, this.workingVoxels, currentOffset,
                         this.recentAttribution, this.recentCrafter), this.gridSize));
             }
-            case 1 -> {
+            case BTN_IMPORT -> {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 this.minecraft.setScreen(new DesignLibraryScreen(this));
             }
-            case 2 -> transformVoxels(v -> new WeaponVoxel(n - v.x(), v.y(), v.z(), v.materialId(), v.shade()));
-            case 3 -> transformVoxels(v -> new WeaponVoxel(v.x(), n - v.y(), v.z(), v.materialId(), v.shade()));
-            case 4 -> transformVoxels(v -> new WeaponVoxel(v.y(), n - v.x(), v.z(), v.materialId(), v.shade()));
-            case 5 -> transformVoxels(v -> new WeaponVoxel(n - v.y(), v.x(), v.z(), v.materialId(), v.shade()));
-            case MENU_VIEW -> {
+            case BTN_FLIP_H -> transformVoxels(v -> new WeaponVoxel(n - v.x(), v.y(), v.z(), v.materialId(), v.shade()));
+            case BTN_FLIP_V -> transformVoxels(v -> new WeaponVoxel(v.x(), n - v.y(), v.z(), v.materialId(), v.shade()));
+            case BTN_ROT_CW -> transformVoxels(v -> new WeaponVoxel(v.y(), n - v.x(), v.z(), v.materialId(), v.shade()));
+            case BTN_ROT_CCW -> transformVoxels(v -> new WeaponVoxel(n - v.y(), v.x(), v.z(), v.materialId(), v.shade()));
+            case BTN_VIEW -> {
                 this.view3d = !this.view3d;
                 this.orbiting = false;
+                this.panning = false;
                 this.strokeAxis = -1;
                 this.sceneDirty = true;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             }
-            case MENU_TOOL -> {
+            case BTN_TOOL -> {
                 if (this.view3d) this.tool3d = (this.tool3d + 1) % TOOL_NAMES.length;
                 else if (this.activeLayer < MAX_LAYER) this.activeLayer++;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             }
-            case MENU_RESET -> {
+            case BTN_RESET -> {
                 if (this.view3d) {
                     ensureRaycaster();
                     this.raycaster.resetView();
@@ -1272,7 +1295,7 @@ public class CustomizationScreen extends Screen {
                 }
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             }
-            case MENU_CODEX -> {
+            case BTN_CODEX -> {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BOOK_PAGE_TURN, 1.0F));
                 this.minecraft.setScreen(new AbilityBookScreen(this));
             }

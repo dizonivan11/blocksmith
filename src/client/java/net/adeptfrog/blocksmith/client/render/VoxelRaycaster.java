@@ -53,6 +53,7 @@ public final class VoxelRaycaster {
     private double yaw;
     private double pitch;
     private double scale; // pixels per cell
+    private double panRight, panUp; // view pan in cells along the camera's right / up axes
     private final double defaultYaw = Math.toRadians(-35);
     private final double defaultPitch = Math.toRadians(25);
     private final double defaultScale;
@@ -119,6 +120,23 @@ public final class VoxelRaycaster {
         yaw = defaultYaw;
         pitch = defaultPitch;
         scale = defaultScale;
+        panRight = 0;
+        panUp = 0;
+    }
+
+    /** Pans the view by a screen-space drag in render pixels (the image follows the cursor). */
+    public void pan(double deltaPixelsX, double deltaPixelsY) {
+        double limit = gridSize * 1.5;
+        panRight = Math.max(-limit, Math.min(limit, panRight + deltaPixelsX / scale));
+        panUp = Math.max(-limit, Math.min(limit, panUp - deltaPixelsY / scale));
+    }
+
+    public double panRight() { return panRight; }
+    public double panUp() { return panUp; }
+
+    public void setPan(double panRight, double panUp) {
+        this.panRight = panRight;
+        this.panUp = panUp;
     }
 
     public void orbit(double deltaYaw, double deltaPitch) {
@@ -173,8 +191,8 @@ public final class VoxelRaycaster {
     private double ox, oy, oz, dx, dy, dz;
 
     private void setRay(double pixelX, double pixelY) {
-        double sx = (pixelX - width / 2.0) / scale;
-        double sy = (height / 2.0 - pixelY) / scale;
+        double sx = (pixelX - width / 2.0) / scale - panRight;
+        double sy = (height / 2.0 - pixelY) / scale - panUp;
         double centreX = gridSize / 2.0, centreY = gridSize / 2.0, centreZ = layers / 2.0 * LAYER_THICKNESS;
         double wx = centreX + rx * sx + ux * sy - fx * BG_DISTANCE;
         double wy = centreY + ry * sx + uy * sy - fy * BG_DISTANCE;
@@ -336,8 +354,8 @@ public final class VoxelRaycaster {
             double relX = highlight.x() + (i & 1) - cxm;
             double relY = highlight.y() + ((i >> 1) & 1) - cym;
             double relZ = (highlight.zi() + ((i >> 2) & 1)) * LAYER_THICKNESS - czm;
-            double sx = (relX * rx + relY * ry + relZ * rz) * scale + width / 2.0;
-            double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz) * scale;
+            double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
+            double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
             minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
             minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
         }
