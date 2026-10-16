@@ -53,6 +53,7 @@ public final class VoxelRaycaster {
     private double yaw;
     private double pitch;
     private double scale; // pixels per cell
+    private int activeZi; // layer index the guide grid is drawn on and edits apply to
     private double panRight, panUp; // view pan in cells along the camera's right / up axes
     private final double defaultYaw = Math.toRadians(-35);
     private final double defaultPitch = Math.toRadians(25);
@@ -82,6 +83,7 @@ public final class VoxelRaycaster {
         this.ss = this.pixelScale >= 2 ? 1 : 2;
         this.lineHalfWidth = Math.max(0.6, 0.4 * this.pixelScale);
         this.cells = new int[gridSize * gridSize * layers];
+        this.activeZi = layers / 2;
         // Fit the model's bounding sphere so deep (many layer) models never clip at the corners
         double depth = layers * LAYER_THICKNESS;
         double radius = 0.5 * Math.sqrt(2.0 * gridSize * gridSize + depth * depth);
@@ -93,6 +95,10 @@ public final class VoxelRaycaster {
 
     public int gridSize() { return gridSize; }
     public int layers() { return layers; }
+
+    /** Layer index (0..layers-1) that the guide grid sits on; voxels on other layers are drawn slightly faded. */
+    public void setActiveLayer(int zi) { this.activeZi = Math.max(0, Math.min(layers - 1, zi)); }
+    public int activeLayer() { return activeZi; }
 
     public void clear() {
         java.util.Arrays.fill(cells, 0);
@@ -272,13 +278,13 @@ public final class VoxelRaycaster {
     /** Where the current ray crosses the middle of the base layer, or null if it misses the base layer footprint. */
     private int[] floorCell() {
         if (Math.abs(dz) < 1e-12) return null;
-        double planeZ = layers / 2 + 0.5;
+        double planeZ = activeZi + 0.5;
         double t = (planeZ - oz) / dz;
         if (t < 0) return null;
         int x = (int) Math.floor(ox + dx * t);
         int y = (int) Math.floor(oy + dy * t);
         if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) return null;
-        return new int[]{x, y, layers / 2};
+        return new int[]{x, y, activeZi};
     }
 
     // ----- picking -----
@@ -309,6 +315,45 @@ public final class VoxelRaycaster {
             c[a] = a == axis ? index : (int) Math.floor(o[a] + d[a] * t);
         }
         return inBounds(c[0], c[1], c[2]) ? c : null;
+    }
+
+    /** Cell of the active layer under a pixel (where the ray crosses the middle of that layer), or null outside the grid. */
+    public int[] pickCell(int pixelX, int pixelY) {
+        if (pixelX < 0 || pixelY < 0 || pixelX >= width || pixelY >= height) return null;
+        return pickOnPlane(pixelX, pixelY, 2, activeZi);
+    }
+
+    /** Draws a bright outline around one cell (all 12 edges) over {@code fg}, as a cursor. */
+    public void drawCellBox(int[] fg, int cx, int cy, int zi) {
+        updateBasis();
+        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
+        double[] sx = new double[8], sy = new double[8];
+        for (int i = 0; i < 8; i++) {
+            double relX = cx + (i & 1) - cxm;
+            double relY = cy + ((i >> 1) & 1) - cym;
+            double relZ = (zi + ((i >> 2) & 1)) * LAYER_THICKNESS - czm;
+            sx[i] = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
+            sy[i] = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
+        }
+        int[][] edges = {{0,1},{2,3},{4,5},{6,7},{0,2},{1,3},{4,6},{5,7},{0,4},{1,5},{2,6},{3,7}};
+        int thick = Math.max(1, pixelScale);
+        for (int[] e : edges) drawLine(fg, sx[e[0]], sy[e[0]], sx[e[1]], sy[e[1]], thick + Math.max(1, pixelScale), 0xFF14203C);
+        for (int[] e : edges) drawLine(fg, sx[e[0]], sy[e[0]], sx[e[1]], sy[e[1]], thick, 0xFFFFFFFF);
+    }
+
+    private void drawLine(int[] fg, double x0, double y0, double x1, double y1, int thickness, int argb) {
+        int steps = (int) Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))) + 1;
+        int half = thickness / 2;
+        for (int i = 0; i <= steps; i++) {
+            double t = steps == 0 ? 0 : (double) i / steps;
+            int px = (int) Math.round(x0 + (x1 - x0) * t), py = (int) Math.round(y0 + (y1 - y0) * t);
+            for (int yy = py - half; yy < py - half + thickness; yy++) {
+                if (yy < 0 || yy >= height) continue;
+                for (int xx = px - half; xx < px - half + thickness; xx++) {
+                    if (xx >= 0 && xx < width) fg[yy * width + xx] = argb;
+                }
+            }
+        }
     }
 
     // ----- rendering -----
@@ -468,7 +513,32 @@ public final class VoxelRaycaster {
             light *= k;
         }
 
+        // White "studio" light: a point light above and in front of the model gives every face a soft gradient,
+        // brightens towards white where it shines, and adds a small specular glint.
+        double wx = ox + dx * hitT, wy = oy + dy * hitT, wz = (oz + dz * hitT) * LAYER_THICKNESS;
+        double g = gridSize;
+        double lx = g * 0.5 - 0.7 * g - wx, ly = g * 0.5 + 0.9 * g - wy, lz = layers / 2.0 * LAYER_THICKNESS + 1.4 * g - wz;
+        double ld = Math.sqrt(lx * lx + ly * ly + lz * lz);
+        lx /= ld; ly /= ld; lz /= ld;
+        double ndl = Math.max(0, hnx * lx + hny * ly + hnz * lz / 1.0);
+        double atten = 1.0 / (1.0 + Math.pow(ld / (g * 2.2), 2));
+        double shine = 0.80 + 0.75 * ndl * (0.55 + 0.45 * atten) - 0.05;
+        light *= shine;
+        // reflect the light about the normal and compare with the view direction (towards the camera = -f)
+        double dot = hnx * lx + hny * ly + hnz * lz;
+        double rxv = 2 * dot * hnx - lx, ryv = 2 * dot * hny - ly, rzv = 2 * dot * hnz - lz;
+        double spec = Math.pow(Math.max(0, -(rxv * fx + ryv * fy + rzv * fz / LAYER_THICKNESS * LAYER_THICKNESS)), 24) * 0.35 * atten * (ndl > 0 ? 1 : 0);
+
         double rr = ((base >> 16) & 0xFF) * light, gg = ((base >> 8) & 0xFF) * light, bb = (base & 0xFF) * light;
+        if (light > 1.0) { // over-exposed colour washes towards white instead of clipping to a hue
+            double w = Math.min(0.5, (light - 1.0) * 0.8);
+            rr += (255 - rr) * w; gg += (255 - gg) * w; bb += (255 - bb) * w;
+        }
+        rr += 255 * spec; gg += 255 * spec; bb += 255 * spec;
+
+        if (hz != activeZi) { // other layers are slightly faded so the layer being edited stands out
+            rr += (235 - rr) * 0.22; gg += (240 - gg) * 0.22; bb += (250 - bb) * 0.22;
+        }
 
         if (highlight != null && !highlight.floor()
                 && highlight.x() == hx && highlight.y() == hy && highlight.zi() == hz
@@ -485,7 +555,7 @@ public final class VoxelRaycaster {
         sa = 0;
         int[] f = floorCell();
         if (f == null) return;
-        double planeZ = layers / 2 + 0.5;
+        double planeZ = activeZi + 0.5;
         double t = (planeZ - oz) / dz;
         double fxc = ox + dx * t, fyc = oy + dy * t;
 
