@@ -23,6 +23,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.jspecify.annotations.NonNull;
 import net.adeptfrog.blocksmith.data.DesignFileManager.DesignEntry;
 
@@ -55,7 +56,11 @@ public class CustomizationScreen extends Screen {
     // 3D editor
     private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ORBIT = 2;
     private static final String[] TOOL_NAMES = {"Add", "Recolor", "Orbit"};
-    private static final int VIEW_BTN_Y = 177, TOOL_BTN_Y = 196, RESET_BTN_Y = 215; // relative to the window top
+    // Editor flyout menu: row ids (row 7/8 are Tool/Reset in 3D and Layer +/- in 2D)
+    private static final int MENU_ROWS = 10, MENU_VIEW = 6, MENU_TOOL = 7, MENU_RESET = 8, MENU_CODEX = 9;
+    // Vanilla item drawn at runtime as the menu icon: nothing is shipped, so there is no asset or licence involved.
+    private static final ItemStack MENU_ICON_STACK = new ItemStack(Items.CRAFTING_TABLE);
+    private boolean menuOpen = false;
     private boolean view3d = true;
     private int tool3d = TOOL_ADD;
     private boolean orbiting = false;
@@ -442,73 +447,35 @@ public class CustomizationScreen extends Screen {
         int labelWidth = this.font.width(saveLabel);
         guiGraphics.text(this.font, saveLabel, btnX + (btnW - labelWidth) / 2, saveBtnY + 6, 0xFFFFFFFF, false);
 
-        // Side buttons
+        // Single tools icon that opens a flyout with every editor action
         int subBtnW = 45;
         int subBtnH = 16;
         int subBtnX = leftPos - subBtnW - 4;
+        int iconSize = 18;
+        int iconX = subBtnX + subBtnW - iconSize;
+        int iconY = topPos + 1;
+        boolean iconHovered = mouseX >= iconX && mouseX < iconX + iconSize && mouseY >= iconY && mouseY < iconY + iconSize;
+        drawSmallHeaderButton(guiGraphics, iconX, iconY, iconSize, iconSize, "", iconHovered || this.menuOpen);
+        guiGraphics.fakeItem(MENU_ICON_STACK, iconX + 1, iconY + 1);
 
-        // Copy and Paste buttons
-        int exportBtnY = topPos + 1;
-        int importBtnY = exportBtnY + subBtnH + 4;
+        if (this.menuOpen) {
+            int toolRowHover = -1;
+            for (int row = 0; row < MENU_ROWS; row++) {
+                String label = menuLabel(row);
+                if (label == null) continue;
+                int rowY = menuRowY(topPos, row);
+                boolean hov = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rowY && mouseY <= rowY + subBtnH;
+                drawSmallHeaderButton(guiGraphics, subBtnX, rowY, subBtnW, subBtnH, label, hov);
+                if (hov && row == MENU_TOOL && this.view3d) toolRowHover = row;
+            }
 
-        boolean exportHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= exportBtnY && mouseY <= exportBtnY + subBtnH;
-        boolean importHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= importBtnY && mouseY <= importBtnY + subBtnH;
+            if (!this.view3d) {
+                String layerText = String.format("Layer %+d", this.activeLayer).replace("+0", "0");
+                int layerTextX = subBtnX + (subBtnW - this.font.width(layerText)) / 2;
+                guiGraphics.text(this.font, Component.literal(layerText), layerTextX, menuRowY(topPos, MENU_ROWS) + 3, 0xFFFFFFFF, true);
+            }
 
-        String exportLabel = exportFeedbackTimer > 0 ? "§aCopied!" : "Export";
-        String importLabel = importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : "Import");
-
-        drawSmallHeaderButton(guiGraphics, subBtnX, exportBtnY, subBtnW, subBtnH, exportLabel, exportHovered);
-        drawSmallHeaderButton(guiGraphics, subBtnX, importBtnY, subBtnW, subBtnH, importLabel, importHovered);
-
-        // Flip buttons
-        int flipHBtnY = importBtnY + subBtnH + 4;
-        int flipVBtnY = flipHBtnY + subBtnH + 4;
-
-        boolean flipHHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= flipHBtnY && mouseY <= flipHBtnY + subBtnH;
-        boolean flipVHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= flipVBtnY && mouseY <= flipVBtnY + subBtnH;
-
-        drawSmallHeaderButton(guiGraphics, subBtnX, flipHBtnY, subBtnW, subBtnH, "Flip H", flipHHovered);
-        drawSmallHeaderButton(guiGraphics, subBtnX, flipVBtnY, subBtnW, subBtnH, "Flip V", flipVHovered);
-
-        // Rotate buttons
-        int rotCWBtnY = flipVBtnY + subBtnH + 4;
-        int rotCCWBtnY = rotCWBtnY + subBtnH + 4;
-
-        boolean rotCWHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rotCWBtnY && mouseY <= rotCWBtnY + subBtnH;
-        boolean rotCCWHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rotCCWBtnY && mouseY <= rotCCWBtnY + subBtnH;
-
-        drawSmallHeaderButton(guiGraphics, subBtnX, rotCWBtnY, subBtnW, subBtnH, "Rot CW", rotCWHovered);
-        drawSmallHeaderButton(guiGraphics, subBtnX, rotCCWBtnY, subBtnW, subBtnH, "Rot CCW", rotCCWHovered);
-
-        // Layer buttons (2D mode) / 3D controls
-        int layerUpBtnY = rotCCWBtnY + subBtnH + 4;
-        int layerDownBtnY = layerUpBtnY + subBtnH + 4;
-
-        if (!this.view3d) {
-            boolean layerUpHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerUpBtnY && mouseY <= layerUpBtnY + subBtnH;
-            boolean layerDownHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerDownBtnY && mouseY <= layerDownBtnY + subBtnH;
-
-            drawSmallHeaderButton(guiGraphics, subBtnX, layerUpBtnY, subBtnW, subBtnH, "Layer +", layerUpHovered);
-            drawSmallHeaderButton(guiGraphics, subBtnX, layerDownBtnY, subBtnW, subBtnH, "Layer -", layerDownHovered);
-
-            String layerText = String.format("Layer %+d", this.activeLayer).replace("+0", "0");
-            int layerTextX = subBtnX + (subBtnW - this.font.width(layerText)) / 2; // centred under the buttons
-            guiGraphics.text(this.font, Component.literal(layerText), layerTextX, layerDownBtnY + subBtnH + 5, 0xFFFFFFFF, true);
-        }
-
-        int viewBtnY = topPos + VIEW_BTN_Y;
-        int toolBtnY = topPos + TOOL_BTN_Y;
-        int resetBtnY = topPos + RESET_BTN_Y;
-        boolean viewHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= viewBtnY && mouseY <= viewBtnY + subBtnH;
-        drawSmallHeaderButton(guiGraphics, subBtnX, viewBtnY, subBtnW, subBtnH, this.view3d ? "View: 3D" : "View: 2D", viewHovered);
-
-        if (this.view3d) {
-            boolean toolHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= toolBtnY && mouseY <= toolBtnY + subBtnH;
-            boolean resetHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= resetBtnY && mouseY <= resetBtnY + subBtnH;
-            drawSmallHeaderButton(guiGraphics, subBtnX, toolBtnY, subBtnW, subBtnH, TOOL_NAMES[this.tool3d], toolHovered);
-            drawSmallHeaderButton(guiGraphics, subBtnX, resetBtnY, subBtnW, subBtnH, "Reset", resetHovered);
-
-            if (toolHovered) {
+            if (toolRowHover >= 0) {
                 List<ClientTooltipComponent> toolTooltip = List.of(
                         ClientTooltipComponent.create(Component.literal("§eLeft-click tool (click to cycle)").getVisualOrderText()),
                         ClientTooltipComponent.create(Component.literal("§7Add: place a voxel on the face you point at").getVisualOrderText()),
@@ -519,6 +486,11 @@ public class CustomizationScreen extends Screen {
                 );
                 guiGraphics.tooltip(this.font, toolTooltip, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
             }
+        } else if (iconHovered) {
+            guiGraphics.tooltip(this.font, List.of(
+                    ClientTooltipComponent.create(Component.literal("§eEditor menu").getVisualOrderText()),
+                    ClientTooltipComponent.create(Component.literal("§7Export, import, flip, rotate, view, codex").getVisualOrderText())
+            ), mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
         }
 
         // Materials and Shades
@@ -634,18 +606,7 @@ public class CustomizationScreen extends Screen {
             guiGraphics.text(this.font, Component.literal(pctText), breakdownX + 19, rowY + 4, 0xFFFFFFFF, true);
         }
 
-        // Ability Codex book button
-        int bookBtnY = topPos + WINDOW_HEIGHT - subBtnH - 1;
 
-        boolean bookHovered = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= bookBtnY && mouseY <= bookBtnY + subBtnH;
-        drawSmallHeaderButton(guiGraphics, subBtnX, bookBtnY, subBtnW, subBtnH, "Codex", bookHovered);
-
-        if (bookHovered) {
-            List<ClientTooltipComponent> bookTooltip = List.of(
-                    ClientTooltipComponent.create(Component.literal("§eAbility Codex (Guide)").getVisualOrderText())
-            );
-            guiGraphics.tooltip(this.font, bookTooltip, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
-        }
     }
 
     @Override
@@ -658,152 +619,35 @@ public class CustomizationScreen extends Screen {
         int statsX = leftPos + 212;
         int statsY = topPos + 35;
 
-        // Side buttons
+        // Editor menu: one icon that opens a flyout with all actions
         int subBtnW = 45;
         int subBtnH = 16;
         int subBtnX = leftPos - subBtnW - 4;
+        int iconSize = 18;
+        int iconX = subBtnX + subBtnW - iconSize;
+        int iconY = topPos + 1;
 
-        // Export and Import button click
-        int exportBtnY = topPos + 1;
-        int importBtnY = exportBtnY + subBtnH + 4;
-
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= exportBtnY && mouseY <= exportBtnY + subBtnH) {
+        if (mouseX >= iconX && mouseX < iconX + iconSize && mouseY >= iconY && mouseY < iconY + iconSize) {
+            this.menuOpen = !this.menuOpen;
             this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            WeaponOffset currentOffset = new WeaponOffset(this.workingOffsetX, this.workingOffsetY);
-            this.minecraft.setScreen(new ExportDesignScreen(this, new DesignEntry(
-                    this.recentFileName,
-                    false,
-                    this.workingVoxels,
-                    currentOffset,
-                    this.recentAttribution,
-                    this.recentCrafter), this.gridSize));
             return true;
         }
 
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= importBtnY && mouseY <= importBtnY + subBtnH) {
-            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            this.minecraft.setScreen(new DesignLibraryScreen(this));
-            return true;
-        }
-
-        // Flip buttons click
-        int flipHBtnY = importBtnY + subBtnH + 4;
-        int flipVBtnY = flipHBtnY + subBtnH + 4;
-
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= flipHBtnY && mouseY <= flipHBtnY + subBtnH) {
-            if (!workingVoxels.isEmpty()) {
-                List<WeaponVoxel> flipped = new ArrayList<>();
-                for (WeaponVoxel v : workingVoxels) {
-                    int newX = (this.gridSize - 1) - v.x();
-                    flipped.add(new WeaponVoxel(newX, v.y(), v.z(), v.materialId(), v.shade()));
+        if (this.menuOpen) {
+            int clickedRow = -1;
+            if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW) {
+                for (int row = 0; row < MENU_ROWS; row++) {
+                    int rowY = menuRowY(topPos, row);
+                    if (menuLabel(row) != null && mouseY >= rowY && mouseY <= rowY + subBtnH) { clickedRow = row; break; }
                 }
-                this.workingVoxels.clear();
-                this.workingVoxels.addAll(flipped);
-                recalculateCachedStats();
-
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            }
+            if (clickedRow >= 0) {
+                handleMenuAction(clickedRow);
                 return true;
             }
+            this.menuOpen = false; // clicked anywhere else: close the menu and carry on
         }
 
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= flipVBtnY && mouseY <= flipVBtnY + subBtnH) {
-            if (!workingVoxels.isEmpty()) {
-                List<WeaponVoxel> flipped = new ArrayList<>();
-                for (WeaponVoxel v : workingVoxels) {
-                    int newY = (this.gridSize - 1) - v.y();
-                    flipped.add(new WeaponVoxel(v.x(), newY, v.z(), v.materialId(), v.shade()));
-                }
-                this.workingVoxels.clear();
-                this.workingVoxels.addAll(flipped);
-                recalculateCachedStats();
-
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                return true;
-            }
-        }
-
-        // Rotate buttons click
-        int rotCWBtnY = flipVBtnY + subBtnH + 4;
-        int rotCCWBtnY = rotCWBtnY + subBtnH + 4;
-
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rotCWBtnY && mouseY <= rotCWBtnY + subBtnH) {
-            if (!workingVoxels.isEmpty()) {
-                List<WeaponVoxel> rotated = new ArrayList<>();
-                for (WeaponVoxel v : workingVoxels) {
-                    int newX = v.y();
-                    int newY = (this.gridSize - 1) - v.x();
-                    rotated.add(new WeaponVoxel(newX, newY, v.z(), v.materialId(), v.shade()));
-                }
-                this.workingVoxels.clear();
-                this.workingVoxels.addAll(rotated);
-
-                recalculateCachedStats();
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                return true;
-            }
-        }
-
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= rotCCWBtnY && mouseY <= rotCCWBtnY + subBtnH) {
-            if (!workingVoxels.isEmpty()) {
-                List<WeaponVoxel> rotated = new ArrayList<>();
-                for (WeaponVoxel v : workingVoxels) {
-                    int newX = (this.gridSize - 1) - v.y();
-                    int newY = v.x();
-                    rotated.add(new WeaponVoxel(newX, newY, v.z(), v.materialId(), v.shade()));
-                }
-                this.workingVoxels.clear();
-                this.workingVoxels.addAll(rotated);
-
-                recalculateCachedStats();
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                return true;
-            }
-        }
-
-        // Layer buttons click
-        int layerUpBtnY = rotCCWBtnY + subBtnH + 4;
-        int layerDownBtnY = layerUpBtnY + subBtnH + 4;
-
-        if (!this.view3d && mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerUpBtnY && mouseY <= layerUpBtnY + subBtnH) {
-            if (this.activeLayer < MAX_LAYER) this.activeLayer++;
-            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            return true;
-        }
-
-        if (!this.view3d && mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= layerDownBtnY && mouseY <= layerDownBtnY + subBtnH) {
-            if (this.activeLayer > MIN_LAYER) this.activeLayer--;
-            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            return true;
-        }
-
-        // View toggle, tool and reset buttons
-        int viewBtnY = topPos + VIEW_BTN_Y;
-        int toolBtnY = topPos + TOOL_BTN_Y;
-        int resetBtnY = topPos + RESET_BTN_Y;
-        boolean inLeftColumn = mouseX >= subBtnX && mouseX <= subBtnX + subBtnW;
-
-        if (inLeftColumn && mouseY >= viewBtnY && mouseY <= viewBtnY + subBtnH) {
-            this.view3d = !this.view3d;
-            this.orbiting = false;
-            this.strokeAxis = -1;
-            this.sceneDirty = true;
-            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            return true;
-        }
-
-        if (this.view3d && inLeftColumn && mouseY >= toolBtnY && mouseY <= toolBtnY + subBtnH) {
-            this.tool3d = (this.tool3d + 1) % TOOL_NAMES.length;
-            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            return true;
-        }
-
-        if (this.view3d && inLeftColumn && mouseY >= resetBtnY && mouseY <= resetBtnY + subBtnH) {
-            ensureRaycaster();
-            this.raycaster.resetView();
-            this.sceneDirty = true;
-            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            return true;
-        }
 
         // Grip offset buttons click
         int offsetUiY = statsY + 130;
@@ -913,15 +757,6 @@ public class CustomizationScreen extends Screen {
                 this.selectedShade = s;
                 return true;
             }
-        }
-
-        // Check Ability Codex book button click
-        int bookBtnY = topPos + WINDOW_HEIGHT - subBtnH - 1;
-
-        if (mouseX >= subBtnX && mouseX <= subBtnX + subBtnW && mouseY >= bookBtnY && mouseY <= bookBtnY + subBtnH) {
-            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BOOK_PAGE_TURN, 1.0F));
-            this.minecraft.setScreen(new AbilityBookScreen(this));
-            return true;
         }
 
         // Grid painting and erasing
@@ -1365,6 +1200,84 @@ public class CustomizationScreen extends Screen {
 
     public void triggerExportFeedback() {
         this.exportFeedbackTimer = 40;
+    }
+
+    private static int menuRowY(int topPos, int row) {
+        return topPos + 22 + row * 18;
+    }
+
+    private String menuLabel(int row) {
+        return switch (row) {
+            case 0 -> exportFeedbackTimer > 0 ? "§aCopied!" : "Export";
+            case 1 -> importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : "Import");
+            case 2 -> "Flip H";
+            case 3 -> "Flip V";
+            case 4 -> "Rot CW";
+            case 5 -> "Rot CCW";
+            case MENU_VIEW -> this.view3d ? "View: 3D" : "View: 2D";
+            case MENU_TOOL -> this.view3d ? TOOL_NAMES[this.tool3d] : "Layer +";
+            case MENU_RESET -> this.view3d ? "Reset" : "Layer -";
+            case MENU_CODEX -> "Codex";
+            default -> null;
+        };
+    }
+
+    private void transformVoxels(java.util.function.UnaryOperator<WeaponVoxel> op) {
+        if (workingVoxels.isEmpty()) return;
+        List<WeaponVoxel> out = new ArrayList<>();
+        for (WeaponVoxel v : workingVoxels) out.add(op.apply(v));
+        this.workingVoxels.clear();
+        this.workingVoxels.addAll(out);
+        recalculateCachedStats();
+        this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+    }
+
+    private void handleMenuAction(int row) {
+        int n = this.gridSize - 1;
+        switch (row) {
+            case 0 -> {
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                WeaponOffset currentOffset = new WeaponOffset(this.workingOffsetX, this.workingOffsetY);
+                this.minecraft.setScreen(new ExportDesignScreen(this, new DesignEntry(
+                        this.recentFileName, false, this.workingVoxels, currentOffset,
+                        this.recentAttribution, this.recentCrafter), this.gridSize));
+            }
+            case 1 -> {
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                this.minecraft.setScreen(new DesignLibraryScreen(this));
+            }
+            case 2 -> transformVoxels(v -> new WeaponVoxel(n - v.x(), v.y(), v.z(), v.materialId(), v.shade()));
+            case 3 -> transformVoxels(v -> new WeaponVoxel(v.x(), n - v.y(), v.z(), v.materialId(), v.shade()));
+            case 4 -> transformVoxels(v -> new WeaponVoxel(v.y(), n - v.x(), v.z(), v.materialId(), v.shade()));
+            case 5 -> transformVoxels(v -> new WeaponVoxel(n - v.y(), v.x(), v.z(), v.materialId(), v.shade()));
+            case MENU_VIEW -> {
+                this.view3d = !this.view3d;
+                this.orbiting = false;
+                this.strokeAxis = -1;
+                this.sceneDirty = true;
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            }
+            case MENU_TOOL -> {
+                if (this.view3d) this.tool3d = (this.tool3d + 1) % TOOL_NAMES.length;
+                else if (this.activeLayer < MAX_LAYER) this.activeLayer++;
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            }
+            case MENU_RESET -> {
+                if (this.view3d) {
+                    ensureRaycaster();
+                    this.raycaster.resetView();
+                    this.sceneDirty = true;
+                } else if (this.activeLayer > MIN_LAYER) {
+                    this.activeLayer--;
+                }
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            }
+            case MENU_CODEX -> {
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BOOK_PAGE_TURN, 1.0F));
+                this.minecraft.setScreen(new AbilityBookScreen(this));
+            }
+            default -> { }
+        }
     }
 
     private void drawSmallHeaderButton(GuiGraphicsExtractor g, int x, int y, int w, int h, String text, boolean hovered) {
