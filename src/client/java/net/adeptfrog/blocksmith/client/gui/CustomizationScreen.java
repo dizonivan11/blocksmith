@@ -72,8 +72,14 @@ public class CustomizationScreen extends Screen {
     // Layer strip: per-layer visibility and lock, indexed by z + MAX_LAYER
     private final boolean[] layerHidden = new boolean[LAYER_COUNT];
     private final boolean[] layerLocked = new boolean[LAYER_COUNT];
-    private static final int THUMB = 15, THUMB_PITCH = 17, STRIP_COLS = 5, STRIP_ROW_H = 25, STRIP_X = 281, STRIP_Y = 207;
-    private static final int RECENT_SIZE = 9, RECENT_PITCH = 10, RECENT_X = 281, RECENT_Y = 258, MAX_RECENT = 8;
+    private static final int THUMB = 13, LAYER_ROW_H = 15, LAYER_LIST_X = 280, LAYER_LIST_Y = 207, LAYER_LIST_W = 90, LAYER_LIST_H = 60, SCROLLBAR_W = 6;
+    // Minecraft's own scroll bar sprites (the ones lists and the world selection use)
+    private static final Identifier SCROLLER_SPRITE = Identifier.withDefaultNamespace("widget/scroller");
+    private static final Identifier SCROLLER_BACKGROUND_SPRITE = Identifier.withDefaultNamespace("widget/scroller_background");
+    private double layerScroll = 0;           // pixels scrolled down in the layers list
+    private boolean draggingScrollbar = false;
+    private int scrollGrab = 0;               // where on the thumb the scroll bar was grabbed
+    private static final int RECENT_SIZE = 8, RECENT_PITCH = 9, RECENT_X = 260, RECENT_Y = 297, MAX_RECENT = 8;
     private final int[][] thumbPixels = new int[LAYER_COUNT][THUMB * THUMB];
     private boolean thumbsDirty = true;
 
@@ -211,6 +217,7 @@ public class CustomizationScreen extends Screen {
         this.workingOffsetY = savedOffset.y();
 
         recalculateCachedStats();
+        revealActiveLayer();
     }
 
     @Override
@@ -235,11 +242,13 @@ public class CustomizationScreen extends Screen {
         if (key == GLFW.GLFW_KEY_PAGE_UP && this.activeLayer < MAX_LAYER) {
             this.activeLayer++;
             this.sceneDirty = true;
+            revealActiveLayer();
             return true;
         }
         if (key == GLFW.GLFW_KEY_PAGE_DOWN && this.activeLayer > MIN_LAYER) {
             this.activeLayer--;
             this.sceneDirty = true;
+            revealActiveLayer();
             return true;
         }
 
@@ -257,6 +266,16 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        // Scrolling over the layers list moves through the layers
+        {
+            int leftPos = (this.width - WINDOW_WIDTH) / 2, topPos = (this.height - WINDOW_HEIGHT) / 2;
+            if (verticalAmount != 0 && overLayerList(leftPos, topPos, (int) mouseX, (int) mouseY)) {
+                this.layerScroll -= verticalAmount * LAYER_ROW_H;
+                clampLayerScroll();
+                return true;
+            }
+        }
+
         // Scrolling over the 3D view zooms it
         if (this.view3d && verticalAmount != 0 && isInsideWorkspace((int) mouseX, (int) mouseY)) {
             ensureRaycaster();
@@ -564,7 +583,7 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        drawLayerStrip(guiGraphics, leftPos, topPos, mouseX, mouseY);
+        drawLayerPanel(guiGraphics, leftPos, topPos, mouseX, mouseY);
         drawRecentSwatches(guiGraphics, leftPos, topPos, mouseX, mouseY);
 
         if (hoveredBtn >= 0) {
@@ -824,7 +843,7 @@ public class CustomizationScreen extends Screen {
             }
         }
 
-        if (event.button() == 0 && handleStripClick(leftPos, topPos, mouseX, mouseY)) {
+        if (event.button() == 0 && handlePanelClick(leftPos, topPos, mouseX, mouseY)) {
             return true;
         }
 
@@ -856,6 +875,10 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
+        if (this.draggingScrollbar) {
+            dragScrollbar((int) event.y());
+            return true;
+        }
         if (this.view3d) {
             if (this.orbiting) {
                 ensureRaycaster();
@@ -880,6 +903,7 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseReleased(@NonNull MouseButtonEvent event) {
+        this.draggingScrollbar = false;
         if (!this.view3d) finish2dStroke();
         this.strokeSnapshot = null;
         this.orbiting = false;
@@ -1202,58 +1226,120 @@ public class CustomizationScreen extends Screen {
         this.thumbsDirty = false;
     }
 
-    private int thumbX(int leftPos, int i) { return leftPos + STRIP_X + (i % STRIP_COLS) * THUMB_PITCH; }
-
-    private int thumbY(int topPos, int i) { return topPos + STRIP_Y + (i / STRIP_COLS) * STRIP_ROW_H; }
-
-    private static int outline(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
+    private static void outline(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
         g.fill(x - 1, y - 1, x + w + 1, y, color);
         g.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
         g.fill(x - 1, y, x, y + h, color);
         g.fill(x + w, y, x + w + 1, y + h, color);
-        return color;
     }
 
-    private void drawLayerStrip(GuiGraphicsExtractor g, int leftPos, int topPos, int mouseX, int mouseY) {
+    // ----- Layers panel (Photoshop style: top layer first, scrollable) -----
+
+    private int layerListX(int leftPos) { return leftPos + LAYER_LIST_X; }
+
+    private int layerListY(int topPos) { return topPos + LAYER_LIST_Y; }
+
+    private int layerContentHeight() { return LAYER_COUNT * LAYER_ROW_H; }
+
+    private int maxLayerScroll() { return Math.max(0, layerContentHeight() - LAYER_LIST_H); }
+
+    private boolean layerListScrolls() { return maxLayerScroll() > 0; }
+
+    private void clampLayerScroll() {
+        this.layerScroll = Math.clamp(this.layerScroll, 0.0, (double) maxLayerScroll());
+    }
+
+    /** Scrolls the list just far enough that the layer being edited is fully visible. */
+    private void revealActiveLayer() {
+        int rowTop = (MAX_LAYER - this.activeLayer) * LAYER_ROW_H;
+        if (rowTop < this.layerScroll) this.layerScroll = rowTop;
+        else if (rowTop + LAYER_ROW_H > this.layerScroll + LAYER_LIST_H) this.layerScroll = rowTop + LAYER_ROW_H - LAYER_LIST_H;
+        clampLayerScroll();
+    }
+
+    private int scrollerHeight() {
+        return Math.max(16, (int) (LAYER_LIST_H * (double) LAYER_LIST_H / layerContentHeight()));
+    }
+
+    private int scrollerOffset() {
+        int travel = LAYER_LIST_H - scrollerHeight();
+        return maxLayerScroll() == 0 ? 0 : (int) Math.round(this.layerScroll / maxLayerScroll() * travel);
+    }
+
+    private boolean overLayerList(int leftPos, int topPos, int mouseX, int mouseY) {
+        int x = layerListX(leftPos), y = layerListY(topPos);
+        return mouseX >= x && mouseX < x + LAYER_LIST_W && mouseY >= y && mouseY < y + LAYER_LIST_H;
+    }
+
+    private void drawLayerPanel(GuiGraphicsExtractor g, int leftPos, int topPos, int mouseX, int mouseY) {
         if (this.thumbsDirty) rebuildThumbnails();
-        g.text(this.font, Component.literal("Layers"), leftPos + STRIP_X, topPos + STRIP_Y - 10, FONT_COLOR, false);
+        clampLayerScroll();
+        int lx = layerListX(leftPos), ly = layerListY(topPos);
+        boolean scrolls = layerListScrolls();
+        int rowW = LAYER_LIST_W - (scrolls ? SCROLLBAR_W + 1 : 0);
+
+        g.text(this.font, Component.literal("Layers"), lx, ly - 10, FONT_COLOR, false);
+        g.fill(lx, ly, lx + rowW, ly + LAYER_LIST_H, 0xFF2B2B2B);
 
         List<String> tip = null;
-        for (int i = 0; i < LAYER_COUNT; i++) {
-            int layer = i - MAX_LAYER;
-            int x0 = thumbX(leftPos, i);
-            int y0 = thumbY(topPos, i);
-            boolean hidden = this.layerHidden[i];
-            int[] px = this.thumbPixels[i];
+        g.enableScissor(lx, ly, lx + rowW, ly + LAYER_LIST_H);
+        for (int r = 0; r < LAYER_COUNT; r++) {
+            int layer = MAX_LAYER - r;
+            int i = layer + MAX_LAYER;
+            int ry = ly + r * LAYER_ROW_H - (int) this.layerScroll;
+            if (ry + LAYER_ROW_H <= ly || ry >= ly + LAYER_LIST_H) continue;
 
+            boolean active = layer == this.activeLayer;
+            boolean hidden = this.layerHidden[i];
+            boolean rowHover = mouseX >= lx && mouseX < lx + rowW && mouseY >= Math.max(ry, ly) && mouseY < Math.min(ry + LAYER_ROW_H, ly + LAYER_LIST_H);
+            g.fill(lx, ry, lx + rowW, ry + LAYER_ROW_H, active ? 0xFF4A6FA5 : (rowHover ? 0xFF444444 : 0xFF353535));
+            g.fill(lx, ry + LAYER_ROW_H - 1, lx + rowW, ry + LAYER_ROW_H, 0xFF202020);
+
+            // Visibility (green = shown) and lock (orange = locked)
+            int eyeX = lx + 2, lockX = lx + 11, boxY = ry + (LAYER_ROW_H - 7) / 2;
+            g.fill(eyeX, boxY, eyeX + 7, boxY + 7, hidden ? 0xFF555555 : 0xFF55CC55);
+            g.fill(lockX, boxY, lockX + 7, boxY + 7, this.layerLocked[i] ? 0xFFFFAA00 : 0xFF8B8B8B);
+
+            // Thumbnail
+            int tx0 = lx + 20, ty0 = ry + (LAYER_ROW_H - THUMB) / 2;
+            int[] px = this.thumbPixels[i];
             for (int ty = 0; ty < THUMB; ty++) {
                 int tx = 0;
                 while (tx < THUMB) {
                     int c = px[tx + ty * THUMB];
                     int run = tx + 1;
                     while (run < THUMB && px[run + ty * THUMB] == c) run++;
-                    g.fill(x0 + tx, y0 + ty, x0 + run, y0 + ty + 1, c);
+                    g.fill(tx0 + tx, ty0 + ty, tx0 + run, ty0 + ty + 1, c);
                     tx = run;
                 }
             }
-            if (hidden) g.fill(x0, y0, x0 + THUMB, y0 + THUMB, 0xBB1A1A1A);
-            outline(g, x0, y0, THUMB, THUMB, layer == this.activeLayer ? 0xFFFFFFFF : 0xFF373737);
+            if (hidden) g.fill(tx0, ty0, tx0 + THUMB, ty0 + THUMB, 0xBB1A1A1A);
+            outline(g, tx0, ty0, THUMB, THUMB, 0xFF151515);
 
-            // Hide (green = visible) and lock (orange = locked) toggles under each thumbnail
-            int ty = y0 + THUMB + 2;
-            g.fill(x0, ty, x0 + 7, ty + 5, hidden ? 0xFF555555 : 0xFF55CC55);
-            g.fill(x0 + 8, ty, x0 + 15, ty + 5, this.layerLocked[i] ? 0xFFFFAA00 : 0xFF8B8B8B);
+            String name = layer == 0 ? "Base" : String.format("Layer %+d", layer);
+            g.text(this.font, Component.literal(name), tx0 + THUMB + 4, ry + (LAYER_ROW_H - 8) / 2 + 1, hidden ? 0xFF8A8A8A : 0xFFFFFFFF, false);
 
-            String name = layer == 0 ? "Base layer" : String.format("Layer %+d", layer);
-            if (mouseY >= y0 && mouseY < y0 + THUMB && mouseX >= x0 && mouseX < x0 + THUMB) {
-                tip = List.of("§e" + name, "§7Click to edit this layer", "§7Page Up / Page Down also switch layers");
-            } else if (mouseY >= ty && mouseY < ty + 5 && mouseX >= x0 && mouseX < x0 + 7) {
-                tip = List.of("§e" + (hidden ? "Show " : "Hide ") + name.toLowerCase(), "§7Hidden layers can't be edited");
-            } else if (mouseY >= ty && mouseY < ty + 5 && mouseX >= x0 + 8 && mouseX < x0 + 15) {
-                tip = List.of("§e" + (this.layerLocked[i] ? "Unlock " : "Lock ") + name.toLowerCase(), "§7Locked layers can't be changed");
+            if (rowHover) {
+                if (mouseX >= eyeX && mouseX < eyeX + 7) {
+                    tip = List.of("§e" + (hidden ? "Show " : "Hide ") + name.toLowerCase(), "§7Hidden layers can't be edited");
+                } else if (mouseX >= lockX && mouseX < lockX + 7) {
+                    tip = List.of("§e" + (this.layerLocked[i] ? "Unlock " : "Lock ") + name.toLowerCase(), "§7Locked layers can't be changed");
+                } else {
+                    tip = List.of("§e" + (layer == 0 ? "Base layer" : name), "§7Click to edit this layer", "§7Scroll, or Page Up / Page Down, to move through layers");
+                }
             }
         }
-        if (tip != null) {
+        g.disableScissor();
+        outline(g, lx, ly, rowW, LAYER_LIST_H, 0xFF373737);
+
+        // Minecraft's own scroll bar sprites
+        if (scrolls) {
+            int sx = lx + LAYER_LIST_W - SCROLLBAR_W;
+            g.blitSprite(RenderPipelines.GUI_TEXTURED, SCROLLER_BACKGROUND_SPRITE, sx, ly, SCROLLBAR_W, LAYER_LIST_H);
+            g.blitSprite(RenderPipelines.GUI_TEXTURED, SCROLLER_SPRITE, sx, ly + scrollerOffset(), SCROLLBAR_W, scrollerHeight());
+        }
+
+        if (tip != null && !this.draggingScrollbar) {
             List<ClientTooltipComponent> lines = new ArrayList<>();
             for (String t : tip) lines.add(ClientTooltipComponent.create(Component.literal(t).getVisualOrderText()));
             g.tooltip(this.font, lines, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
@@ -1273,35 +1359,51 @@ public class CustomizationScreen extends Screen {
         }
         if (hovered != null) {
             List<ClientTooltipComponent> lines = List.of(
-                    ClientTooltipComponent.create(Component.literal("§e" + StringUtils.capitalize(hovered.material().id())).getVisualOrderText()),
+                    ClientTooltipComponent.create(Component.literal("§eRecent: " + StringUtils.capitalize(hovered.material().id())).getVisualOrderText()),
                     ClientTooltipComponent.create(Component.literal("§7Shade " + (hovered.shade() + 1) + " - click to use").getVisualOrderText()));
             g.tooltip(this.font, lines, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
         }
     }
 
-    private boolean handleStripClick(int leftPos, int topPos, int mouseX, int mouseY) {
-        for (int i = 0; i < LAYER_COUNT; i++) {
-            int x0 = thumbX(leftPos, i);
-            int y0 = thumbY(topPos, i);
-            int ty = y0 + THUMB + 2;
-            if (mouseY >= y0 && mouseY < y0 + THUMB && mouseX >= x0 && mouseX < x0 + THUMB) {
-                this.activeLayer = i - MAX_LAYER;
-                this.sceneDirty = true;
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                return true;
+    private boolean handlePanelClick(int leftPos, int topPos, int mouseX, int mouseY) {
+        int lx = layerListX(leftPos), ly = layerListY(topPos);
+        boolean scrolls = layerListScrolls();
+        int rowW = LAYER_LIST_W - (scrolls ? SCROLLBAR_W + 1 : 0);
+
+        // Scroll bar: drag the thumb, or click the track to page
+        if (scrolls && mouseX >= lx + LAYER_LIST_W - SCROLLBAR_W && mouseX < lx + LAYER_LIST_W
+                && mouseY >= ly && mouseY < ly + LAYER_LIST_H) {
+            int thumbTop = ly + scrollerOffset();
+            if (mouseY >= thumbTop && mouseY < thumbTop + scrollerHeight()) {
+                this.draggingScrollbar = true;
+                this.scrollGrab = mouseY - thumbTop;
+            } else {
+                this.layerScroll += mouseY < thumbTop ? -LAYER_LIST_H : LAYER_LIST_H;
+                clampLayerScroll();
             }
-            if (mouseY >= ty && mouseY < ty + 5 && mouseX >= x0 && mouseX < x0 + 7) {
-                this.layerHidden[i] = !this.layerHidden[i];
-                this.sceneDirty = true;
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                return true;
-            }
-            if (mouseY >= ty && mouseY < ty + 5 && mouseX >= x0 + 8 && mouseX < x0 + 15) {
-                this.layerLocked[i] = !this.layerLocked[i];
+            return true;
+        }
+
+        if (mouseX >= lx && mouseX < lx + rowW && mouseY >= ly && mouseY < ly + LAYER_LIST_H) {
+            int r = (int) Math.floor((mouseY - ly + this.layerScroll) / LAYER_ROW_H);
+            if (r >= 0 && r < LAYER_COUNT) {
+                int layer = MAX_LAYER - r;
+                int i = layer + MAX_LAYER;
+                if (mouseX >= lx + 2 && mouseX < lx + 9) {
+                    this.layerHidden[i] = !this.layerHidden[i];
+                    this.sceneDirty = true;
+                } else if (mouseX >= lx + 11 && mouseX < lx + 18) {
+                    this.layerLocked[i] = !this.layerLocked[i];
+                } else {
+                    this.activeLayer = layer;
+                    this.sceneDirty = true;
+                    revealActiveLayer();
+                }
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 return true;
             }
         }
+
         for (int i = 0; i < this.recentSwatches.size(); i++) {
             int x0 = leftPos + RECENT_X + i * RECENT_PITCH;
             int y0r = topPos + RECENT_Y;
@@ -1313,6 +1415,15 @@ public class CustomizationScreen extends Screen {
             }
         }
         return false;
+    }
+
+    private void dragScrollbar(int mouseY) {
+        int topPos = (this.height - WINDOW_HEIGHT) / 2;
+        int travel = LAYER_LIST_H - scrollerHeight();
+        if (travel <= 0) return;
+        double frac = (mouseY - this.scrollGrab - layerListY(topPos)) / (double) travel;
+        this.layerScroll = frac * maxLayerScroll();
+        clampLayerScroll();
     }
 
     // ----- 3D editor -----
@@ -1413,11 +1524,11 @@ public class CustomizationScreen extends Screen {
 
         boolean modelLayerChanged = false;
 
-        // Heavy pass: only when the model or camera changed. While the camera is being dragged a coarser,
+        // Heavy pass: only when the model or camera changed. At very high render scales a coarser,
         // faster preview is drawn; a full-detail pass follows as soon as the mouse is released.
         if (this.sceneDirty) {
             rebuildScene();
-            int step = ((this.orbiting || this.panning) && scale >= 2) ? 2 : 1;
+            int step = ((this.orbiting || this.panning) && scale >= 3) ? 2 : 1;
             this.raycaster.render(this.fgBase, null, step);
             this.sceneDirty = false;
             modelLayerChanged = true;
