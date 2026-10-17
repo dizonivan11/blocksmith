@@ -72,14 +72,14 @@ public class CustomizationScreen extends Screen {
     // Layer strip: per-layer visibility and lock, indexed by z + MAX_LAYER
     private final boolean[] layerHidden = new boolean[LAYER_COUNT];
     private final boolean[] layerLocked = new boolean[LAYER_COUNT];
-    private static final int THUMB = 13, LAYER_ROW_H = 15, LAYER_LIST_X = 280, LAYER_LIST_Y = 207, LAYER_LIST_W = 90, LAYER_LIST_H = 60, SCROLLBAR_W = 6;
-    // Minecraft's own scroll bar sprites (the ones lists and the world selection use)
-    private static final Identifier SCROLLER_SPRITE = Identifier.withDefaultNamespace("widget/scroller");
-    private static final Identifier SCROLLER_BACKGROUND_SPRITE = Identifier.withDefaultNamespace("widget/scroller_background");
+    private static final int THUMB = 14, LAYER_ROW_H = 16, LAYER_LIST_X = STATS_X + 6, LAYER_LIST_Y = 208, LAYER_LIST_W = 88, LAYER_LIST_H = 96, SCROLLBAR_W = 12, SCROLLER_H = 15;
+    // The scroll bar thumb of the creative inventory tab
+    private static final Identifier SCROLLER_SPRITE = Identifier.withDefaultNamespace("container/creative_inventory/scroller");
+    private static final Identifier SCROLLER_DISABLED_SPRITE = Identifier.withDefaultNamespace("container/creative_inventory/scroller_disabled");
     private double layerScroll = 0;           // pixels scrolled down in the layers list
     private boolean draggingScrollbar = false;
     private int scrollGrab = 0;               // where on the thumb the scroll bar was grabbed
-    private static final int RECENT_SIZE = 8, RECENT_PITCH = 9, RECENT_X = 260, RECENT_Y = 297, MAX_RECENT = 8;
+    private static final int RECENT_SIZE = 9, RECENT_PITCH = 11, RECENT_X = STATS_X + 6, RECENT_Y = 326, MAX_RECENT = 8;
     private final int[][] thumbPixels = new int[LAYER_COUNT][THUMB * THUMB];
     private boolean thumbsDirty = true;
 
@@ -126,6 +126,7 @@ public class CustomizationScreen extends Screen {
     private int strokeAxis = -1;   // axis of the plane a paint-drag stays on, -1 when no stroke is active
     private int strokeIndex = 0;
     private boolean sceneDirty = true;
+    private double fullRenderMs = 0; // smoothed cost of one full-detail 3D pass
     private int lastHoverKey = -2;
     private VoxelRaycaster.Hit hoverHit = null;
     private VoxelRaycaster raycaster;
@@ -150,13 +151,13 @@ public class CustomizationScreen extends Screen {
     private static final int FONT_COLOR = 0xFF3F3F3F;
 
     // Container Window Dimensions
-    private static final int WINDOW_WIDTH = 381;
-    private static final int WINDOW_HEIGHT = 317;
+    private static final int WINDOW_WIDTH = 509;
+    private static final int WINDOW_HEIGHT = 445;
 
     // Workspace Allocated Area
     private static final int WORKSPACE_OFFSET_X = 12;
     private static final int WORKSPACE_OFFSET_Y = 12;
-    private static final int WORKSPACE_DIM = 256;
+    private static final int WORKSPACE_DIM = 384;
 
     // Bottom Slot Configuration
     private static final int VISIBLE_SLOTS = 8;
@@ -166,7 +167,8 @@ public class CustomizationScreen extends Screen {
 
     private static final int MAT_START_X = 8;
     private static final int SHADE_START_X = 164;
-    private static final int SLOTS_Y = 293;
+    private static final int SLOTS_Y = 421;
+    private static final int STATS_X = 404; // left edge of the bonus-stats panel; its text starts 6 px further in
 
     // Arrow Buttons
     private static final int ARROW_BTN_W = 10;
@@ -466,7 +468,7 @@ public class CustomizationScreen extends Screen {
         }
 
         // Stats panel
-        int statsX = leftPos + 276;
+        int statsX = leftPos + STATS_X;
         int statsY = topPos + 35;
 
         boolean isBow = weaponStack.getItem() instanceof ModularBowItem;
@@ -607,7 +609,7 @@ public class CustomizationScreen extends Screen {
         this.materialIndexOffset = Math.clamp(this.materialIndexOffset, 0, maxOffset);
 
         // Material navigator buttons
-        int arrowY = topPos + 280;
+        int arrowY = topPos + SLOTS_Y - 13;
         int leftArrowX = leftPos + 126;
         int rightArrowX = leftPos + 140;
 
@@ -717,7 +719,7 @@ public class CustomizationScreen extends Screen {
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
 
-        int statsX = leftPos + 276;
+        int statsX = leftPos + STATS_X;
         int statsY = topPos + 35;
 
         // Icon buttons
@@ -799,7 +801,7 @@ public class CustomizationScreen extends Screen {
         }
 
         // Material navigator buttons click
-        int arrowY = topPos + 280;
+        int arrowY = topPos + SLOTS_Y - 13;
         int leftArrowX = leftPos + 126;
         int rightArrowX = leftPos + 140;
 
@@ -1258,7 +1260,7 @@ public class CustomizationScreen extends Screen {
     }
 
     private int scrollerHeight() {
-        return Math.max(16, (int) (LAYER_LIST_H * (double) LAYER_LIST_H / layerContentHeight()));
+        return SCROLLER_H;
     }
 
     private int scrollerOffset() {
@@ -1276,7 +1278,7 @@ public class CustomizationScreen extends Screen {
         clampLayerScroll();
         int lx = layerListX(leftPos), ly = layerListY(topPos);
         boolean scrolls = layerListScrolls();
-        int rowW = LAYER_LIST_W - (scrolls ? SCROLLBAR_W + 1 : 0);
+        int rowW = LAYER_LIST_W - SCROLLBAR_W - 2;
 
         g.text(this.font, Component.literal("Layers"), lx, ly - 10, FONT_COLOR, false);
         g.fill(lx, ly, lx + rowW, ly + LAYER_LIST_H, 0xFF2B2B2B);
@@ -1301,7 +1303,7 @@ public class CustomizationScreen extends Screen {
             g.fill(lockX, boxY, lockX + 7, boxY + 7, this.layerLocked[i] ? 0xFFFFAA00 : 0xFF8B8B8B);
 
             // Thumbnail
-            int tx0 = lx + 20, ty0 = ry + (LAYER_ROW_H - THUMB) / 2;
+            int tx0 = lx + 21, ty0 = ry + (LAYER_ROW_H - THUMB) / 2;
             int[] px = this.thumbPixels[i];
             for (int ty = 0; ty < THUMB; ty++) {
                 int tx = 0;
@@ -1316,28 +1318,30 @@ public class CustomizationScreen extends Screen {
             if (hidden) g.fill(tx0, ty0, tx0 + THUMB, ty0 + THUMB, 0xBB1A1A1A);
             outline(g, tx0, ty0, THUMB, THUMB, 0xFF151515);
 
-            String name = layer == 0 ? "Base" : String.format("Layer %+d", layer);
+            String name = layer == 0 ? "Base" : String.format("%+d", layer);
+            String fullName = layer == 0 ? "Base layer" : String.format("Layer %+d", layer);
             g.text(this.font, Component.literal(name), tx0 + THUMB + 4, ry + (LAYER_ROW_H - 8) / 2 + 1, hidden ? 0xFF8A8A8A : 0xFFFFFFFF, false);
 
             if (rowHover) {
                 if (mouseX >= eyeX && mouseX < eyeX + 7) {
-                    tip = List.of("§e" + (hidden ? "Show " : "Hide ") + name.toLowerCase(), "§7Hidden layers can't be edited");
+                    tip = List.of("§e" + (hidden ? "Show " : "Hide ") + fullName.toLowerCase(), "§7Hidden layers can't be edited");
                 } else if (mouseX >= lockX && mouseX < lockX + 7) {
-                    tip = List.of("§e" + (this.layerLocked[i] ? "Unlock " : "Lock ") + name.toLowerCase(), "§7Locked layers can't be changed");
+                    tip = List.of("§e" + (this.layerLocked[i] ? "Unlock " : "Lock ") + fullName.toLowerCase(), "§7Locked layers can't be changed");
                 } else {
-                    tip = List.of("§e" + (layer == 0 ? "Base layer" : name), "§7Click to edit this layer", "§7Scroll, or Page Up / Page Down, to move through layers");
+                    tip = List.of("§e" + fullName, "§7Click to edit this layer", "§7Scroll, or Page Up / Page Down, to move through layers");
                 }
             }
         }
         g.disableScissor();
         outline(g, lx, ly, rowW, LAYER_LIST_H, 0xFF373737);
 
-        // Minecraft's own scroll bar sprites
-        if (scrolls) {
-            int sx = lx + LAYER_LIST_W - SCROLLBAR_W;
-            g.blitSprite(RenderPipelines.GUI_TEXTURED, SCROLLER_BACKGROUND_SPRITE, sx, ly, SCROLLBAR_W, LAYER_LIST_H);
-            g.blitSprite(RenderPipelines.GUI_TEXTURED, SCROLLER_SPRITE, sx, ly + scrollerOffset(), SCROLLBAR_W, scrollerHeight());
-        }
+        // Scroll bar as in the creative inventory: an inset track with the creative tab's thumb
+        int sx = lx + LAYER_LIST_W - SCROLLBAR_W;
+        g.fill(sx - 1, ly - 1, sx + SCROLLBAR_W + 1, ly + LAYER_LIST_H + 1, 0xFFFFFFFF);
+        g.fill(sx - 1, ly - 1, sx + SCROLLBAR_W, ly + LAYER_LIST_H, 0xFF373737);
+        g.fill(sx, ly, sx + SCROLLBAR_W, ly + LAYER_LIST_H, 0xFF8B8B8B);
+        g.blitSprite(RenderPipelines.GUI_TEXTURED, scrolls ? SCROLLER_SPRITE : SCROLLER_DISABLED_SPRITE,
+                sx, ly + (scrolls ? scrollerOffset() : 0), SCROLLBAR_W, SCROLLER_H);
 
         if (tip != null && !this.draggingScrollbar) {
             List<ClientTooltipComponent> lines = new ArrayList<>();
@@ -1347,6 +1351,7 @@ public class CustomizationScreen extends Screen {
     }
 
     private void drawRecentSwatches(GuiGraphicsExtractor g, int leftPos, int topPos, int mouseX, int mouseY) {
+        g.text(this.font, Component.literal("Recent"), leftPos + RECENT_X, topPos + RECENT_Y - 10, FONT_COLOR, false);
         Swatch hovered = null;
         for (int i = 0; i < this.recentSwatches.size(); i++) {
             Swatch sw = this.recentSwatches.get(i);
@@ -1368,7 +1373,7 @@ public class CustomizationScreen extends Screen {
     private boolean handlePanelClick(int leftPos, int topPos, int mouseX, int mouseY) {
         int lx = layerListX(leftPos), ly = layerListY(topPos);
         boolean scrolls = layerListScrolls();
-        int rowW = LAYER_LIST_W - (scrolls ? SCROLLBAR_W + 1 : 0);
+        int rowW = LAYER_LIST_W - SCROLLBAR_W - 2;
 
         // Scroll bar: drag the thumb, or click the track to page
         if (scrolls && mouseX >= lx + LAYER_LIST_W - SCROLLBAR_W && mouseX < lx + LAYER_LIST_W
@@ -1524,12 +1529,18 @@ public class CustomizationScreen extends Screen {
 
         boolean modelLayerChanged = false;
 
-        // Heavy pass: only when the model or camera changed. At very high render scales a coarser,
+        // Heavy pass: only when the model or camera changed. If a full pass is slow, a coarser,
         // faster preview is drawn; a full-detail pass follows as soon as the mouse is released.
         if (this.sceneDirty) {
             rebuildScene();
-            int step = ((this.orbiting || this.panning) && scale >= 3) ? 2 : 1;
+            // Full detail while turning the model, unless a full pass is too slow on this machine (the view is
+            // bigger now); then a coarser pass is used until the mouse is released
+            int step = ((this.orbiting || this.panning) && this.fullRenderMs > 50.0) ? 2 : 1;
+            long renderStart = System.nanoTime();
             this.raycaster.render(this.fgBase, null, step);
+            double passMs = (System.nanoTime() - renderStart) / 1.0e6;
+            double fullMs = step == 1 ? passMs : passMs * 3.5;
+            this.fullRenderMs = this.fullRenderMs == 0 ? fullMs : this.fullRenderMs * 0.6 + fullMs * 0.4;
             this.sceneDirty = false;
             modelLayerChanged = true;
         }
