@@ -8,7 +8,15 @@ import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.client.render.ClientVortexHandler;
 import net.adeptfrog.blocksmith.client.render.ModularWeaponSpecialRenderer;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
+import net.adeptfrog.blocksmith.block.VoxelCubeBlock;
+import net.adeptfrog.blocksmith.client.gui.VoxelPaletteScreen;
+import net.adeptfrog.blocksmith.data.VoxelMaterial;
+import net.adeptfrog.blocksmith.network.OpenPalettePayload;
 import net.adeptfrog.blocksmith.network.StartVortexPayload;
+import net.fabricmc.fabric.api.client.rendering.v1.BlockColorRegistry;
+import net.minecraft.client.color.block.BlockTintSource;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.BlockAndTintGetter;
 import net.fabricmc.api.ClientModInitializer;
 
 import net.adeptfrog.blocksmith.client.gui.CustomizationScreen;
@@ -48,6 +56,25 @@ public class BlocksmithClient implements ClientModInitializer {
 				context.client().execute(() ->
 						ClientVortexHandler.addVortex(new Vec3(payload.x(), payload.y(), payload.z()), payload.duration())));
 		ClientTickEvents.END_CLIENT_TICK.register(ClientVortexHandler::tick);
+
+		// Dimensional Editor: voxel cubes are plain white cubes tinted with the material palette colour
+		BlockColorRegistry.register(List.of(new BlockTintSource() {
+			@Override
+			public int color(BlockState state) {
+				List<VoxelMaterial> mats = VoxelCubeBlock.orderedMaterials();
+				int idx = state.getValue(VoxelCubeBlock.MATERIAL);
+				if (idx >= mats.size()) return 0xFFFFFFFF;
+				return 0xFF000000 | (mats.get(idx).getColorRgb(state.getValue(VoxelCubeBlock.SHADE)) & 0xFFFFFF);
+			}
+
+			@Override
+			public int colorInWorld(BlockState state, BlockAndTintGetter level, BlockPos pos) {
+				return color(state);
+			}
+		}), Blocksmith.VOXEL_CUBE);
+
+		ClientPlayNetworking.registerGlobalReceiver(OpenPalettePayload.TYPE, (payload, context) ->
+				context.client().execute(() -> context.client().setScreen(new VoxelPaletteScreen())));
 
 		// Client-side block interaction listener
 		UseBlockCallback.EVENT.register((player, level, hand, hitResult) -> {

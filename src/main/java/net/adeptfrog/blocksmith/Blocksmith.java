@@ -3,7 +3,10 @@ package net.adeptfrog.blocksmith;
 import net.adeptfrog.blocksmith.ability.BurstFireScheduler;
 import net.adeptfrog.blocksmith.ability.DoubleAttackScheduler;
 import net.adeptfrog.blocksmith.ability.SingularityVortexScheduler;
+import net.adeptfrog.blocksmith.block.VoxelCubeBlock;
 import net.adeptfrog.blocksmith.block.WeaponTableBlock;
+import net.adeptfrog.blocksmith.dimension.DimensionalEditor;
+import net.adeptfrog.blocksmith.item.VoxelBrushItem;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.network.SaveWeaponVoxelsPayload;
@@ -72,6 +75,16 @@ public class Blocksmith implements ModInitializer {
 			Identifier.fromNamespaceAndPath(MOD_ID, "weapon_table")
 	);
 
+	public static final ResourceKey<Block> VOXEL_CUBE_KEY = ResourceKey.create(
+			Registries.BLOCK,
+			Identifier.fromNamespaceAndPath(MOD_ID, "voxel_cube")
+	);
+
+	public static final ResourceKey<Item> VOXEL_BRUSH_KEY = ResourceKey.create(
+			Registries.ITEM,
+			Identifier.fromNamespaceAndPath(MOD_ID, "voxel_brush")
+	);
+
 	public static final ResourceKey<Item> MODULAR_SWORD_KEY = ResourceKey.create(
 			Registries.ITEM,
 			Identifier.fromNamespaceAndPath(MOD_ID, "modular_sword")
@@ -94,6 +107,23 @@ public class Blocksmith implements ModInitializer {
 					.strength(5f)
 					.sound(SoundType.ANVIL)
 					.lightLevel(_ -> 6)
+	);
+
+	/** A weapon voxel as a block; only used inside the Dimensional Editor (no item form). */
+	public static final VoxelCubeBlock VOXEL_CUBE = registerBlock(
+			VOXEL_CUBE_KEY,
+			VoxelCubeBlock::new,
+			BlockBehaviour.Properties.of()
+					.strength(0.0f)
+					.sound(SoundType.STONE)
+					.lightLevel(_ -> 15)
+	);
+
+	/** The tool used to place voxels in the Dimensional Editor. Handed out on entry, removed on exit. */
+	public static final Item VOXEL_BRUSH = registerItem(
+			VOXEL_BRUSH_KEY,
+			VoxelBrushItem::new,
+			new Item.Properties().stacksTo(1)
 	);
 
 	public static final Item WEAPON_TABLE_ITEM = registerItem(
@@ -143,6 +173,7 @@ public class Blocksmith implements ModInitializer {
 		VoxelMaterialRegistry.initialize();
 		ModDataComponents.initialize();
 		SaveWeaponVoxelsPayload.register();
+		DimensionalEditor.register();
 		Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, BLOCKSMITH_TAB_KEY, BLOCKSMITH_TAB);
 
 		// Register ability timers

@@ -8,6 +8,7 @@ import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.*;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
+import net.adeptfrog.blocksmith.network.EnterDimensionalEditorPayload;
 import net.adeptfrog.blocksmith.network.SaveWeaponVoxelsPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -59,7 +60,7 @@ public class CustomizationScreen extends Screen {
     // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
     // Tool and Reset view (rows 9/10) only exist in the 3D editor; the layer buttons work in both editors.
     private static final int BTN_EXPORT = 0, BTN_IMPORT = 1, BTN_FLIP_H = 2, BTN_FLIP_V = 3, BTN_ROT_CW = 4,
-            BTN_ROT_CCW = 5, BTN_VIEW = 6, BTN_LAYER_UP = 7, BTN_LAYER_DOWN = 8, BTN_TOOL = 9, BTN_RESET = 10, BTN_CODEX = 11, BTN_COUNT = 12;
+            BTN_ROT_CCW = 5, BTN_VIEW = 6, BTN_LAYER_UP = 7, BTN_LAYER_DOWN = 8, BTN_TOOL = 9, BTN_RESET = 10, BTN_CODEX = 11, BTN_DIMENSION = 12, BTN_COUNT = 13;
     private static final int ICON_BTN = 18, ICON_STEP = 20;
     // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
     private static final ItemStack ICON_EXPORT = new ItemStack(Items.WRITABLE_BOOK);
@@ -75,6 +76,7 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_LAYER_UP = new ItemStack(Items.LIME_CONCRETE);
     private static final ItemStack ICON_LAYER_DOWN = new ItemStack(Items.RED_CONCRETE);
     private static final ItemStack ICON_CODEX = new ItemStack(Items.ENCHANTED_BOOK);
+    private static final ItemStack ICON_DIMENSION = new ItemStack(Items.END_PORTAL_FRAME);
     private boolean view3d = true;
     private int tool3d = TOOL_ADD;
     private boolean orbiting = false; // right-drag in the 3D view
@@ -1208,6 +1210,7 @@ public class CustomizationScreen extends Screen {
             case BTN_LAYER_DOWN -> ICON_LAYER_DOWN;
             case BTN_TOOL -> ICON_TOOLS[this.tool3d];
             case BTN_RESET -> ICON_RESET;
+            case BTN_DIMENSION -> ICON_DIMENSION;
             default -> ICON_CODEX;
         };
     }
@@ -1232,6 +1235,9 @@ public class CustomizationScreen extends Screen {
                     "§cErased materials are destroyed!",
                     "§7Right-drag orbits, middle-drag pans, wheel zooms"};
             case BTN_RESET -> new String[]{"§eReset view", "§7Restore the default angle, zoom and position"};
+            case BTN_DIMENSION -> new String[]{"§eDimensional Editor §c(experimental)",
+                    "§7Build your weapon with blocks in your own forge dimension",
+                    "§7Your current edits carry over; leave through the brush palette"};
             default -> new String[]{"§eAbility Codex (Guide)"};
         };
     }
@@ -1287,6 +1293,11 @@ public class CustomizationScreen extends Screen {
                 this.raycaster.resetView();
                 this.sceneDirty = true;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            }
+            case BTN_DIMENSION -> {
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                ClientPlayNetworking.send(new EnterDimensionalEditorPayload(new ArrayList<>(this.workingVoxels), new WeaponOffset(this.workingOffsetX, this.workingOffsetY)));
+                this.minecraft.setScreen(null);
             }
             case BTN_CODEX -> {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BOOK_PAGE_TURN, 1.0F));
