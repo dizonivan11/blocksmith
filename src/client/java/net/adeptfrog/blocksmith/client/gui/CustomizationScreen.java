@@ -57,9 +57,9 @@ public class CustomizationScreen extends Screen {
     private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ERASE = 2;
     private static final String[] TOOL_NAMES = {"Add", "Recolor", "Erase"};
     // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
-    // Tool and Reset view (rows 9/10) only exist in the 3D editor; the layer buttons work in both editors.
+    // Preview, Tool and Reset view only exist in the 3D editor; the layer buttons work in both editors.
     private static final int BTN_EXPORT = 0, BTN_IMPORT = 1, BTN_FLIP_H = 2, BTN_FLIP_V = 3, BTN_ROT_CW = 4,
-            BTN_ROT_CCW = 5, BTN_VIEW = 6, BTN_LAYER_UP = 7, BTN_LAYER_DOWN = 8, BTN_TOOL = 9, BTN_RESET = 10, BTN_CODEX = 11, BTN_COUNT = 12;
+            BTN_ROT_CCW = 5, BTN_VIEW = 6, BTN_LAYER_UP = 7, BTN_LAYER_DOWN = 8, BTN_PREVIEW = 9, BTN_TOOL = 10, BTN_RESET = 11, BTN_CODEX = 12, BTN_COUNT = 13;
     private static final int ICON_BTN = 18, ICON_STEP = 20;
     // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
     private static final ItemStack ICON_EXPORT = new ItemStack(Items.WRITABLE_BOOK);
@@ -74,9 +74,12 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_RESET = new ItemStack(Items.COMPASS);
     private static final ItemStack ICON_LAYER_UP = new ItemStack(Items.LIME_CONCRETE);
     private static final ItemStack ICON_LAYER_DOWN = new ItemStack(Items.RED_CONCRETE);
+    private static final ItemStack ICON_PREVIEW_ON = new ItemStack(Items.GLASS);
+    private static final ItemStack ICON_PREVIEW_OFF = new ItemStack(Items.GLASS_PANE);
     private static final ItemStack ICON_CODEX = new ItemStack(Items.ENCHANTED_BOOK);
     private boolean view3d = true;
     private int tool3d = TOOL_ADD;
+    private boolean showAllLayers = true; // 3D: show the whole weapon, or only the layer being edited
     private boolean orbiting = false; // right-drag in the 3D view
     private boolean panning = false; // middle-drag in the 3D view
     private int strokeAxis = -1;   // axis of the plane a paint-drag stays on, -1 when no stroke is active
@@ -942,6 +945,7 @@ public class CustomizationScreen extends Screen {
         this.raycaster.setActiveLayer(this.activeLayer + MAX_LAYER);
         this.raycaster.clear();
         for (WeaponVoxel v : workingVoxels) {
+            if (!this.showAllLayers && v.z() != this.activeLayer) continue; // preview off: only the edited layer
             this.raycaster.setCell(v.x(), v.y(), v.z() + MAX_LAYER, v.getColorRgb() | 0xFF000000);
         }
     }
@@ -971,8 +975,14 @@ public class CustomizationScreen extends Screen {
         // Light pass: re-trace just the hovered voxel when the cursor moves
         if (modelLayerChanged || hoverKey != this.lastHoverKey) {
             this.hoverCell = hoverKey >= 0 ? this.raycaster.pickCell(px * scale + scale / 2, py * scale + scale / 2) : null;
-            System.arraycopy(this.fgBase, 0, this.fgView, 0, this.fgBase.length);
-            if (this.hoverCell != null) this.raycaster.drawCellBox(this.fgView, this.hoverCell[0], this.hoverCell[1], this.hoverCell[2]);
+            VoxelRaycaster.Hit highlight = null;
+            if (this.hoverCell != null) {
+                int cx = this.hoverCell[0], cy = this.hoverCell[1], czi = this.hoverCell[2];
+                highlight = this.raycaster.getCell(cx, cy, czi) != 0
+                        ? new VoxelRaycaster.Hit(cx, cy, czi, 0, 0, 0, false)   // tint the voxel
+                        : new VoxelRaycaster.Hit(cx, cy, czi, 0, 0, 1, true);   // tint the empty cell on the layer
+            }
+            this.raycaster.renderWithHighlight(this.fgBase, this.fgView, highlight);
             this.lastHoverKey = hoverKey;
             modelLayerChanged = true;
         }
@@ -1002,7 +1012,7 @@ public class CustomizationScreen extends Screen {
 
         // Control hint sits inside the view on a dark pill so it stays readable on the bright background
         String[] hints = {"Right-drag: orbit", "Mid-drag: pan  Wheel: zoom"};
-        String layerPill = "Editing " + String.format("layer %+d", this.activeLayer).replace("+0", "0");
+        String layerPill = "Editing " + String.format("layer %+d", this.activeLayer).replace("+0", "0") + (this.showAllLayers ? " (all layers shown)" : "");
         guiGraphics.fill(gridX + 1, gridY + 1, gridX + this.font.width(layerPill) + 8, gridY + 13, 0xB0141C2C);
         guiGraphics.text(this.font, Component.literal(layerPill), gridX + 4, gridY + 3, 0xFFFFFFFF, false);
         int hintX = gridX + 4;
@@ -1192,7 +1202,7 @@ public class CustomizationScreen extends Screen {
     }
 
     private boolean buttonVisible(int row) {
-        return this.view3d || (row != BTN_TOOL && row != BTN_RESET);
+        return this.view3d || (row != BTN_TOOL && row != BTN_RESET && row != BTN_PREVIEW);
     }
 
     private ItemStack buttonIcon(int row) {
@@ -1206,6 +1216,7 @@ public class CustomizationScreen extends Screen {
             case BTN_VIEW -> this.view3d ? ICON_VIEW_3D : ICON_VIEW_2D;
             case BTN_LAYER_UP -> ICON_LAYER_UP;
             case BTN_LAYER_DOWN -> ICON_LAYER_DOWN;
+            case BTN_PREVIEW -> this.showAllLayers ? ICON_PREVIEW_ON : ICON_PREVIEW_OFF;
             case BTN_TOOL -> ICON_TOOLS[this.tool3d];
             case BTN_RESET -> ICON_RESET;
             default -> ICON_CODEX;
@@ -1225,6 +1236,9 @@ public class CustomizationScreen extends Screen {
                     : new String[]{"§eView: 2D", "§7Click to switch to the 3D editor"};
             case BTN_LAYER_UP -> new String[]{"§eLayer up", "§7Edit the next layer outward", "§7Only the active layer is edited"};
             case BTN_LAYER_DOWN -> new String[]{"§eLayer down", "§7Edit the previous layer", "§7Only the active layer is edited"};
+            case BTN_PREVIEW -> new String[]{"§ePreview all layers: " + (this.showAllLayers ? "§aON" : "§cOFF"),
+                    "§7ON: the whole weapon is shown with every layer",
+                    "§7OFF: only the layer being edited is shown"};
             case BTN_TOOL -> new String[]{"§eTool: " + TOOL_NAMES[this.tool3d] + " §7(click to cycle)",
                     "§7Add: place a voxel in the highlighted cell",
                     "§7Recolor: repaint the voxel in the cell",
@@ -1275,6 +1289,11 @@ public class CustomizationScreen extends Screen {
             case BTN_LAYER_UP, BTN_LAYER_DOWN -> {
                 if (row == BTN_LAYER_UP && this.activeLayer < MAX_LAYER) this.activeLayer++;
                 else if (row == BTN_LAYER_DOWN && this.activeLayer > MIN_LAYER) this.activeLayer--;
+                this.sceneDirty = true;
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            }
+            case BTN_PREVIEW -> {
+                this.showAllLayers = !this.showAllLayers;
                 this.sceneDirty = true;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             }

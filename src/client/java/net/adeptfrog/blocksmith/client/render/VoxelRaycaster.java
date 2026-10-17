@@ -59,6 +59,8 @@ public final class VoxelRaycaster {
     private final double defaultPitch = Math.toRadians(25);
     private final double defaultScale;
 
+    private boolean hlApplied; // set while shading when the hover highlight tinted the sample
+
     // Scratch values for the last trace
     private int hx, hy, hz, hnx, hny, hnz;
     private double hitT;
@@ -323,39 +325,6 @@ public final class VoxelRaycaster {
         return pickOnPlane(pixelX, pixelY, 2, activeZi);
     }
 
-    /** Draws a bright outline around one cell (all 12 edges) over {@code fg}, as a cursor. */
-    public void drawCellBox(int[] fg, int cx, int cy, int zi) {
-        updateBasis();
-        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
-        double[] sx = new double[8], sy = new double[8];
-        for (int i = 0; i < 8; i++) {
-            double relX = cx + (i & 1) - cxm;
-            double relY = cy + ((i >> 1) & 1) - cym;
-            double relZ = (zi + ((i >> 2) & 1)) * LAYER_THICKNESS - czm;
-            sx[i] = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
-            sy[i] = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
-        }
-        int[][] edges = {{0,1},{2,3},{4,5},{6,7},{0,2},{1,3},{4,6},{5,7},{0,4},{1,5},{2,6},{3,7}};
-        int thick = Math.max(1, pixelScale);
-        for (int[] e : edges) drawLine(fg, sx[e[0]], sy[e[0]], sx[e[1]], sy[e[1]], thick + Math.max(1, pixelScale), 0xFF14203C);
-        for (int[] e : edges) drawLine(fg, sx[e[0]], sy[e[0]], sx[e[1]], sy[e[1]], thick, 0xFFFFFFFF);
-    }
-
-    private void drawLine(int[] fg, double x0, double y0, double x1, double y1, int thickness, int argb) {
-        int steps = (int) Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))) + 1;
-        int half = thickness / 2;
-        for (int i = 0; i <= steps; i++) {
-            double t = steps == 0 ? 0 : (double) i / steps;
-            int px = (int) Math.round(x0 + (x1 - x0) * t), py = (int) Math.round(y0 + (y1 - y0) * t);
-            for (int yy = py - half; yy < py - half + thickness; yy++) {
-                if (yy < 0 || yy >= height) continue;
-                for (int xx = px - half; xx < px - half + thickness; xx++) {
-                    if (xx >= 0 && xx < width) fg[yy * width + xx] = argb;
-                }
-            }
-        }
-    }
-
     // ----- rendering -----
 
     /** Full-quality render. See {@link #render(int[], Hit, int)}. */
@@ -390,7 +359,7 @@ public final class VoxelRaycaster {
      */
     public void renderWithHighlight(int[] baseFg, int[] fg, Hit highlight) {
         System.arraycopy(baseFg, 0, fg, 0, baseFg.length);
-        if (highlight == null || highlight.floor()) return;
+        if (highlight == null) return;
         updateBasis();
 
         double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
@@ -409,14 +378,15 @@ public final class VoxelRaycaster {
         int y0 = Math.max(0, (int) Math.floor(minY) - margin), y1 = Math.min(height - 1, (int) Math.ceil(maxY) + margin);
         for (int py = y0; py <= y1; py++) {
             for (int px = x0; px <= x1; px++) {
+                hlApplied = false;
                 int c = renderPixel(px, py, highlight, 1);
-                // Only recolour model pixels; floor guide and outline pixels already baked into the base stay as they are
-                if ((c >>> 24) == 0xFF) fg[py * width + px] = c;
+                // Only pixels the highlight actually touched are replaced; everything else (outline, other floor
+                // pixels) stays exactly as baked into the base
+                if (hlApplied && (c >>> 24) != 0) fg[py * width + px] = c;
             }
         }
     }
 
-    /** One output pixel (or block of {@code span} pixels) as straight-alpha ARGB. Needs {@link #updateBasis} first. */
     private int renderPixel(int px, int py, Hit highlight, int span) {
         final double step = (double) span / ss;
         final int n = ss * ss;
@@ -485,8 +455,23 @@ public final class VoxelRaycaster {
         if (trace()) {
             shadeHit(highlight);
         } else {
-            shadeFloor();
+            shadeFloor(highlight);
         }
+    }
+
+    private boolean solidAt(int x, int y, int zi) {
+        return inBounds(x, y, zi) && cells[index(x, y, zi)] != 0;
+    }
+
+    /**
+     * Whether the border of the face just hit, on the side of {@code axis} given by {@code sign}, is a real edge of the
+     * model: false when a neighbouring voxel continues the same flat surface.
+     */
+    private boolean isRealEdge(int axis, int sign) {
+        int[] c = {hx, hy, hz};
+        c[axis] += sign;
+        if (!solidAt(c[0], c[1], c[2])) return true;     // the surface ends here (convex edge)
+        return solidAt(c[0] + hnx, c[1] + hny, c[2] + hnz); // a voxel in front of the neighbour: concave corner
     }
 
     private void shadeHit(Hit highlight) {
@@ -498,19 +483,21 @@ public final class VoxelRaycaster {
         else if (hnz < 0) light = 0.6;
         else light = hnx > 0 ? 0.75 : 0.65;
 
-        // Darken near the edges of the face so individual voxels read clearly. The rim keeps a minimum
-        // on-screen width so it neither flickers nor vanishes when zoomed out.
+        // Borders are drawn only along the model's real edges. The line between two neighbouring voxels on the same
+        // flat surface is skipped, so same-coloured voxels merge into one clean surface instead of a grid.
         double px = ox + dx * hitT, py = oy + dy * hitT, pz = oz + dz * hitT;
         double u, v;
-        if (hnx != 0) { u = frac(py); v = frac(pz); }
-        else if (hny != 0) { u = frac(px); v = frac(pz); }
-        else { u = frac(px); v = frac(py); }
+        int uAxis, vAxis;
+        if (hnx != 0) { u = frac(py); v = frac(pz); uAxis = 1; vAxis = 2; }
+        else if (hny != 0) { u = frac(px); v = frac(pz); uAxis = 0; vAxis = 2; }
+        else { u = frac(px); v = frac(py); uAxis = 0; vAxis = 1; }
         double edge = Math.max(0.08, 0.6 * pixelScale / scale);
         double du = Math.min(u, 1 - u), dv = Math.min(v, 1 - v);
-        double rim = Math.min(du, dv);
+        double rim = Double.MAX_VALUE;
+        if (du < edge && isRealEdge(uAxis, u < 0.5 ? -1 : 1)) rim = du;
+        if (dv < edge && dv < rim && isRealEdge(vAxis, v < 0.5 ? -1 : 1)) rim = dv;
         if (rim < edge) {
-            double k = 1.0 - 0.22 * smooth(1.0 - rim / edge);
-            light *= k;
+            light *= 1.0 - 0.5 * smooth(1.0 - rim / edge);
         }
 
         // White "studio" light: a point light above and in front of the model gives every face a soft gradient,
@@ -536,13 +523,9 @@ public final class VoxelRaycaster {
         }
         rr += 255 * spec; gg += 255 * spec; bb += 255 * spec;
 
-        if (hz != activeZi) { // other layers are slightly faded so the layer being edited stands out
-            rr += (235 - rr) * 0.22; gg += (240 - gg) * 0.22; bb += (250 - bb) * 0.22;
-        }
-
         if (highlight != null && !highlight.floor()
-                && highlight.x() == hx && highlight.y() == hy && highlight.zi() == hz
-                && highlight.nx() == hnx && highlight.ny() == hny && highlight.nz() == hnz) {
+                && highlight.x() == hx && highlight.y() == hy && highlight.zi() == hz) {
+            hlApplied = true;
             rr = rr * 0.55 + 255 * 0.45;
             gg = gg * 0.55 + 255 * 0.45;
             bb = bb * 0.55 + 255 * 0.45;
@@ -551,7 +534,7 @@ public final class VoxelRaycaster {
     }
 
     /** Anti-aliased base-layer guide: a faint slab with fine cell lines and stronger lines every few cells. */
-    private void shadeFloor() {
+    private void shadeFloor(Hit highlight) {
         sa = 0;
         int[] f = floorCell();
         if (f == null) return;
@@ -577,6 +560,13 @@ public final class VoxelRaycaster {
         if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0x24 * la) / na; g = (g * a * (1 - la) + 0x3E * la) / na; b = (b * a * (1 - la) + 0x6A * la) / na; a = na; }
         la = border * 0.80;
         if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0x1B * la) / na; g = (g * a * (1 - la) + 0x2E * la) / na; b = (b * a * (1 - la) + 0x54 * la) / na; a = na; }
+
+        if (highlight != null && highlight.floor() && highlight.x() == f[0] && highlight.y() == f[1]) {
+            hlApplied = true;
+            double k = 0.55; // tint the hovered cell of the editing layer
+            r = r * (1 - k) + 255 * k; g = g * (1 - k) + 255 * k; b = b * (1 - k) + 255 * k;
+            a = Math.max(a, 0.7);
+        }
 
         sr = r; sg = g; sb = b; sa = a;
     }
