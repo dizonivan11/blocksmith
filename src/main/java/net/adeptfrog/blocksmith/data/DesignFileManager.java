@@ -11,6 +11,11 @@ import java.util.List;
 public class DesignFileManager {
     public static final File BLUEPRINTS_DIR = FabricLoader.getInstance().getGameDir().resolve("blocksmith_blueprints").toFile();
     private static List<DesignEntry> CACHED_ENTRIES = null;
+    /** How pictures are turned into voxels; kept for the session so the library remembers the player's choice. */
+    private static ImageVoxelizer.Options imageOptions = ImageVoxelizer.Options.DEFAULT;
+
+    public static ImageVoxelizer.Options getImageOptions() { return imageOptions; }
+    public static void setImageOptions(ImageVoxelizer.Options options) { imageOptions = options; }
 
     public record DesignEntry(
             String fileName,
@@ -47,7 +52,7 @@ public class DesignFileManager {
                 } else if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".bmp") || lower.endsWith(".webp")) {
                     BufferedImage img = ImageIO.read(file);
                     if (img != null) {
-                        List<WeaponVoxel> voxels = VoxelDesignSerializer.convertImageToVoxels(img, targetGridSize);
+                        List<WeaponVoxel> voxels = VoxelDesignSerializer.convertImageToVoxels(img, targetGridSize, imageOptions);
                         list.add(new DesignEntry(name, true, voxels, WeaponOffset.ZERO, "", ""));
                     }
                 }

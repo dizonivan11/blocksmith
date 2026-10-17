@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static net.adeptfrog.blocksmith.Blocksmith.BASE_GRID_SIZE;
+import static net.adeptfrog.blocksmith.Blocksmith.MAX_TOTAL_VOXELS;
 
 public class VoxelDesignSerializer {
     private static final Gson GSON = new GsonBuilder().create();
@@ -367,56 +368,43 @@ public class VoxelDesignSerializer {
     }
 
     public static List<WeaponVoxel> convertImageToVoxels(Image rawImage, int targetGridSize) {
-        BufferedImage img = new BufferedImage(targetGridSize, targetGridSize, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.drawImage(rawImage, 0, 0, targetGridSize, targetGridSize, null);
-        g.dispose();
+        return convertImageToVoxels(rawImage, targetGridSize, ImageVoxelizer.Options.DEFAULT);
+    }
 
-        List<WeaponVoxel> list = new ArrayList<>();
-        Collection<VoxelMaterial> materials = VoxelMaterialRegistry.getAll();
+    /** Converts a picture to voxels matched to the material palette; see {@link ImageVoxelizer}. */
+    public static List<WeaponVoxel> convertImageToVoxels(Image rawImage, int targetGridSize, ImageVoxelizer.Options options) {
+        BufferedImage img;
+        if (rawImage instanceof BufferedImage bi) {
+            img = bi;
+        } else {
+            img = new BufferedImage(Math.max(1, rawImage.getWidth(null)), Math.max(1, rawImage.getHeight(null)), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            g.drawImage(rawImage, 0, 0, null);
+            g.dispose();
+        }
 
-        for (int ix = 0; ix < targetGridSize; ix++) {
-            for (int iy = 0; iy < targetGridSize; iy++) {
-                int argb = img.getRGB(ix, iy);
-                int a = (argb >> 24) & 0xFF;
-                if (a < 15) continue; // Skip transparent pixels
-
-                int r = (argb >> 16) & 0xFF;
-                int gCol = (argb >> 8) & 0xFF;
-                int b = argb & 0xFF;
-
-                VoxelMaterial bestMat = VoxelMaterialRegistry.FALLBACK;
-                int bestShade = 2;
-                double minDistance = Double.MAX_VALUE;
-
-                for (VoxelMaterial mat : materials) {
-                    int[] palette = mat.getPalette();
-                    if (palette == null) continue;
-
-                    for (int s = 0; s < palette.length; s++) {
-                        int c = palette[s];
-                        int cr = (c >> 16) & 0xFF;
-                        int cg = (c >> 8) & 0xFF;
-                        int cb = c & 0xFF;
-
-                        double dist = 2 * Math.pow(r - cr, 2) + 4 * Math.pow(gCol - cg, 2) + 3 * Math.pow(b - cb, 2);
-                        if (dist < minDistance) {
-                            minDistance = dist;
-                            bestMat = mat;
-                            bestShade = s;
-                        }
-                    }
-                }
-
-                int voxelY = (targetGridSize - 1) - iy;
-                list.add(new WeaponVoxel(ix, voxelY, 0, bestMat.id(), bestShade));
+        // Every shade of every material is a colour the picture may be matched to
+        List<VoxelMaterial> owners = new ArrayList<>();
+        List<Integer> shades = new ArrayList<>();
+        List<Integer> colors = new ArrayList<>();
+        for (VoxelMaterial mat : VoxelMaterialRegistry.getAll()) {
+            int[] palette = mat.getPalette();
+            if (palette == null) continue;
+            for (int s = 0; s < palette.length; s++) {
+                owners.add(mat);
+                shades.add(s);
+                colors.add(palette[s] & 0xFFFFFF);
             }
         }
+        if (colors.isEmpty()) throw new IllegalStateException("No materials to match the image against!");
 
-        if (list.isEmpty()) {
-            throw new IllegalArgumentException("No visible pixels found in image!");
+        int[] rgb = colors.stream().mapToInt(Integer::intValue).toArray();
+        List<ImageVoxelizer.Cell> cells = ImageVoxelizer.convert(img, targetGridSize, options, rgb, MAX_TOTAL_VOXELS());
+
+        List<WeaponVoxel> list = new ArrayList<>(cells.size());
+        for (ImageVoxelizer.Cell c : cells) {
+            list.add(new WeaponVoxel(c.x(), c.y(), c.z(), owners.get(c.paletteIndex()).id(), shades.get(c.paletteIndex())));
         }
-
         return list;
     }
 }

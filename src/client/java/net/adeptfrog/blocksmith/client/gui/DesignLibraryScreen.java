@@ -3,6 +3,8 @@ package net.adeptfrog.blocksmith.client.gui;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.adeptfrog.blocksmith.client.utils.StringUtils;
 import net.adeptfrog.blocksmith.data.DesignFileManager;
+import net.adeptfrog.blocksmith.data.EditorGeometry;
+import net.adeptfrog.blocksmith.data.ImageVoxelizer;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -41,6 +43,10 @@ public class DesignLibraryScreen extends Screen {
     private Identifier atlasTextureId;
 
     private List<DesignFileManager.DesignEntry> entries = new ArrayList<>();
+
+    // Picture import options, shown in the sidebar while a picture is selected
+    private final List<Button> optionButtons = new ArrayList<>();
+    private Button thicknessButton, profileButton, ditherButton, fitButton;
 
     public record LinkBox(int minX, int minY, int maxX, int maxY, String url) {}
     private final List<LinkBox> activeLinks = new ArrayList<>();
@@ -114,6 +120,60 @@ public class DesignLibraryScreen extends Screen {
         // Cancel
         this.addRenderableWidget(Button.builder(Component.literal("Cancel"), _ -> this.onClose())
                 .bounds(centerX + 60, bottomY, 60, 20).build());
+
+        // Picture import options (bottom of the sidebar, above the Load button)
+        this.optionButtons.clear();
+        int optY = (this.height - 30) - 24 - 34;
+        int optX = sidebarX + 6;
+        this.thicknessButton = Button.builder(Component.empty(), _ -> {
+            ImageVoxelizer.Options o = DesignFileManager.getImageOptions();
+            int next = o.thickness() == 1 ? 3 : (o.thickness() == 3 ? 5 : 1);
+            applyImageOptions(o.withThickness(next));
+        }).bounds(optX, optY, 63, 14).build();
+        this.profileButton = Button.builder(Component.empty(), _ -> {
+            ImageVoxelizer.Options o = DesignFileManager.getImageOptions();
+            applyImageOptions(o.withProfile((o.profile() + 1) % EditorGeometry.PROFILE_NAMES.length));
+        }).bounds(optX + 65, optY, 63, 14).build();
+        this.ditherButton = Button.builder(Component.empty(), _ -> {
+            ImageVoxelizer.Options o = DesignFileManager.getImageOptions();
+            applyImageOptions(o.withDither(!o.dither()));
+        }).bounds(optX, optY + 16, 63, 14).build();
+        this.fitButton = Button.builder(Component.empty(), _ -> {
+            ImageVoxelizer.Options o = DesignFileManager.getImageOptions();
+            applyImageOptions(o.withStretch(!o.stretch()));
+        }).bounds(optX + 65, optY + 16, 63, 14).build();
+        for (Button b : List.of(this.thicknessButton, this.profileButton, this.ditherButton, this.fitButton)) {
+            this.optionButtons.add(b);
+            this.addRenderableWidget(b);
+        }
+        refreshOptionLabels();
+    }
+
+    private void refreshOptionLabels() {
+        ImageVoxelizer.Options o = DesignFileManager.getImageOptions();
+        this.thicknessButton.setMessage(Component.literal("Layers: " + o.thickness()));
+        this.profileButton.setMessage(Component.literal(EditorGeometry.PROFILE_NAMES[o.profile()]));
+        this.ditherButton.setMessage(Component.literal("Dither: " + (o.dither() ? "On" : "Off")));
+        this.fitButton.setMessage(Component.literal(o.stretch() ? "Stretch" : "Keep ratio"));
+        this.profileButton.active = o.thickness() > 1;
+    }
+
+    /** Remembers new picture options and converts every picture in the library again with them. */
+    private void applyImageOptions(ImageVoxelizer.Options options) {
+        DesignFileManager.setImageOptions(options);
+        refreshOptionLabels();
+        String selectedName = this.selectedEntry != null ? this.selectedEntry.fileName() : null;
+        this.entries = DesignFileManager.loadAllDesigns(this.parent.gridSize, true);
+        this.maxPages = Math.max(1, (int) Math.ceil((double) entries.size() / cardsPerPage));
+        this.currentPage = Math.clamp(this.currentPage, 0, maxPages - 1);
+        this.selectedEntry = null;
+        if (selectedName != null) {
+            for (DesignFileManager.DesignEntry e : this.entries) {
+                if (e.fileName().equals(selectedName)) this.selectedEntry = e;
+            }
+        }
+        bakeThumbnailAtlas();
+        this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
     }
 
     @Override
@@ -283,6 +343,13 @@ public class DesignLibraryScreen extends Screen {
         guiGraphics.text(this.font, sub, (this.width - this.font.width(sub)) / 2, 17, 0xFFAAAAAA, false);
 
         guiGraphics.fill(0, this.height - 28, this.width, this.height, 0xD0000000);
+
+        // Picture import options only apply to pictures
+        boolean showOptions = detail != null && detail.isImage();
+        for (Button b : this.optionButtons) b.visible = showOptions;
+        if (showOptions) {
+            guiGraphics.text(this.font, Component.literal("§7Picture import:"), sidebarX + 6, (this.height - 30) - 24 - 44, 0xFFFFFFFF, false);
+        }
 
         // Page Indicator (ex. "1 / 4") between [<] and [>] buttons
         String pageStr = (this.currentPage + 1) + " / " + this.maxPages;
