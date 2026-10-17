@@ -524,7 +524,9 @@ public final class VoxelRaycaster {
         rr += 255 * spec; gg += 255 * spec; bb += 255 * spec;
 
         if (highlight != null && !highlight.floor()
-                && highlight.x() == hx && highlight.y() == hy && highlight.zi() == hz) {
+                && highlight.x() == hx && highlight.y() == hy && highlight.zi() == hz
+                && ((highlight.nx() == 0 && highlight.ny() == 0 && highlight.nz() == 0)
+                    || (highlight.nx() == hnx && highlight.ny() == hny && highlight.nz() == hnz))) {
             hlApplied = true;
             rr = rr * 0.55 + 255 * 0.45;
             gg = gg * 0.55 + 255 * 0.45;
