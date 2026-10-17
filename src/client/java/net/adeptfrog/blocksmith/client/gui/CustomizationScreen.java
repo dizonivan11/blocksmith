@@ -72,6 +72,7 @@ public class CustomizationScreen extends Screen {
     // Layer strip: per-layer visibility and lock, indexed by z + MAX_LAYER
     private final boolean[] layerHidden = new boolean[LAYER_COUNT];
     private final boolean[] layerLocked = new boolean[LAYER_COUNT];
+    private static final int STATS_X = 404; // left edge of the bonus-stats panel; its text starts 6 px further in
     private static final int THUMB = 14, LAYER_ROW_H = 16, LAYER_LIST_X = STATS_X + 6, LAYER_LIST_Y = 208, LAYER_LIST_W = 88, LAYER_LIST_H = 96, SCROLLBAR_W = 12, SCROLLER_H = 15;
     // The scroll bar thumb of the creative inventory tab
     private static final Identifier SCROLLER_SPRITE = Identifier.withDefaultNamespace("container/creative_inventory/scroller");
@@ -168,7 +169,6 @@ public class CustomizationScreen extends Screen {
     private static final int MAT_START_X = 8;
     private static final int SHADE_START_X = 164;
     private static final int SLOTS_Y = 421;
-    private static final int STATS_X = 404; // left edge of the bonus-stats panel; its text starts 6 px further in
 
     // Arrow Buttons
     private static final int ARROW_BTN_W = 10;
