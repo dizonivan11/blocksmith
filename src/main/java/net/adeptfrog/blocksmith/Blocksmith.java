@@ -38,8 +38,8 @@ public class Blocksmith implements ModInitializer {
 	/** Voxel capacity of a SINGLE layer (grid x grid). Ability thresholds are relative to this. */
 	public static int MAX_VOXELS() { return Math.powExact(VoxelMaterialRegistry.getGridSize(), 2); }
 
-	// Layers extend outward from the base layer (z = 0): -2, -1, 0, +1, +2. Every layer is the full grid size.
-	public static final int MAX_LAYER = 2;
+	// Layers extend outward from the base layer (z = 0): -4 .. +4 (nine layers). Every layer is the full grid size.
+	public static final int MAX_LAYER = 4;
 	public static final int MIN_LAYER = -MAX_LAYER;
 	public static final int LAYER_COUNT = MAX_LAYER * 2 + 1;
 	/** Voxel capacity across all layers. */

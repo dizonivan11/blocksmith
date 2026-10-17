@@ -12,7 +12,7 @@ import java.util.List;
 public final class ImageVoxelizer {
     private ImageVoxelizer() {}
 
-    /** Import settings. {@code thickness} is 1, 3 or 5 layers; {@code profile} is an {@link EditorGeometry} profile. */
+    /** Import settings. {@code thickness} is 1, 3, 5, 7 or 9 layers; {@code profile} is an {@link EditorGeometry} profile. */
     public record Options(int thickness, int profile, boolean dither, boolean stretch) {
         public static final Options DEFAULT = new Options(1, 0, false, false);
 

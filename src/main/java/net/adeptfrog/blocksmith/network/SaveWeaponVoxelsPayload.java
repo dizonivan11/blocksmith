@@ -32,7 +32,7 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
     public static final Type<SaveWeaponVoxelsPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(Blocksmith.MOD_ID, "save_weapon_voxels"));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, SaveWeaponVoxelsPayload> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.collection(ArrayList::new, WeaponVoxel.STREAM_CODEC), SaveWeaponVoxelsPayload::voxels,
+            WeaponVoxel.LIST_STREAM_CODEC, SaveWeaponVoxelsPayload::voxels,
             WeaponOffset.STREAM_CODEC, SaveWeaponVoxelsPayload::offset,
             SaveWeaponVoxelsPayload::new
     );

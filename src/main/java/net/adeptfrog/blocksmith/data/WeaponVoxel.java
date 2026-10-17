@@ -34,6 +34,21 @@ public record WeaponVoxel(int x, int y, int z, String materialId, int shade) {
             WeaponVoxel::new
     );
 
+    /** Compact encoding of a whole voxel list (see {@link VoxelPacking}); used for packets and item syncing. */
+    public static final StreamCodec<ByteBuf, List<WeaponVoxel>> LIST_STREAM_CODEC = ByteBufCodecs.BYTE_ARRAY.map(
+            bytes -> {
+                List<WeaponVoxel> out = new ArrayList<>();
+                for (VoxelPacking.Raw r : VoxelPacking.unpack(bytes)) {
+                    out.add(new WeaponVoxel(r.x(), r.y(), r.z(), r.material(), r.shade()));
+                }
+                return out;
+            },
+            voxels -> {
+                List<VoxelPacking.Raw> raw = new ArrayList<>(voxels.size());
+                for (WeaponVoxel v : voxels) raw.add(new VoxelPacking.Raw(v.x(), v.y(), v.z(), v.materialId(), v.shade()));
+                return VoxelPacking.pack(raw);
+            });
+
     public WeaponVoxel(int x, int y, int z, VoxelMaterial mat, int shade) {
         this(x, y, z, mat.id(), shade);
     }

@@ -74,7 +74,7 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
         float resolution = (float) VoxelMaterialRegistry.getGridSize();
         float voxelSize = 1.0f / resolution;
         // Each layer is half as thick as the old single slab; the base layer (z = 0) stays centered
-        // and layers -2..+2 stack outward from it.
+        // and the other layers stack outward from it.
         float voxelDepth = (1.25f / 16.0f) / 2.0f;
         float baseZOffset = 0.5f - (voxelDepth / 2.0f);
 

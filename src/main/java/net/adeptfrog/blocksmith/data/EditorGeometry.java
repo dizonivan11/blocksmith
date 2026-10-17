@@ -13,8 +13,8 @@ public final class EditorGeometry {
     }
 
     public static final String[] PROFILE_NAMES = {"Flat", "Tapered", "Thick centre"};
-    /** Deepest erosion depth any profile asks for (thick centre, two layers out). */
-    public static final int MAX_DEPTH = 5;
+    /** Deepest erosion depth any profile asks for (thick centre, four layers out). */
+    public static final int MAX_DEPTH = 9;
 
     /** Cells on the straight line between two cells, both included (Bresenham). */
     public static List<int[]> line(int x0, int y0, int x1, int y1) {

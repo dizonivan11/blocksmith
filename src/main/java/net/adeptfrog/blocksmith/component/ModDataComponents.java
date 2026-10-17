@@ -18,7 +18,7 @@ public class ModDataComponents {
             Identifier.fromNamespaceAndPath(Blocksmith.MOD_ID, "weapon_voxels"),
             DataComponentType.<List<WeaponVoxel>>builder()
                     .persistent(Codec.list(WeaponVoxel.CODEC))
-                    .networkSynchronized(ByteBufCodecs.collection(java.util.ArrayList::new, WeaponVoxel.STREAM_CODEC))
+                    .networkSynchronized(WeaponVoxel.LIST_STREAM_CODEC)
                     .build()
     );
 

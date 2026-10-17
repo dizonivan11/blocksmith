@@ -60,7 +60,7 @@ public class CustomizationScreen extends Screen {
     // 2D drawing tools
     private static final int T2_PENCIL = 0, T2_LINE = 1, T2_RECT = 2, T2_FRAME = 3, T2_FILL = 4, T2_PICK = 5;
     private static final String[] TOOL2D_NAMES = {"Pencil", "Line", "Rectangle", "Frame", "Bucket fill", "Eyedropper"};
-    private static final int[] THICKNESS = {1, 3, 5};
+    private static final int[] THICKNESS = {1, 3, 5, 7, 9};
     private int tool2d = T2_PENCIL;
     private boolean mirrorX = false;
     private int thicknessIdx = 0;
@@ -72,8 +72,8 @@ public class CustomizationScreen extends Screen {
     // Layer strip: per-layer visibility and lock, indexed by z + MAX_LAYER
     private final boolean[] layerHidden = new boolean[LAYER_COUNT];
     private final boolean[] layerLocked = new boolean[LAYER_COUNT];
-    private static final int THUMB = 17, THUMB_PITCH = 18, STRIP_X = 281, STRIP_Y = 212;
-    private static final int RECENT_SIZE = 10, RECENT_PITCH = 11, RECENT_X = 281, RECENT_Y = 251, MAX_RECENT = 8;
+    private static final int THUMB = 15, THUMB_PITCH = 17, STRIP_COLS = 5, STRIP_ROW_H = 25, STRIP_X = 281, STRIP_Y = 207;
+    private static final int RECENT_SIZE = 9, RECENT_PITCH = 10, RECENT_X = 281, RECENT_Y = 258, MAX_RECENT = 8;
     private final int[][] thumbPixels = new int[LAYER_COUNT][THUMB * THUMB];
     private boolean thumbsDirty = true;
 
@@ -1202,7 +1202,9 @@ public class CustomizationScreen extends Screen {
         this.thumbsDirty = false;
     }
 
-    private int thumbX(int leftPos, int i) { return leftPos + STRIP_X + i * THUMB_PITCH; }
+    private int thumbX(int leftPos, int i) { return leftPos + STRIP_X + (i % STRIP_COLS) * THUMB_PITCH; }
+
+    private int thumbY(int topPos, int i) { return topPos + STRIP_Y + (i / STRIP_COLS) * STRIP_ROW_H; }
 
     private static int outline(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
         g.fill(x - 1, y - 1, x + w + 1, y, color);
@@ -1216,11 +1218,11 @@ public class CustomizationScreen extends Screen {
         if (this.thumbsDirty) rebuildThumbnails();
         g.text(this.font, Component.literal("Layers"), leftPos + STRIP_X, topPos + STRIP_Y - 10, FONT_COLOR, false);
 
-        int y0 = topPos + STRIP_Y;
         List<String> tip = null;
         for (int i = 0; i < LAYER_COUNT; i++) {
             int layer = i - MAX_LAYER;
             int x0 = thumbX(leftPos, i);
+            int y0 = thumbY(topPos, i);
             boolean hidden = this.layerHidden[i];
             int[] px = this.thumbPixels[i];
 
@@ -1239,15 +1241,15 @@ public class CustomizationScreen extends Screen {
 
             // Hide (green = visible) and lock (orange = locked) toggles under each thumbnail
             int ty = y0 + THUMB + 2;
-            g.fill(x0, ty, x0 + 8, ty + 6, hidden ? 0xFF555555 : 0xFF55CC55);
-            g.fill(x0 + 9, ty, x0 + 17, ty + 6, this.layerLocked[i] ? 0xFFFFAA00 : 0xFF8B8B8B);
+            g.fill(x0, ty, x0 + 7, ty + 5, hidden ? 0xFF555555 : 0xFF55CC55);
+            g.fill(x0 + 8, ty, x0 + 15, ty + 5, this.layerLocked[i] ? 0xFFFFAA00 : 0xFF8B8B8B);
 
             String name = layer == 0 ? "Base layer" : String.format("Layer %+d", layer);
             if (mouseY >= y0 && mouseY < y0 + THUMB && mouseX >= x0 && mouseX < x0 + THUMB) {
                 tip = List.of("§e" + name, "§7Click to edit this layer", "§7Page Up / Page Down also switch layers");
-            } else if (mouseY >= ty && mouseY < ty + 6 && mouseX >= x0 && mouseX < x0 + 8) {
+            } else if (mouseY >= ty && mouseY < ty + 5 && mouseX >= x0 && mouseX < x0 + 7) {
                 tip = List.of("§e" + (hidden ? "Show " : "Hide ") + name.toLowerCase(), "§7Hidden layers can't be edited");
-            } else if (mouseY >= ty && mouseY < ty + 6 && mouseX >= x0 + 9 && mouseX < x0 + 17) {
+            } else if (mouseY >= ty && mouseY < ty + 5 && mouseX >= x0 + 8 && mouseX < x0 + 15) {
                 tip = List.of("§e" + (this.layerLocked[i] ? "Unlock " : "Lock ") + name.toLowerCase(), "§7Locked layers can't be changed");
             }
         }
@@ -1259,7 +1261,6 @@ public class CustomizationScreen extends Screen {
     }
 
     private void drawRecentSwatches(GuiGraphicsExtractor g, int leftPos, int topPos, int mouseX, int mouseY) {
-        g.text(this.font, Component.literal("Recent"), leftPos + RECENT_X, topPos + RECENT_Y - 10, FONT_COLOR, false);
         Swatch hovered = null;
         for (int i = 0; i < this.recentSwatches.size(); i++) {
             Swatch sw = this.recentSwatches.get(i);
@@ -1279,23 +1280,23 @@ public class CustomizationScreen extends Screen {
     }
 
     private boolean handleStripClick(int leftPos, int topPos, int mouseX, int mouseY) {
-        int y0 = topPos + STRIP_Y;
-        int ty = y0 + THUMB + 2;
         for (int i = 0; i < LAYER_COUNT; i++) {
             int x0 = thumbX(leftPos, i);
+            int y0 = thumbY(topPos, i);
+            int ty = y0 + THUMB + 2;
             if (mouseY >= y0 && mouseY < y0 + THUMB && mouseX >= x0 && mouseX < x0 + THUMB) {
                 this.activeLayer = i - MAX_LAYER;
                 this.sceneDirty = true;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 return true;
             }
-            if (mouseY >= ty && mouseY < ty + 6 && mouseX >= x0 && mouseX < x0 + 8) {
+            if (mouseY >= ty && mouseY < ty + 5 && mouseX >= x0 && mouseX < x0 + 7) {
                 this.layerHidden[i] = !this.layerHidden[i];
                 this.sceneDirty = true;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 return true;
             }
-            if (mouseY >= ty && mouseY < ty + 6 && mouseX >= x0 + 9 && mouseX < x0 + 17) {
+            if (mouseY >= ty && mouseY < ty + 5 && mouseX >= x0 + 8 && mouseX < x0 + 15) {
                 this.layerLocked[i] = !this.layerLocked[i];
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
                 return true;
@@ -1721,7 +1722,7 @@ public class CustomizationScreen extends Screen {
                     "§7Right-click erases with the same tool"};
             case BTN_MIRROR -> new String[]{"§eMirror: " + (this.mirrorX ? "§aOn" : "§cOff"), "§7Draw on both sides of the centre line"};
             case BTN_THICK -> new String[]{"§eThickness: " + THICKNESS[this.thicknessIdx] + (THICKNESS[this.thicknessIdx] == 1 ? " layer" : " layers"),
-                    "§7Click to cycle 1 / 3 / 5", "§7Extrudes what you draw onto the layers around it"};
+                    "§7Click to cycle 1 / 3 / 5 / 7 / 9", "§7Extrudes what you draw onto the layers around it"};
             case BTN_PROFILE -> new String[]{"§eShape: " + EditorGeometry.PROFILE_NAMES[this.profile] + " §7(click to cycle)",
                     "§7Flat: same outline on every layer",
                     "§7Tapered: outer layers shrink at the edges",

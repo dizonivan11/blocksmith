@@ -127,7 +127,7 @@ public class DesignLibraryScreen extends Screen {
         int optX = sidebarX + 6;
         this.thicknessButton = Button.builder(Component.empty(), _ -> {
             ImageVoxelizer.Options o = DesignFileManager.getImageOptions();
-            int next = o.thickness() == 1 ? 3 : (o.thickness() == 3 ? 5 : 1);
+            int next = o.thickness() >= 9 ? 1 : o.thickness() + 2;
             applyImageOptions(o.withThickness(next));
         }).bounds(optX, optY, 63, 14).build();
         this.profileButton = Button.builder(Component.empty(), _ -> {
