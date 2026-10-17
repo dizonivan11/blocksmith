@@ -15,8 +15,6 @@ import net.adeptfrog.blocksmith.network.OpenPalettePayload;
 import net.adeptfrog.blocksmith.network.StartVortexPayload;
 import net.fabricmc.fabric.api.client.rendering.v1.BlockColorRegistry;
 import net.minecraft.client.color.block.BlockTintSource;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.BlockAndTintGetter;
 import net.fabricmc.api.ClientModInitializer;
 
 import net.adeptfrog.blocksmith.client.gui.CustomizationScreen;
@@ -65,11 +63,6 @@ public class BlocksmithClient implements ClientModInitializer {
 				int idx = state.getValue(VoxelCubeBlock.MATERIAL);
 				if (idx >= mats.size()) return 0xFFFFFFFF;
 				return 0xFF000000 | (mats.get(idx).getColorRgb(state.getValue(VoxelCubeBlock.SHADE)) & 0xFFFFFF);
-			}
-
-			@Override
-			public int colorInWorld(BlockState state, BlockAndTintGetter level, BlockPos pos) {
-				return color(state);
 			}
 		}), Blocksmith.VOXEL_CUBE);
 
