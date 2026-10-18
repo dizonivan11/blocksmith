@@ -241,58 +241,13 @@ public final class VoxelRaycaster {
         syncPan();
     }
 
-    // Orbit pivot: the world point under the cursor when the drag began (offset from the grid centre), and the pixel
-    // it must stay on while the model turns around it
-    private boolean pivotActive;
-    private double pivX, pivY, pivZ, pivPixelX, pivPixelY;
-
     /**
-     * Starts an orbit around whatever is under the given pixel: the voxel surface there, or, over empty space, the
-     * point at the depth of the view centre. The point stays under the cursor while the camera turns around it.
-     */
-    public void beginOrbit(double pixelX, double pixelY) {
-        updateBasis();
-        setRay(pixelX, pixelY);
-        double cx = gridSize / 2.0, cy = gridSize / 2.0, cz = layers / 2.0 * LAYER_THICKNESS;
-        double t;
-        if (trace()) {
-            t = hitT;
-        } else {
-            // over empty space: the point on the ray at the depth of the view target, i.e. (P - T) . f = 0
-            double ow0 = ox - cx, ow1 = oy - cy, ow2 = oz * LAYER_THICKNESS - cz;
-            double tw = (targetX - ow0) * fx + (targetY - ow1) * fy + (targetZ - ow2) * fz;
-            pivX = ow0 + fx * tw; pivY = ow1 + fy * tw; pivZ = ow2 + fz * tw;
-            pivPixelX = pixelX; pivPixelY = pixelY;
-            pivotActive = true;
-            return;
-        }
-        pivX = ox + dx * t - cx;
-        pivY = oy + dy * t - cy;
-        pivZ = (oz + dz * t) * LAYER_THICKNESS - cz;
-        pivPixelX = pixelX; pivPixelY = pixelY;
-        pivotActive = true;
-    }
-
-    public void endOrbit() { pivotActive = false; }
-
-    /**
-     * Turns the camera. With {@link #beginOrbit} active the turn is around the point that was under the cursor, which
-     * stays where it is on screen; otherwise around the point at the centre of the current view.
+     * Turns the camera around the point at the centre of the current view (not always the middle of the grid): the
+     * spot you panned to stays where it is on screen while everything rotates around it.
      */
     public void orbit(double deltaYaw, double deltaPitch) {
         yaw += deltaYaw;
         pitch = Math.max(Math.toRadians(-89), Math.min(Math.toRadians(89), pitch + deltaPitch));
-        if (pivotActive) {
-            updateBasis();
-            // keep the pivot's projection on its pixel: pixel offset (world units) = P . r  -  pan
-            double wantR = (pivPixelX - width / 2.0) / scale, wantU = (height / 2.0 - pivPixelY) / scale;
-            double panR = wantR - (pivX * rx + pivY * ry + pivZ * rz);
-            double panU = wantU - (pivX * ux + pivY * uy + pivZ * uz);
-            targetX = -(panR * rx + panU * ux);
-            targetY = -(panR * ry + panU * uy);
-            targetZ = -(panR * rz + panU * uz);
-            clampTarget();
-        }
         syncPan();
     }
 
