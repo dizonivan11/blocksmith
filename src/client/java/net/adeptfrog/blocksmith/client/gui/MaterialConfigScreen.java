@@ -3,7 +3,9 @@ package net.adeptfrog.blocksmith.client.gui;
 import net.adeptfrog.blocksmith.data.VoxelMaterial;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -21,13 +23,34 @@ public class MaterialConfigScreen extends Screen {
     private int scrollY = 0;
     private boolean isScrolling = false;
 
+    private static final int TAB_MATERIALS = 0;
+    private static final int TAB_ADD = 1;
+    private static final int TAB_CONFIG = 2;
+    private static final String[] TAB_NAMES = {"Materials", "Add Material", "Settings"};
+    private static final int[] GRID_SIZES = {16, 32, 64};
+
     private static final int CARD_WIDTH = 370;
     private static final int ROW_HEIGHT = 28;
     private static final int ROW_SPACING = 31;
+    private static final int TAB_Y = 38;
+    private static final int LIST_TOP = 64;
+    private static final int FORM_WIDTH = 240;
+
+    private int tab = TAB_MATERIALS;
+
+    // Add-material form state (survives widget rebuilds, e.g. window resize)
+    private String fId = "", fItem = "minecraft:iron_ingot", fDmg = "0.05", fSpd = "0.001", fDur = "15";
+    private final String[] fShade = {"#444444", "#666666", "#888888", "#AAAAAA", "#CCCCCC"};
+    private final EditBox[] formBoxes = new EditBox[10];
+    private String formError = "";
 
     public MaterialConfigScreen(Screen parent) {
         super(Component.literal("Blocksmith Configuration"));
         this.parent = parent;
+    }
+
+    private int listBottom() {
+        return this.height - 32;
     }
 
     @Override
@@ -35,63 +58,182 @@ public class MaterialConfigScreen extends Screen {
         super.init();
         int centerX = this.width / 2;
 
-        // Bottom Buttons
+        // Tab row
+        int tabW = 110;
+        int tabGap = 4;
+        int tabsLeft = centerX - ((3 * tabW + 2 * tabGap) / 2);
+        for (int i = 0; i < 3; i++) {
+            final int idx = i;
+            Button tb = Button.builder(Component.literal(TAB_NAMES[i]), _ -> {
+                this.tab = idx;
+                this.formError = "";
+                this.rebuildWidgets();
+            }).bounds(tabsLeft + i * (tabW + tabGap), TAB_Y, tabW, 20).build();
+            tb.active = (tab != i);
+            this.addRenderableWidget(tb);
+        }
+
+        int btnY = this.height - 25;
         int btnW = 86;
         int btnGap = 6;
-        int totalBtnWidth = (4 * btnW) + (3 * btnGap);
-        int btnStartX = centerX - (totalBtnWidth / 2);
-        int btnY = this.height - 25;
 
-        // [Grid Resolution] Button
-        int[] availableSizes = {16, 32, 64};
-        int currentSize = VoxelMaterialRegistry.getGridSize();
-        Component warningTooltip = Component.literal("§cServer and client restart is required when changing grid resolution!");
+        if (tab == TAB_MATERIALS) {
+            int total = 2 * btnW + btnGap;
+            int x0 = centerX - total / 2;
+            this.addRenderableWidget(
+                    Button.builder(Component.literal("Reset Defaults"), _ -> {
+                        VoxelMaterialRegistry.resetToDefaults();
+                        this.scrollY = 0;
+                        this.rebuildWidgets();
+                    }).bounds(x0, btnY, btnW, 20).build()
+            );
+            this.addRenderableWidget(
+                    Button.builder(Component.literal("Done"), _ -> this.onClose())
+                            .bounds(x0 + btnW + btnGap, btnY, btnW, 20).build()
+            );
+        } else if (tab == TAB_ADD) {
+            initAddForm(centerX, btnY, btnW, btnGap);
+        } else {
+            initConfig(centerX);
+            this.addRenderableWidget(
+                    Button.builder(Component.literal("Done"), _ -> this.onClose())
+                            .bounds(centerX - btnW / 2, btnY, btnW, 20).build()
+            );
+        }
+    }
+
+    // ---------- Settings tab ----------
+
+    private void initConfig(int centerX) {
+        int w = 240;
+        int x = centerX - w / 2;
+        this.addRenderableWidget(new GridSizeSlider(x, LIST_TOP + 22, w, 20));
+
+        boolean off = VoxelMaterialRegistry.areAbilitiesDisabled();
         this.addRenderableWidget(
-                Button.builder(Component.literal("Grid: " + currentSize + "x" + currentSize), b -> {
-                    int current = VoxelMaterialRegistry.getGridSize();
-                    int nextIdx = 0;
-                    for (int i = 0; i < availableSizes.length; i++) {
-                        if (availableSizes[i] == current) {
-                            nextIdx = (i + 1) % availableSizes.length;
-                            break;
-                        }
-                    }
-                    int newSize = availableSizes[nextIdx];
-                    VoxelMaterialRegistry.setGridSize(newSize);
-                    b.setMessage(Component.literal("Grid: " + newSize + "x" + newSize));
+                Button.builder(abilitiesLabel(off), b -> {
+                    boolean now = !VoxelMaterialRegistry.areAbilitiesDisabled();
+                    VoxelMaterialRegistry.setAbilitiesDisabled(now);
+                    b.setMessage(abilitiesLabel(now));
                 })
-                .bounds(btnStartX, btnY, btnW, 20)
-                .tooltip(Tooltip.create(warningTooltip))
+                .bounds(x, LIST_TOP + 96, w, 20)
+                .tooltip(Tooltip.create(Component.literal("When disabled, modular weapons behave as plain weapons: no sword or bow abilities trigger.")))
                 .build()
         );
+    }
 
-        // [+ Add Material] Button
+    private static Component abilitiesLabel(boolean disabled) {
+        return Component.literal("Weapon Abilities: " + (disabled ? "§cDisabled" : "§aEnabled"));
+    }
+
+    private static class GridSizeSlider extends AbstractSliderButton {
+        GridSizeSlider(int x, int y, int w, int h) {
+            super(x, y, w, h, Component.empty(), indexOf(VoxelMaterialRegistry.getGridSize()) / 2.0);
+            updateMessage();
+        }
+
+        private static int indexOf(int size) {
+            int best = 0;
+            for (int i = 0; i < GRID_SIZES.length; i++) {
+                if (Math.abs(GRID_SIZES[i] - size) < Math.abs(GRID_SIZES[best] - size)) best = i;
+            }
+            return best;
+        }
+
+        @Override
+        protected void updateMessage() {
+            int size = GRID_SIZES[indexOf2(this.value)];
+            this.setMessage(Component.literal("Grid Resolution: " + size + "x" + size));
+        }
+
+        private static int indexOf2(double v) {
+            return (int) Math.max(0, Math.min(2, Math.round(v * 2.0)));
+        }
+
+        @Override
+        protected void applyValue() {
+            int idx = indexOf2(this.value);
+            this.value = idx / 2.0; // snap
+            int size = GRID_SIZES[idx];
+            if (size != VoxelMaterialRegistry.getGridSize()) {
+                VoxelMaterialRegistry.setGridSize(size);
+            }
+            updateMessage();
+        }
+    }
+
+    // ---------- Add Material tab ----------
+
+    private void initAddForm(int centerX, int btnY, int btnW, int btnGap) {
+        int formLeft = centerX - FORM_WIDTH / 2;
+        int r1 = LIST_TOP + 14;
+        int r2 = LIST_TOP + 50;
+        int r3 = LIST_TOP + 88;
+        int statW = 74, statGap = 9;
+
+        formBoxes[0] = formBox(formLeft, r1, 95, "Material ID", fId, v -> fId = v);
+        formBoxes[1] = formBox(formLeft + 103, r1, 137, "Item ID", fItem, v -> fItem = v);
+        formBoxes[2] = formBox(formLeft, r2, statW, "Damage", fDmg, v -> fDmg = v);
+        formBoxes[3] = formBox(formLeft + statW + statGap, r2, statW, "Speed", fSpd, v -> fSpd = v);
+        formBoxes[4] = formBox(formLeft + (statW + statGap) * 2, r2, statW, "Durability", fDur, v -> fDur = v);
+        for (int i = 0; i < 5; i++) {
+            final int si = i;
+            formBoxes[5 + i] = formBox(formLeft + i * 49, r3, 44, "Shade " + i, fShade[i], v -> fShade[si] = v);
+            formBoxes[5 + i].setMaxLength(7);
+        }
+
         this.addRenderableWidget(
-                Button.builder(Component.literal("+ Add Material"), _ -> {
-                    VoxelMaterial newTemplate = new VoxelMaterial(
-                            "custom_" + (VoxelMaterialRegistry.getAll().size() + 1),
-                            0.05f, 0.001f, 15,
-                            new int[]{0xFF444444, 0xFF666666, 0xFF888888, 0xFFAAAAAA, 0xFFCCCCCC},
-                            Identifier.fromNamespaceAndPath("minecraft", "iron_ingot")
-                    );
-                    this.minecraft.setScreen(new EditMaterialScreen(this, newTemplate, true));
-                }).bounds(btnStartX + (btnW + btnGap), btnY, btnW, 20).build()
+                Button.builder(Component.literal("Create"), _ -> createMaterial())
+                        .bounds(centerX - btnW - btnGap / 2, btnY, btnW, 20).build()
         );
-
-        // [Reset Defaults] Button
-        this.addRenderableWidget(
-                Button.builder(Component.literal("Reset Defaults"), _ -> {
-                    VoxelMaterialRegistry.resetToDefaults();
-                    this.scrollY = 0;
-                    this.rebuildWidgets();
-                }).bounds(btnStartX + (btnW + btnGap) * 2, btnY, btnW, 20).build()
-        );
-
-        // [Done] Button
         this.addRenderableWidget(
                 Button.builder(Component.literal("Done"), _ -> this.onClose())
-                        .bounds(btnStartX + (btnW + btnGap) * 3, btnY, btnW, 20).build()
+                        .bounds(centerX + btnGap / 2, btnY, btnW, 20).build()
         );
+    }
+
+    private EditBox formBox(int x, int y, int w, String label, String value, java.util.function.Consumer<String> sink) {
+        EditBox box = new EditBox(this.font, x, y, w, 16, Component.literal(label));
+        box.setTextColor(0xFFFFFFFF);
+        box.setValue(value);
+        box.setResponder(sink);
+        this.addRenderableWidget(box);
+        return box;
+    }
+
+    private void createMaterial() {
+        try {
+            String id = fId.trim().toLowerCase();
+            if (id.isEmpty()) throw new IllegalArgumentException("Material ID cannot be empty!");
+            for (VoxelMaterial m : VoxelMaterialRegistry.getAll()) {
+                if (m.id().equalsIgnoreCase(id)) throw new IllegalArgumentException("Material '" + id + "' already exists!");
+            }
+
+            String itemStr = fItem.trim();
+            if (!itemStr.contains(":")) itemStr = "minecraft:" + itemStr;
+            Identifier iconItem = Identifier.parse(itemStr);
+
+            float dmg = Float.parseFloat(fDmg.trim());
+            float spd = Float.parseFloat(fSpd.trim());
+            int dur = Integer.parseInt(fDur.trim());
+
+            int[] palette = new int[5];
+            for (int i = 0; i < 5; i++) {
+                palette[i] = 0xFF000000 | Integer.parseInt(fShade[i].trim().replace("#", ""), 16);
+            }
+
+            VoxelMaterialRegistry.register(new VoxelMaterial(id, dmg, spd, dur, palette, iconItem));
+            VoxelMaterialRegistry.save();
+
+            // Reset form and jump to the list, scrolled to the new entry
+            fId = "";
+            formError = "";
+            tab = TAB_MATERIALS;
+            scrollY = Integer.MAX_VALUE; // clamped on render
+            this.rebuildWidgets();
+        } catch (Exception e) {
+            formError = "§cError: " + e.getMessage();
+        }
     }
 
     @Override
@@ -102,13 +244,13 @@ public class MaterialConfigScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
-        int listTopY = 36;
-        int listBottomY = this.height - 32;
+        int listTopY = LIST_TOP;
+        int listBottomY = listBottom();
         int listHeight = listBottomY - listTopY;
         int totalContentHeight = mats.size() * ROW_SPACING;
         int maxScroll = Math.max(0, totalContentHeight - listHeight);
 
-        if (maxScroll > 0 && verticalAmount != 0) {
+        if (tab == TAB_MATERIALS && maxScroll > 0 && verticalAmount != 0) {
             this.scrollY = (int) Math.clamp(this.scrollY - (verticalAmount * 18), 0, maxScroll);
             return true;
         }
@@ -121,8 +263,8 @@ public class MaterialConfigScreen extends Screen {
         int centerX = this.width / 2;
         int cardX = centerX - (CARD_WIDTH / 2);
 
-        int listTopY = 36;
-        int listBottomY = this.height - 32;
+        int listTopY = LIST_TOP;
+        int listBottomY = listBottom();
         int listHeight = listBottomY - listTopY;
 
         List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
@@ -131,9 +273,9 @@ public class MaterialConfigScreen extends Screen {
         this.scrollY = Math.clamp(this.scrollY, 0, maxScroll);
 
         // Render centered scrollable list
-        guiGraphics.enableScissor(cardX - 4, listTopY, cardX + CARD_WIDTH + 14, listBottomY);
+        if (tab == TAB_MATERIALS) guiGraphics.enableScissor(cardX - 4, listTopY, cardX + CARD_WIDTH + 14, listBottomY);
 
-        for (int i = 0; i < mats.size(); i++) {
+        for (int i = 0; tab == TAB_MATERIALS && i < mats.size(); i++) {
             VoxelMaterial mat = mats.get(i);
             int y = listTopY - scrollY + (i * ROW_SPACING);
 
@@ -184,7 +326,7 @@ public class MaterialConfigScreen extends Screen {
         }
 
         // Scrollbar
-        if (maxScroll > 0) {
+        if (tab == TAB_MATERIALS && maxScroll > 0) {
             int scrollbarX = cardX + CARD_WIDTH + 4;
             guiGraphics.fill(scrollbarX, listTopY, scrollbarX + 6, listBottomY, 0x88000000);
 
@@ -196,20 +338,23 @@ public class MaterialConfigScreen extends Screen {
             guiGraphics.fill(scrollbarX + 1, thumbY + 1, scrollbarX + 5, thumbY + thumbHeight - 1, (hoveredThumb || isScrolling) ? 0xFFFFFFFF : 0xFFAAAAAA);
         }
 
-        guiGraphics.disableScissor();
+        if (tab == TAB_MATERIALS) guiGraphics.disableScissor();
 
         // Fixed Header Backdrop
         guiGraphics.fill(0, 0, this.width, 32, 0xD0000000);
         guiGraphics.fill(0, 32, this.width, 33, 0x55FFFFFF);
         guiGraphics.text(this.font, this.title, centerX - (this.font.width(this.title) / 2), 8, 0xFFFFFFFF, true);
-        Component sub = Component.literal("Configure stats, palettes, and required items in-game");
+        Component sub = Component.literal(tab == TAB_MATERIALS ? "Browse and edit material stats, palettes and items" : tab == TAB_ADD ? "Create a new custom material" : "Global mod settings");
         guiGraphics.text(this.font, sub, centerX - (this.font.width(sub) / 2), 20, 0xFFAAAAAA, false);
 
         // Fixed Footer Backdrop
         guiGraphics.fill(0, this.height - 30, this.width, this.height, 0xD0000000);
         guiGraphics.fill(0, this.height - 30, this.width, this.height - 29, 0x55FFFFFF);
 
-        // Render bottom buttons
+        if (tab == TAB_ADD) drawAddLabels(guiGraphics, centerX);
+        if (tab == TAB_CONFIG) drawConfigLabels(guiGraphics, centerX);
+
+        // Render widgets
         super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
     }
 
@@ -220,8 +365,10 @@ public class MaterialConfigScreen extends Screen {
 
         int centerX = this.width / 2;
         int cardX = centerX - (CARD_WIDTH / 2);
-        int listTopY = 36;
-        int listBottomY = this.height - 32;
+        int listTopY = LIST_TOP;
+        int listBottomY = listBottom();
+
+        if (tab != TAB_MATERIALS) return super.mouseClicked(event, doubleClick);
 
         int scrollbarX = cardX + CARD_WIDTH + 4;
         if (mouseX >= scrollbarX && mouseX <= scrollbarX + 8 && mouseY >= listTopY && mouseY <= listBottomY) {
@@ -257,9 +404,9 @@ public class MaterialConfigScreen extends Screen {
 
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double deltaX, double deltaY) {
-        if (this.isScrolling) {
-            int listTopY = 36;
-            int listBottomY = this.height - 32;
+        if (tab == TAB_MATERIALS && this.isScrolling) {
+            int listTopY = LIST_TOP;
+            int listBottomY = listBottom();
             int listHeight = listBottomY - listTopY;
             List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
             int totalContentHeight = mats.size() * ROW_SPACING;
@@ -273,6 +420,53 @@ public class MaterialConfigScreen extends Screen {
         }
 
         return super.mouseDragged(event, deltaX, deltaY);
+    }
+
+    private void label(GuiGraphicsExtractor g, String text, int x, int w, int y, int color) {
+        Component c = Component.literal(text);
+        g.text(this.font, c, x + (w - this.font.width(c)) / 2, y, color, true);
+    }
+
+    private void drawAddLabels(GuiGraphicsExtractor g, int centerX) {
+        int formLeft = centerX - FORM_WIDTH / 2;
+        int r1 = LIST_TOP + 14, r2 = LIST_TOP + 50, r3 = LIST_TOP + 88;
+        int statW = 74, statGap = 9;
+        label(g, "Material ID", formLeft, 95, r1 - 12, 0xFFEEEEEE);
+        label(g, "Item Identifier", formLeft + 103, 137, r1 - 12, 0xFFEEEEEE);
+        label(g, "Attack Dmg", formLeft, statW, r2 - 12, 0xFFFF7777);
+        label(g, "Attack Spd", formLeft + statW + statGap, statW, r2 - 12, 0xFF77FFFF);
+        label(g, "Durability", formLeft + (statW + statGap) * 2, statW, r2 - 12, 0xFF77FF77);
+        label(g, "5-Shade Color Palette (Hex)", formLeft, FORM_WIDTH, r3 - 12, 0xFFEEEEEE);
+        for (int i = 0; i < 5; i++) {
+            int colX = formLeft + i * 49;
+            int color = 0xFF888888;
+            try {
+                color = 0xFF000000 | Integer.parseInt(fShade[i].trim().replace("#", ""), 16);
+            } catch (Exception ignored) {}
+            g.fill(colX - 1, r3 + 19, colX + 45, r3 + 31, 0xFF000000);
+            g.fill(colX, r3 + 20, colX + 44, r3 + 30, color);
+        }
+        if (!formError.isEmpty()) {
+            Component err = Component.literal(formError);
+            g.text(this.font, err, centerX - this.font.width(err) / 2, this.height - 46, 0xFFFF5555, true);
+        }
+    }
+
+    private void drawConfigLabels(GuiGraphicsExtractor g, int centerX) {
+        int x = centerX - 120;
+        g.text(this.font, Component.literal("Grid Resolution"), x, LIST_TOP + 8, 0xFFEEEEEE, true);
+        // snap marks under the slider
+        for (int i = 0; i < 3; i++) {
+            int mx = x + 4 + (int) ((240 - 8) * (i / 2.0));
+            g.fill(mx, LIST_TOP + 44, mx + 1, LIST_TOP + 48, 0xFFAAAAAA);
+            String t = String.valueOf(GRID_SIZES[i]);
+            g.text(this.font, Component.literal(t), mx - this.font.width(t) / 2, LIST_TOP + 50, 0xFFAAAAAA, false);
+        }
+        Component warn = Component.literal("§cChanging grid resolution requires a server and client restart.");
+        g.text(this.font, warn, centerX - this.font.width(warn) / 2, LIST_TOP + 62, 0xFFFF5555, false);
+        g.text(this.font, Component.literal("Combat"), x, LIST_TOP + 84, 0xFFEEEEEE, true);
+        Component hint = Component.literal("§7Disables all sword and bow abilities; weapons keep their stats.");
+        g.text(this.font, hint, centerX - this.font.width(hint) / 2, LIST_TOP + 120, 0xFFAAAAAA, false);
     }
 
     private void drawEditButton(GuiGraphicsExtractor g, int x, int y, int w, int h, boolean hovered) {

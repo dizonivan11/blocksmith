@@ -385,6 +385,7 @@ public class WeaponAbilityRegistry {
 
     public static List<WeaponAbility> getUnlockedAbilities(ItemStack stack) {
         List<WeaponAbility> unlocked = new ArrayList<>();
+        if (net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled()) return unlocked;
         for (WeaponAbility ability : ABILITIES.values()) {
             if (ability.isUnlocked(stack)) {
                 unlocked.add(ability);
@@ -399,6 +400,7 @@ public class WeaponAbilityRegistry {
     }
 
     public static boolean arrowHasAbility(AbstractArrow arrow, String ability) {
+        if (net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled()) return false;
         return arrow.entityTags().contains("blocksmith_ability:"+ability);
     }
 }

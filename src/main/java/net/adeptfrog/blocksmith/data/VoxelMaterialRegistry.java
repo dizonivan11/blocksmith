@@ -26,6 +26,7 @@ public class VoxelMaterialRegistry {
     );
 
     private static int gridSize = Blocksmith.BASE_GRID_SIZE; // Default resolution
+    private static boolean abilitiesDisabled = false;
 
     static {
         load();
@@ -43,6 +44,10 @@ public class VoxelMaterialRegistry {
 
                 if (root.has("gridSize")) {
                     gridSize = Math.clamp(root.get("gridSize").getAsInt(), 16, 64);
+                }
+
+                if (root.has("abilitiesDisabled")) {
+                    abilitiesDisabled = root.get("abilitiesDisabled").getAsBoolean();
                 }
 
                 if (root.has("materials")) {
@@ -72,6 +77,7 @@ public class VoxelMaterialRegistry {
 
                 // Grid Size
                 root.addProperty("gridSize", gridSize);
+                root.addProperty("abilitiesDisabled", abilitiesDisabled);
 
                 // Materials
                 List<MaterialConfigEntry> entries = new ArrayList<>();
@@ -243,6 +249,14 @@ public class VoxelMaterialRegistry {
     }
     public static void setGridSize(int size) {
         gridSize = Math.clamp(size, 16, 64);
+        save();
+    }
+
+    public static boolean areAbilitiesDisabled() {
+        return abilitiesDisabled;
+    }
+    public static void setAbilitiesDisabled(boolean disabled) {
+        abilitiesDisabled = disabled;
         save();
     }
 

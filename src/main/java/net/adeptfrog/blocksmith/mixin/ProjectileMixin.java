@@ -30,7 +30,7 @@ public class ProjectileMixin {
     @Inject(method = "doKnockback", at = @At("HEAD"), cancellable = true)
     private void blocksmith$cancelPunchKnockback(LivingEntity mob, DamageSource damageSource, CallbackInfo ci) {
         AbstractArrow arrow = (AbstractArrow) (Object) this;
-        if (arrow.entityTags().contains("blocksmith_ability:burst")) {
+        if (WeaponAbilityRegistry.arrowHasAbility(arrow, "burst")) {
             ci.cancel();
         }
     }
@@ -93,7 +93,7 @@ public class ProjectileMixin {
                 if (tag.startsWith("blocksmith_ability:")) {
                     String abilityId = tag.substring("blocksmith_ability:".length());
                     WeaponAbility ability = WeaponAbilityRegistry.get(abilityId);
-                    if (ability != null) {
+                    if (ability != null && !net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled()) {
                         ability.onArrowHit(arrow, hitResult, serverLevel);
                         ability.onArrowHitBlock(arrow, hitResult, serverLevel);
                     }
@@ -110,7 +110,7 @@ public class ProjectileMixin {
                 if (tag.startsWith("blocksmith_ability:")) {
                     String abilityId = tag.substring("blocksmith_ability:".length());
                     WeaponAbility ability = WeaponAbilityRegistry.get(abilityId);
-                    if (ability != null) {
+                    if (ability != null && !net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled()) {
                         ability.onArrowHit(arrow, hitResult, serverLevel);
                         ability.onArrowHitEntity(arrow, hitResult, serverLevel);
                     }
@@ -128,7 +128,7 @@ public class ProjectileMixin {
                 if (tag.startsWith("blocksmith_ability:")) {
                     String abilityId = tag.substring("blocksmith_ability:".length());
                     WeaponAbility ability = WeaponAbilityRegistry.get(abilityId);
-                    if (ability != null) {
+                    if (ability != null && !net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled()) {
                         ability.afterArrowHitEntity(arrow, mob, serverLevel);
                     }
                 }
