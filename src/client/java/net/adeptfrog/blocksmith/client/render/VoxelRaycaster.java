@@ -20,8 +20,15 @@ package net.adeptfrog.blocksmith.client.render;
  * </ol>
  */
 public final class VoxelRaycaster {
-    /** Physical thickness of one layer relative to the width of one cell (matches the item renderer). */
+    /**
+     * Layer thickness in cells at the reference 32x32 grid. The physical thickness is the same for every grid size
+     * (matches the item renderer), so it is rescaled per grid in {@link #layerThickness}.
+     */
     public static final double LAYER_THICKNESS = 1.25;
+    private static final int REFERENCE_GRID = 32;
+
+    /** Thickness of one layer measured in cells of this raycaster's grid. */
+    private final double layerThickness;
 
     /** A voxel face (or the empty base-layer floor) under a pixel. */
     public record Hit(int x, int y, int zi, int nx, int ny, int nz, boolean floor) {
@@ -103,6 +110,7 @@ public final class VoxelRaycaster {
      */
     public VoxelRaycaster(int gridSize, int layers, int width, int height, int pixelScale) {
         this.gridSize = gridSize;
+        this.layerThickness = LAYER_THICKNESS * gridSize / REFERENCE_GRID;
         this.layers = layers;
         this.width = width;
         this.height = height;
@@ -122,7 +130,7 @@ public final class VoxelRaycaster {
         this.nearMask = new boolean[tilesX * tilesY];
         this.activeZi = layers / 2;
         // Fit the model's bounding sphere so deep (many layer) models never clip at the corners
-        double depth = layers * LAYER_THICKNESS;
+        double depth = layers * layerThickness;
         double radius = 0.5 * Math.sqrt(2.0 * gridSize * gridSize + depth * depth);
         this.defaultScale = Math.min(width, height) / 2.0 / radius * 1.02;
         resetView();
@@ -329,12 +337,12 @@ public final class VoxelRaycaster {
     private void setRay(double pixelX, double pixelY) {
         double sx = (pixelX - width / 2.0) / scale - panRight;
         double sy = (height / 2.0 - pixelY) / scale - panUp;
-        double centreX = gridSize / 2.0, centreY = gridSize / 2.0, centreZ = layers / 2.0 * LAYER_THICKNESS;
+        double centreX = gridSize / 2.0, centreY = gridSize / 2.0, centreZ = layers / 2.0 * layerThickness;
         double wx = centreX + rx * sx + ux * sy - fx * BG_DISTANCE;
         double wy = centreY + ry * sx + uy * sy - fy * BG_DISTANCE;
         double wz = centreZ + rz * sx + uz * sy - fz * BG_DISTANCE;
-        ox = wx; oy = wy; oz = wz / LAYER_THICKNESS;
-        dx = fx; dy = fy; dz = fz / LAYER_THICKNESS;
+        ox = wx; oy = wy; oz = wz / layerThickness;
+        dx = fx; dy = fy; dz = fz / layerThickness;
     }
 
     // ----- tracing -----
@@ -533,7 +541,7 @@ public final class VoxelRaycaster {
     /** Marks the screen tiles covered by the projection of every non-empty chunk. Needs {@link #updateBasis} first. */
     private void buildHitMask() {
         java.util.Arrays.fill(hitMask, false);
-        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
+        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * layerThickness;
         for (int cz = 0; cz < chunksZ; cz++) {
             for (int cy = 0; cy < chunksY; cy++) {
                 for (int cx = 0; cx < chunksX; cx++) {
@@ -545,7 +553,7 @@ public final class VoxelRaycaster {
                     for (int i = 0; i < 8; i++) {
                         double relX = ((i & 1) == 0 ? lo[0] : hi[0]) - cxm;
                         double relY = ((i & 2) == 0 ? lo[1] : hi[1]) - cym;
-                        double relZ = ((i & 4) == 0 ? lo[2] : hi[2]) * LAYER_THICKNESS - czm;
+                        double relZ = ((i & 4) == 0 ? lo[2] : hi[2]) * layerThickness - czm;
                         double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
                         double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
                         minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
@@ -565,7 +573,7 @@ public final class VoxelRaycaster {
         for (int i = 0; i < 4; i++) {
             double relX = ((i & 1) == 0 ? 0 : gridSize) - cxm;
             double relY = ((i & 2) == 0 ? 0 : gridSize) - cym;
-            double relZ = (activeZi + 0.5) * LAYER_THICKNESS - czm;
+            double relZ = (activeZi + 0.5) * layerThickness - czm;
             double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
             double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
             fMinX = Math.min(fMinX, sx); fMaxX = Math.max(fMaxX, sx);
@@ -601,7 +609,7 @@ public final class VoxelRaycaster {
 
     /** Screen rectangle covering every changed chunk (and its neighbouring cells), or null if that is most of the image. */
     private int[] dirtyRect() {
-        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
+        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * layerThickness;
         double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
         for (int cz = 0; cz < chunksZ; cz++) {
             for (int cy = 0; cy < chunksY; cy++) {
@@ -614,7 +622,7 @@ public final class VoxelRaycaster {
                     for (int i = 0; i < 8; i++) {
                         double relX = ((i & 1) == 0 ? lo[0] : hi[0]) - cxm;
                         double relY = ((i & 2) == 0 ? lo[1] : hi[1]) - cym;
-                        double relZ = ((i & 4) == 0 ? lo[2] : hi[2]) * LAYER_THICKNESS - czm;
+                        double relZ = ((i & 4) == 0 ? lo[2] : hi[2]) * layerThickness - czm;
                         double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
                         double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
                         minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
@@ -643,6 +651,7 @@ public final class VoxelRaycaster {
     /** Worker copy: shares the model with {@code p} but has its own scratch fields, so rows can be drawn in parallel. */
     private VoxelRaycaster(VoxelRaycaster p) {
         this.gridSize = p.gridSize;
+        this.layerThickness = p.layerThickness;
         this.layers = p.layers;
         this.width = p.width;
         this.height = p.height;
@@ -738,12 +747,12 @@ public final class VoxelRaycaster {
         updateBasis();
         buildHitMask();
 
-        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
+        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * layerThickness;
         double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
         for (int i = 0; i < 8; i++) {
             double relX = highlight.x() + (i & 1) - cxm;
             double relY = highlight.y() + ((i >> 1) & 1) - cym;
-            double relZ = (highlight.zi() + ((i >> 2) & 1)) * LAYER_THICKNESS - czm;
+            double relZ = (highlight.zi() + ((i >> 2) & 1)) * layerThickness - czm;
             double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
             double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
             minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
@@ -890,13 +899,13 @@ public final class VoxelRaycaster {
 
         // White "studio" light: a point light above and in front of the model gives every face a soft gradient,
         // brightens towards white where it shines, and adds a small specular glint.
-        double wx = ox + dx * hitT, wy = oy + dy * hitT, wz = (oz + dz * hitT) * LAYER_THICKNESS;
+        double wx = ox + dx * hitT, wy = oy + dy * hitT, wz = (oz + dz * hitT) * layerThickness;
         double g = gridSize;
         double lx, ly, lz;
         if (cameraLight) {
-            lx = g * 0.5 + lightOffX * g - wx; ly = g * 0.5 + lightOffY * g - wy; lz = layers / 2.0 * LAYER_THICKNESS + lightOffZ * g - wz;
+            lx = g * 0.5 + lightOffX * g - wx; ly = g * 0.5 + lightOffY * g - wy; lz = layers / 2.0 * layerThickness + lightOffZ * g - wz;
         } else {
-            lx = g * 0.5 - 0.7 * g - wx; ly = g * 0.5 + 0.9 * g - wy; lz = layers / 2.0 * LAYER_THICKNESS + 1.4 * g - wz;
+            lx = g * 0.5 - 0.7 * g - wx; ly = g * 0.5 + 0.9 * g - wy; lz = layers / 2.0 * layerThickness + 1.4 * g - wz;
         }
         double ld = Math.sqrt(lx * lx + ly * ly + lz * lz);
         lx /= ld; ly /= ld; lz /= ld;
@@ -907,7 +916,7 @@ public final class VoxelRaycaster {
         // reflect the light about the normal and compare with the view direction (towards the camera = -f)
         double dot = hnx * lx + hny * ly + hnz * lz;
         double rxv = 2 * dot * hnx - lx, ryv = 2 * dot * hny - ly, rzv = 2 * dot * hnz - lz;
-        double spec = Math.pow(Math.max(0, -(rxv * fx + ryv * fy + rzv * fz / LAYER_THICKNESS * LAYER_THICKNESS)), 24) * 0.35 * atten * (ndl > 0 ? 1 : 0);
+        double spec = Math.pow(Math.max(0, -(rxv * fx + ryv * fy + rzv * fz / layerThickness * layerThickness)), 24) * 0.35 * atten * (ndl > 0 ? 1 : 0);
 
         double rr = ((base >> 16) & 0xFF) * light, gg = ((base >> 8) & 0xFF) * light, bb = (base & 0xFF) * light;
         if (light > 1.0) { // over-exposed colour washes towards white instead of clipping to a hue
