@@ -63,9 +63,9 @@ public class CustomizationScreen extends Screen {
     private static final String[] TOOL2D_KEYS = {"P", "L", "X", "F", "B", "I", "O", "R"};
     private static final int[] THICKNESS = {1, 3, 5, 7, 9};
     private int tool2d = T2_PENCIL;
-    private static final String[] MIRROR_NAMES = {"Off", "Horizontal (left/right)", "Vertical (top/bottom)", "Diagonal /", "Diagonal \\"};
-    private static final String[] MIRROR_TAGS = {"", "H", "V", "/", "\\"};
-    private int mirrorMode = 0; // 0 off, 1 horizontal, 2 vertical, 3 diagonal /, 4 diagonal \
+    private static final String[] MIRROR_NAMES = {"Off", "Horizontal (left/right)", "Vertical (top/bottom)", "Diagonal /", "Diagonal \\", "Depth (front/back layers)"};
+    private static final String[] MIRROR_TAGS = {"", "H", "V", "/", "\\", "Z"};
+    private int mirrorMode = 0; // 0 off, 1 horizontal, 2 vertical, 3 diagonal /, 4 diagonal \, 5 depth (layer -> -layer)
     private int thicknessIdx = 0;
     private int profile = 0;
     private int shapeAnchorX = -1, shapeAnchorY = -1, shapeCurX = -1, shapeCurY = -1;
@@ -271,7 +271,10 @@ public class CustomizationScreen extends Screen {
         return false;
     }
 
-    /** Tool hotkeys: P pencil/add, L line, X rectangle, F frame, B bucket, I eyedropper, O recolor, R erase, M mirror, Tab view. */
+    /**
+     * Hotkeys: P pencil/add, L line, X rectangle, F frame, B bucket, I eyedropper, O recolor, R erase, M mirror,
+     * T thickness (2D), 1-5 shade, H hide and K lock the edited layer, [ ] layer down/up, Tab view.
+     */
     private boolean handleHotkey(int key) {
         if (key == GLFW.GLFW_KEY_TAB) {
             handleButtonAction(BTN_VIEW);
@@ -279,6 +282,37 @@ public class CustomizationScreen extends Screen {
         }
         if (key == GLFW.GLFW_KEY_M) {
             handleButtonAction(BTN_MIRROR);
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_T && !this.view3d) {
+            handleButtonAction(BTN_THICK);
+            return true;
+        }
+        if ((key >= GLFW.GLFW_KEY_1 && key <= GLFW.GLFW_KEY_5) || (key >= GLFW.GLFW_KEY_KP_1 && key <= GLFW.GLFW_KEY_KP_5)) {
+            int shade = key >= GLFW.GLFW_KEY_KP_1 ? key - GLFW.GLFW_KEY_KP_1 : key - GLFW.GLFW_KEY_1;
+            int[] palette = this.selectedMaterial == null ? null : this.selectedMaterial.getPalette();
+            if (palette != null && shade < palette.length) this.selectedShade = shade;
+            return true;
+        }
+        int li = this.activeLayer + MAX_LAYER;
+        if (key == GLFW.GLFW_KEY_H) { // hide / show the layer being edited
+            this.layerHidden[li] = !this.layerHidden[li];
+            this.sceneDirty = true;
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_K) { // lock / unlock it
+            this.layerLocked[li] = !this.layerLocked[li];
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            return true;
+        }
+        if ((key == GLFW.GLFW_KEY_RIGHT_BRACKET || key == GLFW.GLFW_KEY_LEFT_BRACKET)) {
+            int next = this.activeLayer + (key == GLFW.GLFW_KEY_RIGHT_BRACKET ? 1 : -1);
+            if (next >= MIN_LAYER && next <= MAX_LAYER) {
+                this.activeLayer = next;
+                this.sceneDirty = true;
+                revealActiveLayer();
+            }
             return true;
         }
         String[] keys = this.view3d ? TOOL_KEYS : TOOL2D_KEYS;
@@ -686,6 +720,10 @@ public class CustomizationScreen extends Screen {
             if (hov) hoveredBtn = row;
             drawSmallHeaderButton(guiGraphics, subBtnX, rowY, ICON_BTN, ICON_BTN, "", hov);
             guiGraphics.fakeItem(buttonIcon(row), subBtnX + 1, rowY + 1);
+            String keyHint = buttonKey(row);
+            if (keyHint != null) {
+                guiGraphics.text(this.font, Component.literal(keyHint), subBtnX + 2, rowY + 2, 0xFFFFE066, true);
+            }
             String overlay = buttonOverlay(row);
             if (overlay != null) {
                 guiGraphics.text(this.font, Component.literal(overlay), subBtnX + ICON_BTN - 6, rowY + ICON_BTN - 9, 0xFFFFFFFF, true);
@@ -1126,6 +1164,14 @@ public class CustomizationScreen extends Screen {
         };
     }
 
+    /** Mirror image of a voxel cell as {x, y, layer}, or null when it is its own mirror image (or mirroring is off). */
+    private int[] mirror3(int x, int y, int layer) {
+        if (this.mirrorMode == 0) return null;
+        if (this.mirrorMode == 5) return layer == 0 ? null : new int[]{x, y, -layer};
+        int[] m = mirrorOf(x, y);
+        return (m[0] == x && m[1] == y) ? null : new int[]{m[0], m[1], layer};
+    }
+
     private List<int[]> withMirror(List<int[]> cells) {
         if (this.mirrorMode == 0) return cells;
         List<int[]> all = new ArrayList<>(cells);
@@ -1222,6 +1268,21 @@ public class CustomizationScreen extends Screen {
 
     /** Paints or erases a set of cells on the active layer, honouring mirror and thickness. */
     private boolean applyFootprint(List<int[]> cells, boolean erase) {
+        boolean changed = applyFootprintOn(cells, erase);
+        if (this.mirrorMode == 5 && this.activeLayer != 0) {
+            // Depth mirror: the same edit lands on the opposite layer too
+            int saved = this.activeLayer;
+            this.activeLayer = -saved;
+            try {
+                changed |= applyFootprintOn(cells, erase);
+            } finally {
+                this.activeLayer = saved;
+            }
+        }
+        return changed;
+    }
+
+    private boolean applyFootprintOn(List<int[]> cells, boolean erase) {
         List<int[]> all = withMirror(cells);
         int half = (THICKNESS[this.thicknessIdx] - 1) / 2;
         boolean changed = false;
@@ -1332,10 +1393,8 @@ public class CustomizationScreen extends Screen {
     /** Places a voxel of the selected material, or recolors the one already there (3D editor). */
     private boolean paintAt(int x, int y, int layer) {
         boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade);
-        if (this.mirrorMode != 0) {
-            int[] m = mirrorOf(x, y);
-            if (m[0] != x || m[1] != y) changed |= putVoxel(m[0], m[1], layer, this.selectedMaterial, this.selectedShade);
-        }
+        int[] m = mirror3(x, y, layer);
+        if (m != null) changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade);
         if (!changed) return false;
         commitSnapshot();
         noteRecent(this.selectedMaterial, this.selectedShade);
@@ -1346,11 +1405,9 @@ public class CustomizationScreen extends Screen {
     /** Recolors an existing voxel (and its mirror image, if that cell holds a voxel too); never adds new ones. */
     private boolean recolorAt(int x, int y, int layer) {
         boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade);
-        if (this.mirrorMode != 0) {
-            int[] m = mirrorOf(x, y);
-            if ((m[0] != x || m[1] != y) && findVoxel(m[0], m[1], layer) != null) {
-                changed |= putVoxel(m[0], m[1], layer, this.selectedMaterial, this.selectedShade);
-            }
+        int[] m = mirror3(x, y, layer);
+        if (m != null && findVoxel(m[0], m[1], m[2]) != null) {
+            changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade);
         }
         if (!changed) return false;
         commitSnapshot();
@@ -1402,10 +1459,8 @@ public class CustomizationScreen extends Screen {
 
     private boolean eraseAt(int x, int y, int layer) {
         boolean changed = removeVoxel(x, y, layer);
-        if (this.mirrorMode != 0) {
-            int[] m = mirrorOf(x, y);
-            if (m[0] != x || m[1] != y) changed |= removeVoxel(m[0], m[1], layer);
-        }
+        int[] m = mirror3(x, y, layer);
+        if (m != null) changed |= removeVoxel(m[0], m[1], m[2]);
         if (!changed) return false;
         commitSnapshot();
         recalculateCachedStats();
@@ -2122,6 +2177,16 @@ public class CustomizationScreen extends Screen {
         };
     }
 
+    /** Hotkey letter drawn in the corner of a button, or null. */
+    private String buttonKey(int row) {
+        if (row < BTN_TOOL_SLOTS) return this.view3d ? TOOL_KEYS[row] : TOOL2D_KEYS[row];
+        return switch (row) {
+            case BTN_MIRROR -> "M";
+            case BTN_THICK -> "T";
+            default -> null;
+        };
+    }
+
     private String buttonOverlay(int row) {
         return switch (row) {
             case BTN_UNDO -> "<";
@@ -2145,11 +2210,12 @@ public class CustomizationScreen extends Screen {
             case BTN_UNDO -> new String[]{"§eUndo", "§7Ctrl+Z" + (this.undoStack.isEmpty() ? " §8(nothing to undo)" : "")};
             case BTN_REDO -> new String[]{"§eRedo", "§7Ctrl+Y or Ctrl+Shift+Z" + (this.redoStack.isEmpty() ? " §8(nothing to redo)" : "")};
             case BTN_MIRROR -> new String[]{"§eMirror: " + (this.mirrorMode == 0 ? "§cOff" : "§a" + MIRROR_NAMES[this.mirrorMode]) + " §7(click to cycle)",
-                    "§7Off / Horizontal / Vertical / Diagonal / and \\",
-                    this.view3d ? "§7In 3D the copy lands on the same layer as the original" : "§7Draws on both sides of the axis",
+                    "§7Off / Horizontal / Vertical / Diagonal / and \\ / Depth",
+                    "§7Depth copies each edit onto the opposite layer (layer -n for layer n)",
+                    this.view3d ? "§7Other modes keep the copy on the same layer as the original" : "§7Draws on both sides of the axis",
                     "§8Hotkey: M"};
             case BTN_THICK -> new String[]{"§eThickness: " + THICKNESS[this.thicknessIdx] + (THICKNESS[this.thicknessIdx] == 1 ? " layer" : " layers"),
-                    "§7Click to cycle 1 / 3 / 5 / 7 / 9", "§7Extrudes what you draw onto the layers around it"};
+                    "§7Click to cycle 1 / 3 / 5 / 7 / 9", "§7Extrudes what you draw onto the layers around it", "§8Hotkey: T"};
             case BTN_PROFILE -> new String[]{"§eShape: " + EditorGeometry.PROFILE_NAMES[this.profile] + " §7(click to cycle)",
                     "§7Flat: same outline on every layer",
                     "§7Tapered: outer layers shrink at the edges",
