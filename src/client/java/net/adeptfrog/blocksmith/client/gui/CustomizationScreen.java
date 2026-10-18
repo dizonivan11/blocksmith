@@ -73,7 +73,7 @@ public class CustomizationScreen extends Screen {
     private final boolean[] layerHidden = new boolean[LAYER_COUNT];
     private final boolean[] layerLocked = new boolean[LAYER_COUNT];
     private static final int STATS_X = 404; // left edge of the bonus-stats panel; its text starts 6 px further in
-    private static final int THUMB = 14, LAYER_ROW_H = 16, LAYER_LIST_X = STATS_X + 6, LAYER_LIST_Y = 208, LAYER_LIST_W = 88, LAYER_LIST_H = 96, SCROLLBAR_W = 12, SCROLLER_H = 15;
+    private static final int THUMB = 14, LAYER_ROW_H = 16, LAYER_LIST_X = STATS_X + 6, LAYER_LIST_Y = 213, LAYER_LIST_W = 88, LAYER_LIST_H = 96, SCROLLBAR_W = 12, SCROLLER_H = 15;
     // The scroll bar thumb of the creative inventory tab
     private static final Identifier SCROLLER_SPRITE = Identifier.withDefaultNamespace("container/creative_inventory/scroller");
     private static final Identifier SCROLLER_DISABLED_SPRITE = Identifier.withDefaultNamespace("container/creative_inventory/scroller_disabled");
@@ -98,13 +98,12 @@ public class CustomizationScreen extends Screen {
     private static final String[] TOOL_NAMES = {"Add", "Recolor", "Erase"};
     // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
     // Tool and Reset view only exist in the 3D editor; the drawing-tool, mirror and thickness buttons only in the 2D editor.
-    private static final int BTN_EXPORT = 0, BTN_IMPORT = 1, BTN_FLIP_H = 2, BTN_FLIP_V = 3, BTN_ROT_CW = 4,
-            BTN_ROT_CCW = 5, BTN_VIEW = 6, BTN_UNDO = 7, BTN_REDO = 8, BTN_TOOL2D = 9, BTN_MIRROR = 10, BTN_THICK = 11,
-            BTN_PROFILE = 12, BTN_TOOL = 13, BTN_RESET = 14, BTN_CODEX = 15, BTN_COUNT = 16;
-    private static final int ICON_BTN = 18, ICON_STEP = 20;
+    // The tool buttons come first (3 in the 3D editor, 6 in the 2D editor): one button per tool, the active one is outlined.
+    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 6, BTN_FLIP_H = 6, BTN_FLIP_V = 7, BTN_ROT_CW = 8,
+            BTN_ROT_CCW = 9, BTN_VIEW = 10, BTN_UNDO = 11, BTN_REDO = 12, BTN_MIRROR = 13, BTN_THICK = 14,
+            BTN_PROFILE = 15, BTN_RESET = 16, BTN_CODEX = 17, BTN_COUNT = 18;
+    private static final int ICON_BTN = 18, ICON_STEP = 20, EI_BTN_W = 44;
     // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
-    private static final ItemStack ICON_EXPORT = new ItemStack(Items.WRITABLE_BOOK);
-    private static final ItemStack ICON_IMPORT = new ItemStack(Items.CHEST);
     private static final ItemStack ICON_FLIP_H = new ItemStack(Items.PISTON);
     private static final ItemStack ICON_FLIP_V = new ItemStack(Items.STICKY_PISTON);
     private static final ItemStack ICON_ROT_CW = new ItemStack(Items.REPEATER);
@@ -616,6 +615,17 @@ public class CustomizationScreen extends Screen {
         int labelWidth = this.font.width(saveLabel);
         guiGraphics.text(this.font, saveLabel, btnX + (btnW - labelWidth) / 2, saveBtnY + 6, 0xFFFFFFFF, false);
 
+        // Import / Export text buttons sit to the left of Save
+        int importX = btnX - 4 - EI_BTN_W, exportX = importX - 4 - EI_BTN_W;
+        boolean hovImport = mouseX >= importX && mouseX <= importX + EI_BTN_W && mouseY >= saveBtnY && mouseY <= saveBtnY + btnH;
+        boolean hovExport = mouseX >= exportX && mouseX <= exportX + EI_BTN_W && mouseY >= saveBtnY && mouseY <= saveBtnY + btnH;
+        drawSaveButton(guiGraphics, exportX, saveBtnY, EI_BTN_W, btnH, hovExport, exportFeedbackTimer > 0);
+        drawSaveButton(guiGraphics, importX, saveBtnY, EI_BTN_W, btnH, hovImport, importFeedbackTimer > 0);
+        Component exportLabel = Component.literal(exportFeedbackTimer > 0 ? "§aCopied!" : (hovExport ? "§fExport" : "§7Export"));
+        Component importLabel = Component.literal(importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : (hovImport ? "§fImport" : "§7Import")));
+        guiGraphics.text(this.font, exportLabel, exportX + (EI_BTN_W - this.font.width(exportLabel)) / 2, saveBtnY + 6, 0xFFFFFFFF, false);
+        guiGraphics.text(this.font, importLabel, importX + (EI_BTN_W - this.font.width(importLabel)) / 2, saveBtnY + 6, 0xFFFFFFFF, false);
+
         // Icon buttons (one vanilla item per action) with tooltips
         int subBtnX = leftPos - ICON_BTN - 4;
         int hoveredBtn = -1;
@@ -630,7 +640,7 @@ public class CustomizationScreen extends Screen {
             if (overlay != null) {
                 guiGraphics.text(this.font, Component.literal(overlay), subBtnX + ICON_BTN - 6, rowY + ICON_BTN - 9, 0xFFFFFFFF, true);
             }
-            if (row == BTN_MIRROR && this.mirrorX) {
+            if ((row == BTN_MIRROR && this.mirrorX) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
                 int gc = 0xFF55FF55;
                 guiGraphics.fill(subBtnX - 1, rowY - 1, subBtnX + ICON_BTN + 1, rowY, gc);
                 guiGraphics.fill(subBtnX - 1, rowY + ICON_BTN, subBtnX + ICON_BTN + 1, rowY + ICON_BTN + 1, gc);
@@ -827,6 +837,13 @@ public class CustomizationScreen extends Screen {
         int btnX =  leftPos + WINDOW_WIDTH - btnW - 8;
         int saveBtnY = topPos + WINDOW_HEIGHT - btnH - 8;
 
+        {
+            int importX = btnX - 4 - EI_BTN_W, exportX = importX - 4 - EI_BTN_W;
+            if (mouseY >= saveBtnY && mouseY <= saveBtnY + btnH) {
+                if (mouseX >= exportX && mouseX <= exportX + EI_BTN_W) { openExport(); return true; }
+                if (mouseX >= importX && mouseX <= importX + EI_BTN_W) { openImport(); return true; }
+            }
+        }
         if (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= saveBtnY && mouseY <= saveBtnY + btnH) {
             if (workingVoxels.size() < MIN_VOXELS) {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.VILLAGER_NO, 1.0F));
@@ -1890,27 +1907,48 @@ public class CustomizationScreen extends Screen {
     }
 
     private boolean buttonVisible(int row) {
-        if (row == BTN_TOOL2D || row == BTN_MIRROR || row == BTN_THICK) return !this.view3d;
+        if (row < BTN_TOOL_SLOTS) return row < (this.view3d ? TOOL_NAMES.length : TOOL2D_NAMES.length);
+        if (row == BTN_MIRROR || row == BTN_THICK) return !this.view3d;
         if (row == BTN_PROFILE) return !this.view3d && THICKNESS[this.thicknessIdx] > 1;
-        if (row == BTN_TOOL || row == BTN_RESET) return this.view3d;
+        if (row == BTN_RESET) return this.view3d;
         return true;
     }
 
+    private String[] toolTooltip(int i) {
+        if (this.view3d) {
+            return switch (i) {
+                case TOOL_ADD -> new String[]{"§eAdd", "§7Place a voxel on the face you point at",
+                        "§7Right-drag orbits, middle-drag pans, wheel zooms"};
+                case TOOL_RECOLOR -> new String[]{"§eRecolor", "§7Repaint the voxel you point at"};
+                default -> new String[]{"§eErase", "§7Remove the voxel you point at", "§cErased materials are destroyed!"};
+            };
+        }
+        return switch (i) {
+            case T2_PENCIL -> new String[]{"§ePencil", "§7Freehand, drags join up smoothly", "§7Right-click erases"};
+            case T2_LINE -> new String[]{"§eLine", "§7Drag out a straight line", "§7Right-click erases"};
+            case T2_RECT -> new String[]{"§eRectangle", "§7Drag out a filled rectangle", "§7Right-click erases"};
+            case T2_FRAME -> new String[]{"§eFrame", "§7Drag out a rectangle outline", "§7Right-click erases"};
+            case T2_FILL -> new String[]{"§eBucket fill", "§7Fill a connected area", "§7Right-click erases it"};
+            default -> new String[]{"§eEyedropper", "§7Pick the material and shade"};
+        };
+    }
+
+    private boolean toolActive(int i) {
+        return i == (this.view3d ? this.tool3d : this.tool2d);
+    }
+
     private ItemStack buttonIcon(int row) {
+        if (row < BTN_TOOL_SLOTS) return this.view3d ? ICON_TOOLS[row] : ICON_TOOLS_2D[row];
         return switch (row) {
-            case BTN_EXPORT -> ICON_EXPORT;
-            case BTN_IMPORT -> ICON_IMPORT;
             case BTN_FLIP_H -> ICON_FLIP_H;
             case BTN_FLIP_V -> ICON_FLIP_V;
             case BTN_ROT_CW -> ICON_ROT_CW;
             case BTN_ROT_CCW -> ICON_ROT_CCW;
             case BTN_VIEW -> this.view3d ? ICON_VIEW_3D : ICON_VIEW_2D;
             case BTN_UNDO, BTN_REDO -> ICON_UNDO;
-            case BTN_TOOL2D -> ICON_TOOLS_2D[this.tool2d];
             case BTN_MIRROR -> ICON_MIRROR;
             case BTN_THICK -> ICON_THICK;
             case BTN_PROFILE -> ICON_PROFILES[this.profile];
-            case BTN_TOOL -> ICON_TOOLS[this.tool3d];
             case BTN_RESET -> ICON_RESET;
             default -> ICON_CODEX;
         };
@@ -1926,9 +1964,8 @@ public class CustomizationScreen extends Screen {
     }
 
     private String[] buttonTooltip(int row) {
+        if (row < BTN_TOOL_SLOTS) return toolTooltip(row);
         return switch (row) {
-            case BTN_EXPORT -> new String[]{exportFeedbackTimer > 0 ? "§aCopied!" : "§eExport design", "§7Save or share this design"};
-            case BTN_IMPORT -> new String[]{importFeedbackTimer > 0 ? "§aLoaded!" : (importFeedbackTimer < 0 ? "§cInvalid!" : "§eImport design"), "§7Open the design library"};
             case BTN_FLIP_H -> new String[]{"§eFlip horizontally"};
             case BTN_FLIP_V -> new String[]{"§eFlip vertically"};
             case BTN_ROT_CW -> new String[]{"§eRotate clockwise"};
@@ -1938,12 +1975,6 @@ public class CustomizationScreen extends Screen {
                     : new String[]{"§eView: 2D", "§7Click to switch to the 3D editor"};
             case BTN_UNDO -> new String[]{"§eUndo", "§7Ctrl+Z" + (this.undoStack.isEmpty() ? " §8(nothing to undo)" : "")};
             case BTN_REDO -> new String[]{"§eRedo", "§7Ctrl+Y or Ctrl+Shift+Z" + (this.redoStack.isEmpty() ? " §8(nothing to redo)" : "")};
-            case BTN_TOOL2D -> new String[]{"§eTool: " + TOOL2D_NAMES[this.tool2d] + " §7(click to cycle)",
-                    "§7Pencil: freehand, drags join up smoothly",
-                    "§7Line / Rectangle / Frame: drag out a shape",
-                    "§7Bucket fill: fill a connected area",
-                    "§7Eyedropper: pick the material and shade",
-                    "§7Right-click erases with the same tool"};
             case BTN_MIRROR -> new String[]{"§eMirror: " + (this.mirrorX ? "§aOn" : "§cOff"), "§7Draw on both sides of the centre line"};
             case BTN_THICK -> new String[]{"§eThickness: " + THICKNESS[this.thicknessIdx] + (THICKNESS[this.thicknessIdx] == 1 ? " layer" : " layers"),
                     "§7Click to cycle 1 / 3 / 5 / 7 / 9", "§7Extrudes what you draw onto the layers around it"};
@@ -1951,12 +1982,6 @@ public class CustomizationScreen extends Screen {
                     "§7Flat: same outline on every layer",
                     "§7Tapered: outer layers shrink at the edges",
                     "§7Thick centre: fat in the middle, thin edges"};
-            case BTN_TOOL -> new String[]{"§eTool: " + TOOL_NAMES[this.tool3d] + " §7(click to cycle)",
-                    "§7Add: place a voxel on the face you point at",
-                    "§7Recolor: repaint the voxel you point at",
-                    "§7Erase: remove the voxel you point at",
-                    "§cErased materials are destroyed!",
-                    "§7Right-drag orbits, middle-drag pans, wheel zooms"};
             case BTN_RESET -> new String[]{"§eReset view", "§7Restore the default angle, zoom and position"};
             default -> new String[]{"§eAbility Codex (Guide)"};
         };
@@ -1973,20 +1998,27 @@ public class CustomizationScreen extends Screen {
         this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
     }
 
+    private void openExport() {
+        this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+        WeaponOffset currentOffset = new WeaponOffset(this.workingOffsetX, this.workingOffsetY);
+        this.minecraft.setScreen(new ExportDesignScreen(this, new DesignEntry(
+                this.recentFileName, false, this.workingVoxels, currentOffset,
+                this.recentAttribution, this.recentCrafter), this.gridSize));
+    }
+
+    private void openImport() {
+        this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+        this.minecraft.setScreen(new DesignLibraryScreen(this));
+    }
+
     private void handleButtonAction(int row) {
         int n = this.gridSize - 1;
+        if (row < BTN_TOOL_SLOTS) {
+            if (this.view3d) this.tool3d = row; else this.tool2d = row;
+            this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            return;
+        }
         switch (row) {
-            case BTN_EXPORT -> {
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                WeaponOffset currentOffset = new WeaponOffset(this.workingOffsetX, this.workingOffsetY);
-                this.minecraft.setScreen(new ExportDesignScreen(this, new DesignEntry(
-                        this.recentFileName, false, this.workingVoxels, currentOffset,
-                        this.recentAttribution, this.recentCrafter), this.gridSize));
-            }
-            case BTN_IMPORT -> {
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                this.minecraft.setScreen(new DesignLibraryScreen(this));
-            }
             case BTN_FLIP_H -> transformVoxels(v -> new WeaponVoxel(n - v.x(), v.y(), v.z(), v.materialId(), v.shade()));
             case BTN_FLIP_V -> transformVoxels(v -> new WeaponVoxel(v.x(), n - v.y(), v.z(), v.materialId(), v.shade()));
             case BTN_ROT_CW -> transformVoxels(v -> new WeaponVoxel(v.y(), n - v.x(), v.z(), v.materialId(), v.shade()));
@@ -2001,10 +2033,6 @@ public class CustomizationScreen extends Screen {
             }
             case BTN_UNDO -> undo();
             case BTN_REDO -> redo();
-            case BTN_TOOL2D -> {
-                this.tool2d = (this.tool2d + 1) % TOOL2D_NAMES.length;
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            }
             case BTN_MIRROR -> {
                 this.mirrorX = !this.mirrorX;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
@@ -2015,10 +2043,6 @@ public class CustomizationScreen extends Screen {
             }
             case BTN_PROFILE -> {
                 this.profile = (this.profile + 1) % EditorGeometry.PROFILE_NAMES.length;
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            }
-            case BTN_TOOL -> {
-                this.tool3d = (this.tool3d + 1) % TOOL_NAMES.length;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             }
             case BTN_RESET -> {
