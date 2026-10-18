@@ -939,8 +939,12 @@ public final class VoxelRaycaster {
         int cellX = (int) Math.floor(fxc), cellY = (int) Math.floor(fyc);
         if (cellX < 0 || cellX >= gridSize || cellY < 0 || cellY >= gridSize) return;
 
-        // Slab tint
-        double a = 0.20;
+        // The guide fades towards the edges of the grid so only the part near the model stays visible
+        double rad = Math.sqrt((fxc - gridSize * 0.5) * (fxc - gridSize * 0.5) + (fyc - gridSize * 0.5) * (fyc - gridSize * 0.5)) / gridSize;
+        double edgeFade = 1.0 - 0.85 * smooth(clamp01((rad - 0.28) / 0.44));
+
+        // Slab tint (light on the dark studio backdrop)
+        double a = 0.07 * edgeFade;
         double r = 255, g = 255, b = 255;
 
         // Fade fine lines out when they would be denser than ~1 per 2 pixels (grazing angles / far zoom-out)
@@ -959,12 +963,13 @@ public final class VoxelRaycaster {
             border = Math.max(lineCoverage(fxc, floorFootX, gridSize), lineCoverage(fyc, floorFootY, gridSize));
         }
 
-        double la = minor * 0.32;
-        if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0x3B * la) / na; g = (g * a * (1 - la) + 0x5C * la) / na; b = (b * a * (1 - la) + 0x86 * la) / na; a = na; }
-        la = major * 0.50;
-        if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0x24 * la) / na; g = (g * a * (1 - la) + 0x3E * la) / na; b = (b * a * (1 - la) + 0x6A * la) / na; a = na; }
-        la = border * 0.80;
-        if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0x1B * la) / na; g = (g * a * (1 - la) + 0x2E * la) / na; b = (b * a * (1 - la) + 0x54 * la) / na; a = na; }
+        // Pale blue-grey lines: faint every cell, clearer every few cells, strongest on the border
+        double la = minor * 0.20 * edgeFade;
+        if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0x9F * la) / na; g = (g * a * (1 - la) + 0xB1 * la) / na; b = (b * a * (1 - la) + 0xD2 * la) / na; a = na; }
+        la = major * 0.32 * edgeFade;
+        if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0xBE * la) / na; g = (g * a * (1 - la) + 0xCB * la) / na; b = (b * a * (1 - la) + 0xE6 * la) / na; a = na; }
+        la = border * 0.55 * Math.max(edgeFade, 0.45);
+        if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0xE2 * la) / na; g = (g * a * (1 - la) + 0xE9 * la) / na; b = (b * a * (1 - la) + 0xF6 * la) / na; a = na; }
 
         if (highlight != null && highlight.floor() && highlight.x() == cellX && highlight.y() == cellY) {
             hlApplied = true;

@@ -144,13 +144,10 @@ public class CustomizationScreen extends Screen {
     private int[] lastHlRect;      // area the previous hover highlight touched in fgView
     private boolean bgDirty = true;
     private static final int BG_DIM = 192;
-    private static final int SKY_COLOR = 0xFF9CCDEF;
-    // Backdrop: the surface of the world around the player, SURF x SURF blocks (top block of every column)
-    private static final int SURF = 48;
-    private final int[] surfaceTop = new int[SURF * SURF];   // world Y of the top block in each column
-    private final int[] surfaceRgb = new int[SURF * SURF];   // its map colour (0 = nothing there)
-    private int surfaceBaseY = 0;
-    private boolean surfaceReady = false;
+    // Backdrop: a calm "studio" look, a soft glow behind the middle fading to darker corners (plus a faint
+    // checkerboard under the 2D grid). Nothing moves and nothing competes with the voxel colours.
+    private static final int BACKDROP_CENTRE = 0x4A5160, BACKDROP_EDGE = 0x2A2E37;
+    private long hintUntil = 0; // control hint is shown for a few seconds, then fades; hovering it brings it back
 
     // Fit-to-screen: the whole layout (window, icon column on the left, material list on the right) is drawn in
     // "virtual" GUI coordinates and scaled down by fit (< 1) only when it would not be fully visible.
@@ -451,12 +448,11 @@ public class CustomizationScreen extends Screen {
         } else {
             ensureViewTexture();
             drawBackdrop(guiGraphics, gridX, gridY);
+            // Only every 8th grid line is drawn; the cell under the cursor gets its own outline
             int wsSize = this.gridSize * this.cellSize;
-            guiGraphics.fill(gridX, gridY, gridX + wsSize, gridY + wsSize, 0x40000000); // calm the backdrop so the design stands out
-            for (int i = 0; i <= this.gridSize; i++) {
-                int c = (i % 8 == 0) ? 0x55FFFFFF : 0x22FFFFFF;
-                guiGraphics.fill(gridX + i * this.cellSize, gridY, gridX + i * this.cellSize + 1, gridY + wsSize, c);
-                guiGraphics.fill(gridX, gridY + i * this.cellSize, gridX + wsSize, gridY + i * this.cellSize + 1, c);
+            for (int i = 0; i <= this.gridSize; i += 8) {
+                guiGraphics.fill(gridX + i * this.cellSize, gridY, gridX + i * this.cellSize + 1, gridY + wsSize, 0x40FFFFFF);
+                guiGraphics.fill(gridX, gridY + i * this.cellSize, gridX + wsSize, gridY + i * this.cellSize + 1, 0x40FFFFFF);
             }
             java.util.Arrays.fill(this.occupiedGrid, false);
             java.util.Arrays.fill(this.colorGrid, 0);
@@ -574,7 +570,8 @@ public class CustomizationScreen extends Screen {
             if (hX >= 0 && hX < this.gridSize && hY >= 0 && hY < this.gridSize) {
                 int px = gridX + hX * this.cellSize;
                 int py = gridY + hY * this.cellSize;
-                guiGraphics.fill(px, py, px + this.cellSize, py + this.cellSize, 0x44FFFFFF);
+                guiGraphics.fill(px, py, px + this.cellSize, py + this.cellSize, 0x33FFFFFF);
+                outline(guiGraphics, px, py, this.cellSize, this.cellSize, 0xAAFFFFFF);
             }
 
             // Mirror axis
@@ -1410,98 +1407,28 @@ public class CustomizationScreen extends Screen {
         }
     }
 
-    /** Reads the top block of every column around the player once (the "surface" shown behind the editor). */
-    private void sampleSurface() {
-        this.surfaceReady = true;
-        java.util.Arrays.fill(this.surfaceRgb, 0);
-        var level = this.minecraft.level;
-        var player = this.minecraft.player;
-        if (level == null || player == null) return;
-
-        net.minecraft.core.BlockPos origin = player.blockPosition();
-        this.surfaceBaseY = origin.getY() - 25;
-        net.minecraft.core.BlockPos.MutableBlockPos pos = new net.minecraft.core.BlockPos.MutableBlockPos();
-        for (int dz = 0; dz < SURF; dz++) {
-            for (int dx = 0; dx < SURF; dx++) {
-                int wx = origin.getX() + dx - SURF / 2, wz = origin.getZ() + dz - SURF / 2;
-                int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, wx, wz) - 1;
-                // walk down past blocks that have no map colour (glass, plants without colour, ...)
-                for (int i = 0; i < 6; i++, top--) {
-                    pos.set(wx, top, wz);
-                    var state = level.getBlockState(pos);
-                    if (state.isAir()) continue;
-                    int rgb = state.getMapColor(level, pos).col;
-                    if (rgb == 0) continue;
-                    this.surfaceTop[dx + dz * SURF] = top;
-                    this.surfaceRgb[dx + dz * SURF] = rgb;
-                    break;
-                }
-            }
-        }
-    }
-
-    /**
-     * Fills the backdrop texture from the sampled surface. 3D: the terrain seen from behind and above, zoomed in so
-     * it covers the whole workspace and is cut off at the edges. 2D: the same terrain seen straight down, like a map.
-     */
+    /** Fills the backdrop texture: a soft radial glow, and in 2D a faint checkerboard showing the cells. */
     private void buildBackdrop() {
-        if (!this.surfaceReady) sampleSurface();
-        java.util.Arrays.fill(this.bgBuffer, this.view3d ? SKY_COLOR : 0xFF3A3F4B);
-        var player = this.minecraft.player;
-        if (player == null) return;
-        if (this.view3d) buildBackdrop3d(player.getYRot()); else buildBackdrop2d();
-    }
-
-    private void buildBackdrop3d(float playerYawDegrees) {
-        VoxelRaycaster scene = new VoxelRaycaster(SURF, SURF, BG_DIM, BG_DIM, 1);
-        scene.setDecorations(false);
-        // grid x = east, grid y = up, grid layer = south; a column is its top block plus two below it so no gaps show
-        for (int dz = 0; dz < SURF; dz++) {
-            for (int dx = 0; dx < SURF; dx++) {
-                int rgb = this.surfaceRgb[dx + dz * SURF];
-                if (rgb == 0) continue;
-                int gy = this.surfaceTop[dx + dz * SURF] - this.surfaceBaseY;
-                for (int k = 0; k < 3; k++) {
-                    int y = gy - k;
-                    if (y >= 0 && y < SURF) scene.setCell(dx, y, dz, 0xFF000000 | rgb);
-                }
+        final int n = BG_DIM;
+        final boolean checker = !this.view3d;
+        final int cells = Math.max(1, this.gridSize);
+        for (int y = 0; y < n; y++) {
+            double v = (y + 0.5) / n * 2 - 1;
+            for (int x = 0; x < n; x++) {
+                double u = (x + 0.5) / n * 2 - 1;
+                double d = Math.min(1.0, Math.sqrt(u * u + v * v) / 1.4142);
+                double k = 1.0 - Math.pow(d, 1.6); // 1 at the middle, 0 in the corners
+                int lift = (checker && (((x * cells / n) + (y * cells / n)) & 1) == 1) ? 5 : 0;
+                int r = mix((BACKDROP_EDGE >> 16) & 0xFF, (BACKDROP_CENTRE >> 16) & 0xFF, k) + lift;
+                int g = mix((BACKDROP_EDGE >> 8) & 0xFF, (BACKDROP_CENTRE >> 8) & 0xFF, k) + lift;
+                int b = mix(BACKDROP_EDGE & 0xFF, BACKDROP_CENTRE & 0xFF, k) + lift;
+                this.bgBuffer[y * n + x] = 0xFF000000 | (r << 16) | (g << 8) | b;
             }
-        }
-
-        // From behind the player and a little to the side, looking down; zoomed so the surface fills the frame
-        scene.setView(Math.PI - Math.toRadians(playerYawDegrees) + 0.55, Math.toRadians(55), 3.0);
-        int[] fg = new int[BG_DIM * BG_DIM];
-        scene.render(fg, null, 1);
-        for (int i = 0; i < fg.length; i++) {
-            int c = fg[i];
-            int a = c >>> 24;
-            if (a == 0) continue;
-            if (a == 255) { this.bgBuffer[i] = c; continue; }
-            int inv = 255 - a;
-            int r = (((c >> 16) & 0xFF) * a + ((SKY_COLOR >> 16) & 0xFF) * inv) / 255;
-            int g = (((c >> 8) & 0xFF) * a + ((SKY_COLOR >> 8) & 0xFF) * inv) / 255;
-            int b = ((c & 0xFF) * a + (SKY_COLOR & 0xFF) * inv) / 255;
-            this.bgBuffer[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
         }
     }
 
-    private void buildBackdrop2d() {
-        final int px = BG_DIM / SURF; // texture pixels per block
-        for (int dz = 0; dz < SURF; dz++) {
-            for (int dx = 0; dx < SURF; dx++) {
-                int rgb = this.surfaceRgb[dx + dz * SURF];
-                if (rgb == 0) continue;
-                // Map-style relief: a column higher than the one to its north is lighter, lower is darker
-                int north = dz > 0 ? this.surfaceTop[dx + (dz - 1) * SURF] : this.surfaceTop[dx + dz * SURF];
-                int dh = this.surfaceTop[dx + dz * SURF] - north;
-                int mul = dh > 0 ? 255 : (dh < 0 ? 180 : 220);
-                int c = 0xFF000000 | (((rgb >> 16) & 0xFF) * mul / 255) << 16 | (((rgb >> 8) & 0xFF) * mul / 255) << 8 | ((rgb & 0xFF) * mul / 255);
-                for (int j = 0; j < px; j++) {
-                    int row = (dz * px + j) * BG_DIM + dx * px;
-                    for (int i = 0; i < px; i++) this.bgBuffer[row + i] = c;
-                }
-            }
-        }
+    private static int mix(int from, int to, double t) {
+        return (int) Math.round(from + (to - from) * t);
     }
 
     /** Draws the backdrop over the whole workspace, rebuilding it first when needed. */
@@ -1894,15 +1821,20 @@ public class CustomizationScreen extends Screen {
         // The model layer is rendered at native resolution (scale x the GUI size) and drawn scaled down 1:scale
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, n, n, n, n);
 
-        // Control hint sits inside the view on a dark pill so it stays readable on the bright background
-        String[] hints = {"Right-drag: orbit", "Mid-drag: pan  Wheel: zoom"};
-        int hintX = gridX + 4;
-        int hintY = gridY + WORKSPACE_DIM - 13 - 12 * (hints.length - 1);
-        for (String hint : hints) {
-            int hintW = this.font.width(hint);
-            guiGraphics.fill(hintX - 3, hintY - 2, hintX + hintW + 3, hintY + 10, 0xB0141C2C);
-            guiGraphics.text(this.font, Component.literal(hint), hintX, hintY, 0xFFFFFFFF, false);
-            hintY += 12;
+        // Control hint: a small pill that shows for a few seconds, fades away, and returns while the cursor is over it
+        String hint = "Right-drag orbit  |  Mid-drag pan  |  Wheel zoom";
+        int hintW = this.font.width(hint);
+        int hintX = gridX + 4, hintY = gridY + WORKSPACE_DIM - 14;
+        long nowNs = System.nanoTime();
+        if (this.hintUntil == 0) this.hintUntil = nowNs + 6_000_000_000L;
+        if (mouseX >= hintX - 3 && mouseX <= hintX + hintW + 3 && mouseY >= hintY - 2 && mouseY <= hintY + 10) {
+            this.hintUntil = Math.max(this.hintUntil, nowNs + 1_500_000_000L);
+        }
+        double hintAlpha = Math.max(0.0, Math.min(1.0, (this.hintUntil - nowNs) / 1.0e9));
+        if (hintAlpha > 0.02) {
+            int a8 = (int) Math.round(hintAlpha * 255);
+            guiGraphics.fill(hintX - 3, hintY - 2, hintX + hintW + 3, hintY + 10, ((int) Math.round(hintAlpha * 0x90) << 24) | 0x0E131C);
+            guiGraphics.text(this.font, Component.literal(hint), hintX, hintY, (a8 << 24) | 0xE6EAF2, false);
         }
     }
 
