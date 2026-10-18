@@ -198,28 +198,57 @@ public final class VoxelRaycaster {
         yaw = defaultYaw;
         pitch = defaultPitch;
         scale = defaultScale;
-        panRight = 0;
-        panUp = 0;
+        targetX = targetY = targetZ = 0;
+        syncPan();
+    }
+
+    // The point the camera looks at and orbits around, as an offset from the grid centre (world units). Panning moves
+    // it; the screen-space pan values are derived from it so the pivot is always the middle of the picture.
+    private double targetX, targetY, targetZ;
+
+    private void syncPan() {
+        updateBasis();
+        panRight = -(targetX * rx + targetY * ry + targetZ * rz);
+        panUp = -(targetX * ux + targetY * uy + targetZ * uz);
+    }
+
+    private void clampTarget() {
+        double limit = gridSize * 1.5;
+        double len = Math.sqrt(targetX * targetX + targetY * targetY + targetZ * targetZ);
+        if (len > limit) { double k = limit / len; targetX *= k; targetY *= k; targetZ *= k; }
     }
 
     /** Pans the view by a screen-space drag in render pixels (the image follows the cursor). */
     public void pan(double deltaPixelsX, double deltaPixelsY) {
-        double limit = gridSize * 1.5;
-        panRight = Math.max(-limit, Math.min(limit, panRight + deltaPixelsX / scale));
-        panUp = Math.max(-limit, Math.min(limit, panUp - deltaPixelsY / scale));
+        updateBasis();
+        double dr = deltaPixelsX / scale, du = deltaPixelsY / scale;
+        targetX += -rx * dr + ux * du;
+        targetY += -ry * dr + uy * du;
+        targetZ += -rz * dr + uz * du;
+        clampTarget();
+        syncPan();
     }
 
     public double panRight() { return panRight; }
     public double panUp() { return panUp; }
 
     public void setPan(double panRight, double panUp) {
-        this.panRight = panRight;
-        this.panUp = panUp;
+        updateBasis();
+        targetX = -(panRight * rx + panUp * ux);
+        targetY = -(panRight * ry + panUp * uy);
+        targetZ = -(panRight * rz + panUp * uz);
+        clampTarget();
+        syncPan();
     }
 
+    /**
+     * Turns the camera around the point at the centre of the current view (not always the middle of the grid): the
+     * spot you panned to stays where it is on screen while everything rotates around it.
+     */
     public void orbit(double deltaYaw, double deltaPitch) {
         yaw += deltaYaw;
         pitch = Math.max(Math.toRadians(-89), Math.min(Math.toRadians(89), pitch + deltaPitch));
+        syncPan();
     }
 
     public double yaw() { return yaw; }
@@ -231,6 +260,7 @@ public final class VoxelRaycaster {
         this.yaw = yaw;
         this.pitch = Math.max(Math.toRadians(-89), Math.min(Math.toRadians(89), pitch));
         this.scale = Math.max(defaultScale * 0.5, Math.min(defaultScale * 4.0, defaultScale * zoomLevel));
+        syncPan();
     }
 
     public void zoom(double factor) {
@@ -245,6 +275,13 @@ public final class VoxelRaycaster {
     // from the model centre in grid-width units.
     private boolean cameraLight = true;
     private double lightDirX, lightDirY, lightDirZ, lightOffX, lightOffY, lightOffZ;
+
+    // The base-layer guide grid and the silhouette outline; off when the picture is used as a plain scene backdrop
+    private boolean decorations = true;
+
+    public void setDecorations(boolean on) {
+        if (decorations != on) { decorations = on; forceFull = true; }
+    }
 
     /** When true (default) the lighting follows the camera; when false it is fixed in the world. */
     public void setCameraLight(boolean on) {
@@ -631,6 +668,7 @@ public final class VoxelRaycaster {
         rx = p.rx; ry = p.ry; rz = p.rz; ux = p.ux; uy = p.uy; uz = p.uz; fx = p.fx; fy = p.fy; fz = p.fz;
         floorFootX = p.floorFootX; floorFootY = p.floorFootY;
         cameraLight = p.cameraLight;
+        decorations = p.decorations;
         lightDirX = p.lightDirX; lightDirY = p.lightDirY; lightDirZ = p.lightDirZ;
         lightOffX = p.lightOffX; lightOffY = p.lightOffY; lightOffZ = p.lightOffZ;
     }
@@ -751,6 +789,10 @@ public final class VoxelRaycaster {
      * very dark voxels both stay readable on any background.
      */
     private void bakeOutline(int[] src, int[] dst, int rx0, int ry0, int rx1, int ry1) {
+        if (!decorations) {
+            for (int y = ry0; y <= ry1; y++) System.arraycopy(src, y * width + rx0, dst, y * width + rx0, rx1 - rx0 + 1);
+            return;
+        }
         final int radius = outlineRadius();
         final int w = width, h = height;
         runBands((ry1 - ry0 + 16) / 16, b -> {
@@ -794,8 +836,10 @@ public final class VoxelRaycaster {
         int tile = Math.min(tilesY - 1, (int) pixelY >> TILE_SHIFT) * tilesX + Math.min(tilesX - 1, (int) pixelX >> TILE_SHIFT);
         if (hitMask[tile] && trace()) {
             shadeHit(highlight);
-        } else {
+        } else if (decorations) {
             shadeFloor(highlight);
+        } else {
+            sa = 0;
         }
     }
 
