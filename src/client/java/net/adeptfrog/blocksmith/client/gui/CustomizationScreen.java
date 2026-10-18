@@ -143,9 +143,14 @@ public class CustomizationScreen extends Screen {
     private int[] sceneGrid;       // scratch grid for VoxelRaycaster.syncCells
     private int[] lastHlRect;      // area the previous hover highlight touched in fgView
     private boolean bgDirty = true;
-    private static final int BG_DIM = 128;
+    private static final int BG_DIM = 192;
     private static final int SKY_COLOR = 0xFF9CCDEF;
-    private static final int SNAP_RADIUS = 8; // blocks around the player on each side (the snapshot is 16 x 16 x 16)
+    // Backdrop: the surface of the world around the player, SURF x SURF blocks (top block of every column)
+    private static final int SURF = 48;
+    private final int[] surfaceTop = new int[SURF * SURF];   // world Y of the top block in each column
+    private final int[] surfaceRgb = new int[SURF * SURF];   // its map colour (0 = nothing there)
+    private int surfaceBaseY = 0;
+    private boolean surfaceReady = false;
 
     // Fit-to-screen: the whole layout (window, icon column on the left, material list on the right) is drawn in
     // "virtual" GUI coordinates and scaled down by fit (< 1) only when it would not be fully visible.
@@ -444,6 +449,15 @@ public class CustomizationScreen extends Screen {
         if (this.view3d) {
             render3dWorkspace(guiGraphics, gridX, gridY, mouseX, mouseY);
         } else {
+            ensureViewTexture();
+            drawBackdrop(guiGraphics, gridX, gridY);
+            int wsSize = this.gridSize * this.cellSize;
+            guiGraphics.fill(gridX, gridY, gridX + wsSize, gridY + wsSize, 0x40000000); // calm the backdrop so the design stands out
+            for (int i = 0; i <= this.gridSize; i++) {
+                int c = (i % 8 == 0) ? 0x55FFFFFF : 0x22FFFFFF;
+                guiGraphics.fill(gridX + i * this.cellSize, gridY, gridX + i * this.cellSize + 1, gridY + wsSize, c);
+                guiGraphics.fill(gridX, gridY + i * this.cellSize, gridX + wsSize, gridY + i * this.cellSize + 1, c);
+            }
             java.util.Arrays.fill(this.occupiedGrid, false);
             java.util.Arrays.fill(this.colorGrid, 0);
 
@@ -1396,39 +1410,66 @@ public class CustomizationScreen extends Screen {
         }
     }
 
-    /**
-     * Draws the blocks around the player into the backdrop: a 16 x 16 x 16 box centred on the player, seen from
-     * behind and above, each block in its map colour. Falls back to a flat sky colour when there is no world.
-     */
-    private void buildBackdrop() {
-        java.util.Arrays.fill(this.bgBuffer, SKY_COLOR);
+    /** Reads the top block of every column around the player once (the "surface" shown behind the editor). */
+    private void sampleSurface() {
+        this.surfaceReady = true;
+        java.util.Arrays.fill(this.surfaceRgb, 0);
         var level = this.minecraft.level;
         var player = this.minecraft.player;
         if (level == null || player == null) return;
 
-        final int size = 2 * SNAP_RADIUS;
-        VoxelRaycaster scene = new VoxelRaycaster(size, size, BG_DIM, BG_DIM, 1);
-        scene.setDecorations(false);
         net.minecraft.core.BlockPos origin = player.blockPosition();
+        this.surfaceBaseY = origin.getY() - 25;
         net.minecraft.core.BlockPos.MutableBlockPos pos = new net.minecraft.core.BlockPos.MutableBlockPos();
-        // grid x = east, grid y = up, grid layer = south
-        for (int gx = 0; gx < size; gx++) {
-            for (int gy = 0; gy < size; gy++) {
-                for (int gz = 0; gz < size; gz++) {
-                    pos.set(origin.getX() + gx - SNAP_RADIUS, origin.getY() + gy - SNAP_RADIUS, origin.getZ() + gz - SNAP_RADIUS);
+        for (int dz = 0; dz < SURF; dz++) {
+            for (int dx = 0; dx < SURF; dx++) {
+                int wx = origin.getX() + dx - SURF / 2, wz = origin.getZ() + dz - SURF / 2;
+                int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, wx, wz) - 1;
+                // walk down past blocks that have no map colour (glass, plants without colour, ...)
+                for (int i = 0; i < 6; i++, top--) {
+                    pos.set(wx, top, wz);
                     var state = level.getBlockState(pos);
                     if (state.isAir()) continue;
                     int rgb = state.getMapColor(level, pos).col;
                     if (rgb == 0) continue;
-                    scene.setCell(gx, gy, gz, 0xFF000000 | rgb);
+                    this.surfaceTop[dx + dz * SURF] = top;
+                    this.surfaceRgb[dx + dz * SURF] = rgb;
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Fills the backdrop texture from the sampled surface. 3D: the terrain seen from behind and above, zoomed in so
+     * it covers the whole workspace and is cut off at the edges. 2D: the same terrain seen straight down, like a map.
+     */
+    private void buildBackdrop() {
+        if (!this.surfaceReady) sampleSurface();
+        java.util.Arrays.fill(this.bgBuffer, this.view3d ? SKY_COLOR : 0xFF3A3F4B);
+        var player = this.minecraft.player;
+        if (player == null) return;
+        if (this.view3d) buildBackdrop3d(player.getYRot()); else buildBackdrop2d();
+    }
+
+    private void buildBackdrop3d(float playerYawDegrees) {
+        VoxelRaycaster scene = new VoxelRaycaster(SURF, SURF, BG_DIM, BG_DIM, 1);
+        scene.setDecorations(false);
+        // grid x = east, grid y = up, grid layer = south; a column is its top block plus two below it so no gaps show
+        for (int dz = 0; dz < SURF; dz++) {
+            for (int dx = 0; dx < SURF; dx++) {
+                int rgb = this.surfaceRgb[dx + dz * SURF];
+                if (rgb == 0) continue;
+                int gy = this.surfaceTop[dx + dz * SURF] - this.surfaceBaseY;
+                for (int k = 0; k < 3; k++) {
+                    int y = gy - k;
+                    if (y >= 0 && y < SURF) scene.setCell(dx, y, dz, 0xFF000000 | rgb);
                 }
             }
         }
 
-        // Camera behind the player and a little to the side, looking down at the surroundings
-        double playerYaw = Math.toRadians(player.getYRot());
-        scene.setView(Math.PI - playerYaw + 0.55, Math.toRadians(32), 1.3);
-
+        // From behind the player and a little to the side, looking down; zoomed so the surface fills the frame
+        scene.setView(Math.PI - Math.toRadians(playerYawDegrees) + 0.55, Math.toRadians(55), 3.0);
         int[] fg = new int[BG_DIM * BG_DIM];
         scene.render(fg, null, 1);
         for (int i = 0; i < fg.length; i++) {
@@ -1442,6 +1483,40 @@ public class CustomizationScreen extends Screen {
             int b = ((c & 0xFF) * a + (SKY_COLOR & 0xFF) * inv) / 255;
             this.bgBuffer[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
         }
+    }
+
+    private void buildBackdrop2d() {
+        final int px = BG_DIM / SURF; // texture pixels per block
+        for (int dz = 0; dz < SURF; dz++) {
+            for (int dx = 0; dx < SURF; dx++) {
+                int rgb = this.surfaceRgb[dx + dz * SURF];
+                if (rgb == 0) continue;
+                // Map-style relief: a column higher than the one to its north is lighter, lower is darker
+                int north = dz > 0 ? this.surfaceTop[dx + (dz - 1) * SURF] : this.surfaceTop[dx + dz * SURF];
+                int dh = this.surfaceTop[dx + dz * SURF] - north;
+                int mul = dh > 0 ? 255 : (dh < 0 ? 180 : 220);
+                int c = 0xFF000000 | (((rgb >> 16) & 0xFF) * mul / 255) << 16 | (((rgb >> 8) & 0xFF) * mul / 255) << 8 | ((rgb & 0xFF) * mul / 255);
+                for (int j = 0; j < px; j++) {
+                    int row = (dz * px + j) * BG_DIM + dx * px;
+                    for (int i = 0; i < px; i++) this.bgBuffer[row + i] = c;
+                }
+            }
+        }
+    }
+
+    /** Draws the backdrop over the whole workspace, rebuilding it first when needed. */
+    private void drawBackdrop(GuiGraphicsExtractor guiGraphics, int gridX, int gridY) {
+        if (this.bgDirty) {
+            buildBackdrop();
+            for (int y = 0; y < BG_DIM; y++) {
+                for (int x = 0; x < BG_DIM; x++) {
+                    this.bgImage.setPixel(x, y, this.bgBuffer[y * BG_DIM + x]);
+                }
+            }
+            this.bgTexture.upload();
+            this.bgDirty = false;
+        }
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.bgTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, BG_DIM, BG_DIM, BG_DIM, BG_DIM);
     }
 
     private void rebuildThumbnails() {
@@ -1717,6 +1792,7 @@ public class CustomizationScreen extends Screen {
             this.minecraft.getTextureManager().register(this.bgTextureId, this.bgTexture);
 
             this.sceneDirty = true;
+            this.bgDirty = true;
         }
     }
 
@@ -1814,19 +1890,7 @@ public class CustomizationScreen extends Screen {
             this.viewTexture.upload();
         }
 
-        // Backdrop: a small snapshot of the blocks around the player, taken once when the screen opens
-        if (this.bgDirty) {
-            buildBackdrop();
-            for (int y = 0; y < BG_DIM; y++) {
-                for (int x = 0; x < BG_DIM; x++) {
-                    this.bgImage.setPixel(x, y, this.bgBuffer[y * BG_DIM + x]);
-                }
-            }
-            this.bgTexture.upload();
-            this.bgDirty = false;
-        }
-
-        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.bgTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, BG_DIM, BG_DIM, BG_DIM, BG_DIM);
+        drawBackdrop(guiGraphics, gridX, gridY);
         // The model layer is rendered at native resolution (scale x the GUI size) and drawn scaled down 1:scale
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, n, n, n, n);
 
@@ -2201,6 +2265,7 @@ public class CustomizationScreen extends Screen {
             case BTN_ROT_CCW -> transformVoxels(v -> new WeaponVoxel(n - v.y(), v.x(), v.z(), v.materialId(), v.shade()));
             case BTN_VIEW -> {
                 this.view3d = !this.view3d;
+                this.bgDirty = true;
                 this.orbiting = false;
                 this.panning = false;
                 this.strokeAxis = -1;
