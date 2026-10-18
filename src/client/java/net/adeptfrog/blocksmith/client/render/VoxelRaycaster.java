@@ -48,7 +48,32 @@ public final class VoxelRaycaster {
     private final int pixelScale;      // render pixels per GUI pixel; widths below are tuned in GUI pixels
     private final int ss;              // supersampling per axis (only needed when rendering at low resolution)
     private final double lineHalfWidth; // half width of floor grid lines in render pixels
-    private final int[] cells;
+    private int[] cells;
+
+    // Chunks: the grid is cut into small blocks. Empty ones are skipped by rays in one step, and a block that
+    // changed is the only part of the picture that has to be drawn again after an edit.
+    private static final int CHUNK_XY = 8, CHUNK_Z = 3;
+    private final int chunksX, chunksY, chunksZ;
+    private int[] chunkCount;          // non-empty cells per chunk
+    private boolean[] chunkDirty;      // changed since the last render
+    private boolean anyDirty = true;
+    private boolean forceFull = true;  // next render must redraw everything
+
+    // The last full-resolution render (before the outline pass) and the view it was drawn for
+    private int[] raw;
+    private int[] lastFg;
+    private boolean haveFrame;
+    private double sigYaw, sigPitch, sigScale, sigPanRight, sigPanUp;
+    private int sigZi;
+
+    private static final int[] EMPTY_RECT = {0, 0, -1, -1};
+
+    // Screen tiles that the model can possibly cover (conservative). A ray through any other tile cannot hit a
+    // voxel, so it skips tracing and only shades the floor; the outline pass also skips tiles far from the model.
+    private static final int TILE_SHIFT = 3, TILE = 1 << TILE_SHIFT;
+    private final int tilesX, tilesY;
+    private boolean[] hitMask;      // tile may contain a voxel
+    private boolean[] nearMask;     // tile or a neighbour may contain a voxel
 
     private double yaw;
     private double pitch;
@@ -85,6 +110,16 @@ public final class VoxelRaycaster {
         this.ss = this.pixelScale >= 2 ? 1 : 2;
         this.lineHalfWidth = Math.max(0.6, 0.4 * this.pixelScale);
         this.cells = new int[gridSize * gridSize * layers];
+        this.chunksX = (gridSize + CHUNK_XY - 1) / CHUNK_XY;
+        this.chunksY = this.chunksX;
+        this.chunksZ = (layers + CHUNK_Z - 1) / CHUNK_Z;
+        this.chunkCount = new int[chunksX * chunksY * chunksZ];
+        this.chunkDirty = new boolean[chunkCount.length];
+        this.raw = new int[width * height];
+        this.tilesX = (width + TILE - 1) >> TILE_SHIFT;
+        this.tilesY = (height + TILE - 1) >> TILE_SHIFT;
+        this.hitMask = new boolean[tilesX * tilesY];
+        this.nearMask = new boolean[tilesX * tilesY];
         this.activeZi = layers / 2;
         // Fit the model's bounding sphere so deep (many layer) models never clip at the corners
         double depth = layers * LAYER_THICKNESS;
@@ -104,6 +139,13 @@ public final class VoxelRaycaster {
 
     public void clear() {
         java.util.Arrays.fill(cells, 0);
+        java.util.Arrays.fill(chunkCount, 0);
+        forceFull = true;
+        anyDirty = true;
+    }
+
+    private int chunkIndex(int x, int y, int zi) {
+        return ((zi / CHUNK_Z) * chunksY + y / CHUNK_XY) * chunksX + x / CHUNK_XY;
     }
 
     public boolean inBounds(int x, int y, int zi) {
@@ -111,8 +153,36 @@ public final class VoxelRaycaster {
     }
 
     public void setCell(int x, int y, int zi, int argb) {
-        if (inBounds(x, y, zi)) cells[index(x, y, zi)] = argb;
+        if (!inBounds(x, y, zi)) return;
+        int i = index(x, y, zi);
+        int old = cells[i];
+        if (old == argb) return;
+        cells[i] = argb;
+        int ci = chunkIndex(x, y, zi);
+        if (old == 0) chunkCount[ci]++;
+        else if (argb == 0) chunkCount[ci]--;
+        chunkDirty[ci] = true;
+        anyDirty = true;
     }
+
+    /**
+     * Makes the model equal {@code next} (same layout as the internal grid: {@code (zi * gridSize + y) * gridSize + x}),
+     * touching only the cells that differ so only their chunks are redrawn.
+     */
+    public void syncCells(int[] next) {
+        if (next.length != cells.length) throw new IllegalArgumentException("wrong grid size");
+        for (int i = 0; i < next.length; i++) {
+            if (cells[i] == next[i]) continue;
+            int x = i % gridSize, y = (i / gridSize) % gridSize, zi = i / (gridSize * gridSize);
+            setCell(x, y, zi, next[i]);
+        }
+    }
+
+    /** Number of cells in the model grid, for callers that build a grid for {@link #syncCells}. */
+    public int cellCount() { return cells.length; }
+
+    /** Index of a cell in the array passed to {@link #syncCells}. */
+    public int cellIndex(int x, int y, int zi) { return index(x, y, zi); }
 
     public int getCell(int x, int y, int zi) {
         return inBounds(x, y, zi) ? cells[index(x, y, zi)] : 0;
@@ -195,6 +265,9 @@ public final class VoxelRaycaster {
         }
     }
 
+    // scratch arrays for trace(), per instance so rows can be traced on several threads without allocating per ray
+    private final double[] traceO = new double[3], traceD = new double[3], traceSize = new double[3];
+
     // ray for a (continuous) pixel position in grid space: origin (o*) and direction (d*, shared by all pixels)
     private double ox, oy, oz, dx, dy, dz;
 
@@ -215,9 +288,10 @@ public final class VoxelRaycaster {
     private boolean trace() {
         double tMin = Double.NEGATIVE_INFINITY, tMaxBox = Double.POSITIVE_INFINITY;
         int entryAxis = -1;
-        double[] o = {ox, oy, oz};
-        double[] d = {dx, dy, dz};
-        double[] size = {gridSize, gridSize, layers};
+        final double[] o = traceO, d = traceD, size = traceSize;
+        o[0] = ox; o[1] = oy; o[2] = oz;
+        d[0] = dx; d[1] = dy; d[2] = dz;
+        size[0] = gridSize; size[1] = gridSize; size[2] = layers;
 
         for (int a = 0; a < 3; a++) {
             if (Math.abs(d[a]) < 1e-12) {
@@ -255,6 +329,28 @@ public final class VoxelRaycaster {
         double tCurrent = tMin;
         int limit = gridSize * 2 + layers + 4;
         for (int i = 0; i < limit; i++) {
+            if (chunkCount[chunkIndex(cx, cy, cz)] == 0) {
+                // Whole chunk is empty: jump straight to where the ray leaves it
+                int x0 = (cx / CHUNK_XY) * CHUNK_XY, y0 = (cy / CHUNK_XY) * CHUNK_XY, z0 = (cz / CHUNK_Z) * CHUNK_Z;
+                double ex = Math.abs(d[0]) < 1e-12 ? inf : ((stepX > 0 ? x0 + CHUNK_XY : x0) - o[0]) / d[0];
+                double ey = Math.abs(d[1]) < 1e-12 ? inf : ((stepY > 0 ? y0 + CHUNK_XY : y0) - o[1]) / d[1];
+                double ez = Math.abs(d[2]) < 1e-12 ? inf : ((stepZ > 0 ? z0 + CHUNK_Z : z0) - o[2]) / d[2];
+                double tExit = Math.min(ex, Math.min(ey, ez));
+                if (tExit == inf) return false;
+                if (ex <= ey && ex <= ez) { nx = -stepX; ny = 0; nz = 0; }
+                else if (ey <= ez) { nx = 0; ny = -stepY; nz = 0; }
+                else { nx = 0; ny = 0; nz = -stepZ; }
+                tCurrent = tExit;
+                double tn = tExit + 1e-7;
+                cx = (int) Math.floor(o[0] + d[0] * tn);
+                cy = (int) Math.floor(o[1] + d[1] * tn);
+                cz = (int) Math.floor(o[2] + d[2] * tn);
+                if (cx < 0 || cx >= gridSize || cy < 0 || cy >= gridSize || cz < 0 || cz >= layers) return false;
+                tMaxX = Math.abs(d[0]) < 1e-12 ? inf : ((stepX > 0 ? cx + 1 : cx) - o[0]) / d[0];
+                tMaxY = Math.abs(d[1]) < 1e-12 ? inf : ((stepY > 0 ? cy + 1 : cy) - o[1]) / d[1];
+                tMaxZ = Math.abs(d[2]) < 1e-12 ? inf : ((stepZ > 0 ? cz + 1 : cz) - o[2]) / d[2];
+                continue;
+            }
             if (cells[index(cx, cy, cz)] != 0) {
                 hx = cx; hy = cy; hz = cz; hnx = nx; hny = ny; hnz = nz; hitT = tCurrent;
                 return true;
@@ -337,30 +433,251 @@ public final class VoxelRaycaster {
      * nothing is drawn, partially transparent for the floor grid and the soft outline around the model.
      * {@code highlight} may be null. {@code step > 1} renders one sample per step x step block, a fast low-detail
      * preview for use while the camera is being dragged.
+     * <p>
+     * Rows are drawn on several threads. When only some chunks of the model changed since the last call and the
+     * camera did not move, only the part of the picture those chunks cover is drawn again; {@code fg} must then
+     * still hold the previous result.
+     *
+     * @return bounds {@code {x0, y0, x1, y1}} (inclusive) of the pixels that may have changed, an empty rectangle
+     *         (x1 &lt; x0) if nothing changed, or null if the whole image may have changed
      */
-    public void render(int[] fg, Hit highlight, int step) {
+    public int[] render(int[] fg, Hit highlight, int step) {
         updateBasis();
+        buildHitMask();
         step = Math.max(1, step);
-        for (int by = 0; by < height; by += step) {
-            for (int bx = 0; bx < width; bx += step) {
-                int color = renderPixel(bx, by, highlight, step);
-                int xEnd = Math.min(width, bx + step), yEnd = Math.min(height, by + step);
-                for (int y = by; y < yEnd; y++) {
-                    for (int x = bx; x < xEnd; x++) fg[y * width + x] = color;
+
+        boolean sameView = haveFrame && sigYaw == yaw && sigPitch == pitch && sigScale == scale
+                && sigPanRight == panRight && sigPanUp == panUp && sigZi == activeZi;
+        if (step == 1 && highlight == null && sameView && !forceFull && fg == lastFg) {
+            if (!anyDirty) return EMPTY_RECT;
+            int[] rect = dirtyRect();
+            if (rect != null) {
+                renderRect(rect[0], rect[1], rect[2], rect[3]);
+                int radius = outlineRadius();
+                int ox0 = Math.max(0, rect[0] - radius), oy0 = Math.max(0, rect[1] - radius);
+                int ox1 = Math.min(width - 1, rect[2] + radius), oy1 = Math.min(height - 1, rect[3] + radius);
+                bakeOutline(raw, fg, ox0, oy0, ox1, oy1);
+                clearDirty();
+                return new int[]{ox0, oy0, ox1, oy1};
+            }
+        }
+
+        renderRows(highlight, step);
+        bakeOutline(raw, fg, 0, 0, width - 1, height - 1);
+
+        // Remember what this picture shows so later calls can update it in place
+        boolean full = step == 1 && highlight == null;
+        haveFrame = full;
+        forceFull = !full;
+        lastFg = fg;
+        sigYaw = yaw; sigPitch = pitch; sigScale = scale; sigPanRight = panRight; sigPanUp = panUp; sigZi = activeZi;
+        if (full) clearDirty();
+        return null;
+    }
+
+    /** Marks the screen tiles covered by the projection of every non-empty chunk. Needs {@link #updateBasis} first. */
+    private void buildHitMask() {
+        java.util.Arrays.fill(hitMask, false);
+        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
+        for (int cz = 0; cz < chunksZ; cz++) {
+            for (int cy = 0; cy < chunksY; cy++) {
+                for (int cx = 0; cx < chunksX; cx++) {
+                    if (chunkCount[(cz * chunksY + cy) * chunksX + cx] == 0) continue;
+                    double[] lo = {cx * CHUNK_XY, cy * CHUNK_XY, cz * CHUNK_Z};
+                    double[] hi = {Math.min(gridSize, (cx + 1) * CHUNK_XY), Math.min(gridSize, (cy + 1) * CHUNK_XY),
+                            Math.min(layers, (cz + 1) * CHUNK_Z)};
+                    double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+                    for (int i = 0; i < 8; i++) {
+                        double relX = ((i & 1) == 0 ? lo[0] : hi[0]) - cxm;
+                        double relY = ((i & 2) == 0 ? lo[1] : hi[1]) - cym;
+                        double relZ = ((i & 4) == 0 ? lo[2] : hi[2]) * LAYER_THICKNESS - czm;
+                        double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
+                        double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
+                        minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
+                        minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+                    }
+                    int tx0 = Math.max(0, ((int) Math.floor(minX) - 2) >> TILE_SHIFT), tx1 = Math.min(tilesX - 1, ((int) Math.ceil(maxX) + 2) >> TILE_SHIFT);
+                    int ty0 = Math.max(0, ((int) Math.floor(minY) - 2) >> TILE_SHIFT), ty1 = Math.min(tilesY - 1, ((int) Math.ceil(maxY) + 2) >> TILE_SHIFT);
+                    for (int ty = ty0; ty <= ty1; ty++) {
+                        for (int tx = tx0; tx <= tx1; tx++) hitMask[ty * tilesX + tx] = true;
+                    }
                 }
             }
         }
-        bakeOutline(fg);
+        // The outline pass also rings the darkest spots of the floor grid (where border and major lines cross), so
+        // the tiles under the guide grid count as "near" too
+        double fMinX = Double.MAX_VALUE, fMaxX = -Double.MAX_VALUE, fMinY = Double.MAX_VALUE, fMaxY = -Double.MAX_VALUE;
+        for (int i = 0; i < 4; i++) {
+            double relX = ((i & 1) == 0 ? 0 : gridSize) - cxm;
+            double relY = ((i & 2) == 0 ? 0 : gridSize) - cym;
+            double relZ = (activeZi + 0.5) * LAYER_THICKNESS - czm;
+            double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
+            double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
+            fMinX = Math.min(fMinX, sx); fMaxX = Math.max(fMaxX, sx);
+            fMinY = Math.min(fMinY, sy); fMaxY = Math.max(fMaxY, sy);
+        }
+        int fx0 = Math.max(0, ((int) Math.floor(fMinX) - 4) >> TILE_SHIFT), fx1 = Math.min(tilesX - 1, ((int) Math.ceil(fMaxX) + 4) >> TILE_SHIFT);
+        int fy0 = Math.max(0, ((int) Math.floor(fMinY) - 4) >> TILE_SHIFT), fy1 = Math.min(tilesY - 1, ((int) Math.ceil(fMaxY) + 4) >> TILE_SHIFT);
+
+        // One tile of margin for the outline, which reaches a couple of pixels past the model
+        for (int ty = 0; ty < tilesY; ty++) {
+            for (int tx = 0; tx < tilesX; tx++) {
+                boolean near = false;
+                for (int dy = -1; dy <= 1 && !near; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int x = tx + dx, y = ty + dy;
+                        if (x >= 0 && y >= 0 && x < tilesX && y < tilesY && hitMask[y * tilesX + x]) { near = true; break; }
+                    }
+                }
+                nearMask[ty * tilesX + tx] = near || (tx >= fx0 && tx <= fx1 && ty >= fy0 && ty <= fy1);
+            }
+        }
+    }
+
+    private void clearDirty() {
+        java.util.Arrays.fill(chunkDirty, false);
+        anyDirty = false;
+        forceFull = false;
+    }
+
+    private int outlineRadius() {
+        return Math.max(1, (int) Math.round(pixelScale * 0.7));
+    }
+
+    /** Screen rectangle covering every changed chunk (and its neighbouring cells), or null if that is most of the image. */
+    private int[] dirtyRect() {
+        double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
+        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (int cz = 0; cz < chunksZ; cz++) {
+            for (int cy = 0; cy < chunksY; cy++) {
+                for (int cx = 0; cx < chunksX; cx++) {
+                    if (!chunkDirty[(cz * chunksY + cy) * chunksX + cx]) continue;
+                    // The chunk plus one cell around it: a changed voxel also changes the edges of its neighbours
+                    double[] lo = {cx * CHUNK_XY - 1, cy * CHUNK_XY - 1, cz * CHUNK_Z - 1};
+                    double[] hi = {Math.min(gridSize, (cx + 1) * CHUNK_XY) + 1, Math.min(gridSize, (cy + 1) * CHUNK_XY) + 1,
+                            Math.min(layers, (cz + 1) * CHUNK_Z) + 1};
+                    for (int i = 0; i < 8; i++) {
+                        double relX = ((i & 1) == 0 ? lo[0] : hi[0]) - cxm;
+                        double relY = ((i & 2) == 0 ? lo[1] : hi[1]) - cym;
+                        double relZ = ((i & 4) == 0 ? lo[2] : hi[2]) * LAYER_THICKNESS - czm;
+                        double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
+                        double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
+                        minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
+                        minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+                    }
+                }
+            }
+        }
+        int margin = 2 * pixelScale + 2;
+        int x0 = Math.max(0, (int) Math.floor(minX) - margin), x1 = Math.min(width - 1, (int) Math.ceil(maxX) + margin);
+        int y0 = Math.max(0, (int) Math.floor(minY) - margin), y1 = Math.min(height - 1, (int) Math.ceil(maxY) + margin);
+        if (x1 < x0 || y1 < y0) return EMPTY_RECT;
+        // Redrawing most of the image anyway: do it in one go
+        if ((long) (x1 - x0 + 1) * (y1 - y0 + 1) > 0.6 * width * height) return null;
+        return new int[]{x0, y0, x1, y1};
+    }
+
+    // ----- multi-threaded drawing -----
+
+    private static final int BAND_ROWS = 8;
+    private static final int WORKERS = Math.max(1, Math.min(8, Runtime.getRuntime().availableProcessors() - 1));
+    private long stamp;                        // render this worker's camera copy belongs to
+    private long renderStamp;                  // incremented per render on the main instance
+    private final ThreadLocal<VoxelRaycaster> workers = ThreadLocal.withInitial(() -> new VoxelRaycaster(this));
+
+    /** Worker copy: shares the model with {@code p} but has its own scratch fields, so rows can be drawn in parallel. */
+    private VoxelRaycaster(VoxelRaycaster p) {
+        this.gridSize = p.gridSize;
+        this.layers = p.layers;
+        this.width = p.width;
+        this.height = p.height;
+        this.pixelScale = p.pixelScale;
+        this.ss = p.ss;
+        this.lineHalfWidth = p.lineHalfWidth;
+        this.cells = p.cells;
+        this.chunksX = p.chunksX;
+        this.chunksY = p.chunksY;
+        this.chunksZ = p.chunksZ;
+        this.chunkCount = p.chunkCount;
+        this.chunkDirty = p.chunkDirty;
+        this.defaultScale = p.defaultScale;
+        this.raw = p.raw;
+        this.tilesX = p.tilesX;
+        this.tilesY = p.tilesY;
+        this.hitMask = p.hitMask;
+        this.nearMask = p.nearMask;
+    }
+
+    private void copyCameraFrom(VoxelRaycaster p) {
+        yaw = p.yaw; pitch = p.pitch; scale = p.scale; activeZi = p.activeZi; panRight = p.panRight; panUp = p.panUp;
+        rx = p.rx; ry = p.ry; rz = p.rz; ux = p.ux; uy = p.uy; uz = p.uz; fx = p.fx; fy = p.fy; fz = p.fz;
+        floorFootX = p.floorFootX; floorFootY = p.floorFootY;
+    }
+
+    private VoxelRaycaster workerFor(long renderId) {
+        VoxelRaycaster w = workers.get();
+        if (w.stamp != renderId) {
+            w.copyCameraFrom(this);
+            w.stamp = renderId;
+        }
+        return w;
+    }
+
+    /** Draws the whole image (in blocks of {@code step} x {@code step} samples) into {@code raw}. */
+    private void renderRows(Hit highlight, int step) {
+        final int st = step;
+        final long id = ++renderStamp;
+        int bandRows = BAND_ROWS * st;
+        int bands = (height + bandRows - 1) / bandRows;
+        java.util.function.IntConsumer band = b -> {
+            VoxelRaycaster w = workerFor(id);
+            int y0 = b * bandRows, y1 = Math.min(height, y0 + bandRows);
+            for (int by = y0; by < y1; by += st) {
+                for (int bx = 0; bx < width; bx += st) {
+                    int color = w.renderPixel(bx, by, highlight, st);
+                    int xEnd = Math.min(width, bx + st), yEnd = Math.min(height, by + st);
+                    for (int y = by; y < yEnd; y++) {
+                        for (int x = bx; x < xEnd; x++) raw[y * width + x] = color;
+                    }
+                }
+            }
+        };
+        runBands(bands, band);
+    }
+
+    /** Draws just a rectangle of pixels at full detail into {@code raw}. */
+    private void renderRect(int x0, int y0, int x1, int y1) {
+        final long id = ++renderStamp;
+        int rows = y1 - y0 + 1;
+        int bands = (rows + BAND_ROWS - 1) / BAND_ROWS;
+        runBands(bands, b -> {
+            VoxelRaycaster w = workerFor(id);
+            int ya = y0 + b * BAND_ROWS, yb = Math.min(y1 + 1, ya + BAND_ROWS);
+            for (int y = ya; y < yb; y++) {
+                for (int x = x0; x <= x1; x++) raw[y * width + x] = w.renderPixel(x, y, null, 1);
+            }
+        });
+    }
+
+    private static void runBands(int bands, java.util.function.IntConsumer body) {
+        if (WORKERS <= 1 || bands <= 1) {
+            for (int b = 0; b < bands; b++) body.accept(b);
+        } else {
+            java.util.stream.IntStream.range(0, bands).parallel().forEach(body);
+        }
     }
 
     /**
      * Cheap hover update: copies a highlight-free {@code baseFg} (from {@link #render} with a null highlight) into
      * {@code fg} and re-traces only the screen area covered by the highlighted voxel.
+     *
+     * @return the re-traced bounds {@code {x0, y0, x1, y1}}, or null when there is no highlight
      */
-    public void renderWithHighlight(int[] baseFg, int[] fg, Hit highlight) {
+    public int[] renderWithHighlight(int[] baseFg, int[] fg, Hit highlight) {
         System.arraycopy(baseFg, 0, fg, 0, baseFg.length);
-        if (highlight == null) return;
+        if (highlight == null) return null;
         updateBasis();
+        buildHitMask();
 
         double cxm = gridSize / 2.0, cym = gridSize / 2.0, czm = layers / 2.0 * LAYER_THICKNESS;
         double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
@@ -385,6 +702,7 @@ public final class VoxelRaycaster {
                 if (hlApplied && (c >>> 24) != 0) fg[py * width + px] = c;
             }
         }
+        return new int[]{x0, y0, x1, y1};
     }
 
     private int renderPixel(int px, int py, Hit highlight, int span) {
@@ -411,48 +729,49 @@ public final class VoxelRaycaster {
      * Adds a soft dark outline just outside the model's silhouette, baked into the foreground, so very light and
      * very dark voxels both stay readable on any background.
      */
-    private void bakeOutline(int[] fg) {
-        final int radius = Math.max(1, (int) Math.round(pixelScale * 0.7));
+    private void bakeOutline(int[] src, int[] dst, int rx0, int ry0, int rx1, int ry1) {
+        final int radius = outlineRadius();
         final int w = width, h = height;
-        boolean[] solid = new boolean[w * h];
-        for (int i = 0; i < solid.length; i++) solid[i] = (fg[i] >>> 24) > 0xE6;
-
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                int idx = y * w + x;
-                if (solid[idx]) continue;
-                // distance (in pixels, Chebyshev) to the nearest solid pixel within the radius
-                int nearest = 0;
-                search:
-                for (int d = 1; d <= radius; d++) {
-                    int xa = Math.max(0, x - d), xb = Math.min(w - 1, x + d);
-                    int ya = Math.max(0, y - d), yb = Math.min(h - 1, y + d);
-                    for (int yy = ya; yy <= yb; yy++) {
-                        boolean edgeRow = yy == y - d || yy == y + d;
-                        for (int xx = xa; xx <= xb; xx++) {
-                            if (!edgeRow && xx != x - d && xx != x + d) continue; // only the ring at distance d
-                            if (solid[yy * w + xx]) { nearest = d; break search; }
+        runBands((ry1 - ry0 + 16) / 16, b -> {
+            int ya = ry0 + b * 16, yb = Math.min(ry1 + 1, ya + 16);
+            for (int y = ya; y < yb; y++) {
+                for (int x = rx0; x <= rx1; x++) {
+                    int idx = y * w + x;
+                    int px = src[idx];
+                    if ((px >>> 24) > 0xE6 || !nearMask[(y >> TILE_SHIFT) * tilesX + (x >> TILE_SHIFT)]) { dst[idx] = px; continue; }
+                    // distance (in pixels, Chebyshev) to the nearest solid pixel within the radius
+                    int nearest = 0;
+                    search:
+                    for (int d = 1; d <= radius; d++) {
+                        int xa = Math.max(0, x - d), xb = Math.min(w - 1, x + d);
+                        int yya = Math.max(0, y - d), yyb = Math.min(h - 1, y + d);
+                        for (int yy = yya; yy <= yyb; yy++) {
+                            boolean edgeRow = yy == y - d || yy == y + d;
+                            for (int xx = xa; xx <= xb; xx++) {
+                                if (!edgeRow && xx != x - d && xx != x + d) continue; // only the ring at distance d
+                                if ((src[yy * w + xx] >>> 24) > 0xE6) { nearest = d; break search; }
+                            }
                         }
                     }
-                }
-                if (nearest == 0) continue;
+                    if (nearest == 0) { dst[idx] = px; continue; }
 
-                double oa = 0.85 * (1.0 - (nearest - 1) / (radius + 0.5));
-                int dst = fg[idx];
-                double da = ((dst >>> 24) & 0xFF) / 255.0;
-                double na = oa + da * (1 - oa);
-                double dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
-                double r = (0x16 * oa + dr * da * (1 - oa)) / na;
-                double g = (0x1F * oa + dg * da * (1 - oa)) / na;
-                double b = (0x33 * oa + db * da * (1 - oa)) / na;
-                fg[idx] = (clamp255(na * 255.0) << 24) | (clamp255(r) << 16) | (clamp255(g) << 8) | clamp255(b);
+                    double oa = 0.85 * (1.0 - (nearest - 1) / (radius + 0.5));
+                    double da = ((px >>> 24) & 0xFF) / 255.0;
+                    double na = oa + da * (1 - oa);
+                    double dr = (px >> 16) & 0xFF, dg = (px >> 8) & 0xFF, db = px & 0xFF;
+                    double r = (0x16 * oa + dr * da * (1 - oa)) / na;
+                    double g = (0x1F * oa + dg * da * (1 - oa)) / na;
+                    double bl = (0x33 * oa + db * da * (1 - oa)) / na;
+                    dst[idx] = (clamp255(na * 255.0) << 24) | (clamp255(r) << 16) | (clamp255(g) << 8) | clamp255(bl);
+                }
             }
-        }
+        });
     }
 
     private void sampleAt(double pixelX, double pixelY, Hit highlight) {
         setRay(pixelX, pixelY);
-        if (trace()) {
+        int tile = Math.min(tilesY - 1, (int) pixelY >> TILE_SHIFT) * tilesX + Math.min(tilesX - 1, (int) pixelX >> TILE_SHIFT);
+        if (hitMask[tile] && trace()) {
             shadeHit(highlight);
         } else {
             shadeFloor(highlight);
@@ -538,11 +857,13 @@ public final class VoxelRaycaster {
     /** Anti-aliased base-layer guide: a faint slab with fine cell lines and stronger lines every few cells. */
     private void shadeFloor(Hit highlight) {
         sa = 0;
-        int[] f = floorCell();
-        if (f == null) return;
+        if (Math.abs(dz) < 1e-12) return;
         double planeZ = activeZi + 0.5;
         double t = (planeZ - oz) / dz;
+        if (t < 0) return;
         double fxc = ox + dx * t, fyc = oy + dy * t;
+        int cellX = (int) Math.floor(fxc), cellY = (int) Math.floor(fyc);
+        if (cellX < 0 || cellX >= gridSize || cellY < 0 || cellY >= gridSize) return;
 
         // Slab tint
         double a = 0.20;
@@ -552,9 +873,17 @@ public final class VoxelRaycaster {
         double foot = Math.max(floorFootX, floorFootY) * pixelScale; // cells per GUI pixel
         double fade = clamp01(1.0 - (foot - 0.35) / 0.5);
 
-        double minor = Math.max(lineCoverage(fxc, floorFootX, 1), lineCoverage(fyc, floorFootY, 1)) * fade;
-        double major = Math.max(lineCoverage(fxc, floorFootX, MAJOR_LINE_EVERY), lineCoverage(fyc, floorFootY, MAJOR_LINE_EVERY));
-        double border = Math.max(lineCoverage(fxc, floorFootX, gridSize), lineCoverage(fyc, floorFootY, gridSize));
+        // Every line sits on a whole-number coordinate, so a pixel farther than a line's reach from the nearest whole
+        // number on both axes (most of them) touches no line at all and the coverage maths can be skipped
+        double reach = lineHalfWidth + 0.5;
+        boolean nearLine = Math.abs(fxc - Math.rint(fxc)) < reach * Math.max(floorFootX, 1e-6)
+                || Math.abs(fyc - Math.rint(fyc)) < reach * Math.max(floorFootY, 1e-6);
+        double minor = 0, major = 0, border = 0;
+        if (nearLine) {
+            minor = Math.max(lineCoverage(fxc, floorFootX, 1), lineCoverage(fyc, floorFootY, 1)) * fade;
+            major = Math.max(lineCoverage(fxc, floorFootX, MAJOR_LINE_EVERY), lineCoverage(fyc, floorFootY, MAJOR_LINE_EVERY));
+            border = Math.max(lineCoverage(fxc, floorFootX, gridSize), lineCoverage(fyc, floorFootY, gridSize));
+        }
 
         double la = minor * 0.32;
         if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0x3B * la) / na; g = (g * a * (1 - la) + 0x5C * la) / na; b = (b * a * (1 - la) + 0x86 * la) / na; a = na; }
@@ -563,7 +892,7 @@ public final class VoxelRaycaster {
         la = border * 0.80;
         if (la > 0) { double na = a + la * (1 - a); r = (r * a * (1 - la) + 0x1B * la) / na; g = (g * a * (1 - la) + 0x2E * la) / na; b = (b * a * (1 - la) + 0x54 * la) / na; a = na; }
 
-        if (highlight != null && highlight.floor() && highlight.x() == f[0] && highlight.y() == f[1]) {
+        if (highlight != null && highlight.floor() && highlight.x() == cellX && highlight.y() == cellY) {
             hlApplied = true;
             double k = 0.55; // tint the hovered cell of the editing layer
             r = r * (1 - k) + 255 * k; g = g * (1 - k) + 255 * k; b = b * (1 - k) + 255 * k;

@@ -128,14 +128,55 @@ public class CustomizationScreen extends Screen {
     private int strokeIndex = 0;
     private boolean sceneDirty = true;
     private double fullRenderMs = 0; // smoothed cost of one full-detail 3D pass
+
+    // Cached so the per-frame work and the per-voxel checks stay cheap (rebuilt by recalculateCachedStats)
+    private int savedVoxelCount = 0;
+    private final java.util.Map<String, Integer> originalCounts = new java.util.HashMap<>(); // voxels per material on the saved weapon
+    private final java.util.Map<String, Integer> workingCounts = new java.util.HashMap<>();  // voxels per material in the design
+    private boolean cachedMissing = false;
+    private long nextMissingCheck = 0;
     private int lastHoverKey = -2;
     private VoxelRaycaster.Hit hoverHit = null;
     private VoxelRaycaster raycaster;
     private int renderScale = 0;   // render pixels per GUI pixel the raycaster and textures were built for
     private int[] fgBase;          // model layer (model + floor grid + outline) at native resolution, no hover highlight
     private int[] fgView;          // fgBase plus hover highlight
-    private int[] bgBuffer;        // animated background, one pixel per GUI pixel
+    private int[] bgBuffer;        // animated background, BG_DIM x BG_DIM (stretched over the workspace; it is a soft gradient)
+    private int[] sceneGrid;       // scratch grid for VoxelRaycaster.syncCells
+    private int[] lastHlRect;      // area the previous hover highlight touched in fgView
+    private long nextBgFrame = 0;
+    private static final int BG_DIM = 128;
+    private static final long BG_FRAME_NANOS = 1_000_000_000L / 24;
     private final long animStartNanos = System.nanoTime();
+
+    // Fit-to-screen: the whole layout (window, icon column on the left, material list on the right) is drawn in
+    // "virtual" GUI coordinates and scaled down by fit (< 1) only when it would not be fully visible.
+    private static final int FIT_LEFT = 24, FIT_RIGHT = 58, FIT_MARGIN = 4;
+    private double fit = 1.0;
+
+    private void updateFit() {
+        double needW = WINDOW_WIDTH + 2.0 * Math.max(FIT_LEFT, FIT_RIGHT) + 2 * FIT_MARGIN;
+        double needH = WINDOW_HEIGHT + 2.0 * FIT_MARGIN;
+        double f = Math.min(1.0, Math.min(this.width / needW, this.height / needH));
+        this.fit = f >= 0.999 ? 1.0 : Math.max(0.2, f);
+    }
+
+    /** Screen size in virtual (layout) coordinates. */
+    private int vw() { return (int) Math.floor(this.width / this.fit); }
+    private int vh() { return (int) Math.floor(this.height / this.fit); }
+
+    /** Draws a tooltip at the real (unscaled) cursor position so it keeps its normal size while the layout is scaled down. */
+    private void realTooltip(GuiGraphicsExtractor g, List<ClientTooltipComponent> lines, int realX, int realY) {
+        if (this.fit == 1.0) {
+            g.tooltip(this.font, lines, realX, realY, DefaultTooltipPositioner.INSTANCE, null);
+            return;
+        }
+        g.pose().pushMatrix();
+        g.pose().scale((float) (1.0 / this.fit), (float) (1.0 / this.fit));
+        g.tooltip(this.font, lines, realX, realY, DefaultTooltipPositioner.INSTANCE, null);
+        g.pose().popMatrix();
+    }
+    private int realMouseX, realMouseY;
     private DynamicTexture viewTexture;
     private NativeImage viewImage;
     private Identifier viewTextureId;
@@ -270,8 +311,8 @@ public class CustomizationScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         // Scrolling over the layers list moves through the layers
         {
-            int leftPos = (this.width - WINDOW_WIDTH) / 2, topPos = (this.height - WINDOW_HEIGHT) / 2;
-            if (verticalAmount != 0 && overLayerList(leftPos, topPos, (int) mouseX, (int) mouseY)) {
+            int leftPos = (vw() - WINDOW_WIDTH) / 2, topPos = (vh() - WINDOW_HEIGHT) / 2;
+            if (verticalAmount != 0 && overLayerList(leftPos, topPos, (int) (mouseX / this.fit), (int) (mouseY / this.fit))) {
                 this.layerScroll -= verticalAmount * LAYER_ROW_H;
                 clampLayerScroll();
                 return true;
@@ -279,7 +320,7 @@ public class CustomizationScreen extends Screen {
         }
 
         // Scrolling over the 3D view zooms it
-        if (this.view3d && verticalAmount != 0 && isInsideWorkspace((int) mouseX, (int) mouseY)) {
+        if (this.view3d && verticalAmount != 0 && isInsideWorkspace((int) (mouseX / this.fit), (int) (mouseY / this.fit))) {
             ensureRaycaster();
             this.raycaster.zoom(Math.pow(1.12, verticalAmount));
             this.sceneDirty = true;
@@ -299,7 +340,7 @@ public class CustomizationScreen extends Screen {
 
             if (oldOffset != this.materialIndexOffset) {
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                recalculateCachedStats();
+                refreshSlots();
                 return true;
             }
         }
@@ -310,6 +351,20 @@ public class CustomizationScreen extends Screen {
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
+        updateFit();
+        this.realMouseX = mouseX;
+        this.realMouseY = mouseY;
+        if (this.fit == 1.0) {
+            renderContents(guiGraphics, mouseX, mouseY, delta);
+            return;
+        }
+        guiGraphics.pose().pushMatrix();
+        guiGraphics.pose().scale((float) this.fit, (float) this.fit);
+        renderContents(guiGraphics, (int) Math.floor(mouseX / this.fit), (int) Math.floor(mouseY / this.fit), delta);
+        guiGraphics.pose().popMatrix();
+    }
+
+    private void renderContents(@NonNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
 
         if (saveFeedbackTimer > 0) saveFeedbackTimer--;
         else if (saveFeedbackTimer < 0) saveFeedbackTimer++;
@@ -318,8 +373,8 @@ public class CustomizationScreen extends Screen {
         if (importFeedbackTimer > 0) importFeedbackTimer--;
         else if (importFeedbackTimer < 0) importFeedbackTimer++;
 
-        int leftPos = (this.width - WINDOW_WIDTH) / 2;
-        int topPos = (this.height - WINDOW_HEIGHT) / 2;
+        int leftPos = (vw() - WINDOW_WIDTH) / 2;
+        int topPos = (vh() - WINDOW_HEIGHT) / 2;
 
         // Background texture
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, GUI_TEXTURE, leftPos, topPos, 0.0F, 0.0F, WINDOW_WIDTH, WINDOW_HEIGHT, 512, 512);
@@ -472,8 +527,7 @@ public class CustomizationScreen extends Screen {
         int statsY = topPos + 35;
 
         boolean isBow = weaponStack.getItem() instanceof ModularBowItem;
-        List<WeaponVoxel> savedVoxels = ModularSwordItem.getVoxels(weaponStack);
-        int diffVoxels = workingVoxels.size() - savedVoxels.size();
+        int diffVoxels = workingVoxels.size() - this.savedVoxelCount;
 
         // Stats text
         guiGraphics.text(this.font, Component.literal("Voxels:"), statsX + 6, statsY + 6, FONT_COLOR, false);
@@ -524,7 +578,7 @@ public class CustomizationScreen extends Screen {
             List<ClientTooltipComponent> infoTooltip = List.of(
                     ClientTooltipComponent.create(Component.literal("§cMaterials will be destroyed upon erasing!").getVisualOrderText())
             );
-            guiGraphics.tooltip(this.font, infoTooltip, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+            realTooltip(guiGraphics, infoTooltip, realMouseX, realMouseY);
         }
 
         // Grip offset
@@ -593,7 +647,7 @@ public class CustomizationScreen extends Screen {
             for (String line : buttonTooltip(hoveredBtn)) {
                 tip.add(ClientTooltipComponent.create(Component.literal(line).getVisualOrderText()));
             }
-            guiGraphics.tooltip(this.font, tip, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+            realTooltip(guiGraphics, tip, realMouseX, realMouseY);
         }
 
         // Materials and Shades
@@ -693,7 +747,7 @@ public class CustomizationScreen extends Screen {
                     ClientTooltipComponent.create(Component.literal(spdSign + hoveredMaterial.getBonusSpeed() + (isBowMaterial ? " Draw Speed" : " Attack Speed")).getVisualOrderText()),
                     ClientTooltipComponent.create(Component.literal(durSign + hoveredMaterial.getBonusDurability() + " Durability").getVisualOrderText())
             );
-            guiGraphics.tooltip(this.font, tooltipLines, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+            realTooltip(guiGraphics, tooltipLines, realMouseX, realMouseY);
         }
 
         // Material percentage breakdown panel
@@ -714,10 +768,10 @@ public class CustomizationScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        int leftPos = (this.width - WINDOW_WIDTH) / 2;
-        int topPos = (this.height - WINDOW_HEIGHT) / 2;
-        int mouseX = (int) event.x();
-        int mouseY = (int) event.y();
+        int leftPos = (vw() - WINDOW_WIDTH) / 2;
+        int topPos = (vh() - WINDOW_HEIGHT) / 2;
+        int mouseX = (int) Math.floor(event.x() / this.fit);
+        int mouseY = (int) Math.floor(event.y() / this.fit);
 
         int statsX = leftPos + STATS_X;
         int statsY = topPos + 35;
@@ -812,7 +866,7 @@ public class CustomizationScreen extends Screen {
             if (materialIndexOffset > 0) {
                 materialIndexOffset--;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                recalculateCachedStats();
+                refreshSlots();
                 return true;
             }
         }
@@ -821,7 +875,7 @@ public class CustomizationScreen extends Screen {
             if (materialIndexOffset < maxOffset) {
                 materialIndexOffset++;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                recalculateCachedStats();
+                refreshSlots();
                 return true;
             }
         }
@@ -878,7 +932,7 @@ public class CustomizationScreen extends Screen {
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
         if (this.draggingScrollbar) {
-            dragScrollbar((int) event.y());
+            dragScrollbar((int) Math.floor(event.y() / this.fit));
             return true;
         }
         if (this.view3d) {
@@ -890,14 +944,14 @@ public class CustomizationScreen extends Screen {
             }
             if (this.panning) {
                 ensureRaycaster();
-                this.raycaster.pan(deltaX * this.renderScale, deltaY * this.renderScale);
+                this.raycaster.pan(deltaX / this.fit * this.renderScale, deltaY / this.fit * this.renderScale);
                 this.sceneDirty = true;
                 return true;
             }
-            if (handle3dInteraction((int) event.x(), (int) event.y(), event.button(), true)) {
+            if (handle3dInteraction((int) Math.floor(event.x() / this.fit), (int) Math.floor(event.y() / this.fit), event.button(), true)) {
                 return true;
             }
-        } else if (drag2d((int) event.x(), (int) event.y(), event.button())) {
+        } else if (drag2d((int) Math.floor(event.x() / this.fit), (int) Math.floor(event.y() / this.fit), event.button())) {
             return true;
         }
         return super.mouseDragged(event, deltaX, deltaY);
@@ -916,8 +970,8 @@ public class CustomizationScreen extends Screen {
     }
 
     private boolean isInsideWorkspace(int mouseX, int mouseY) {
-        int gridX = (this.width - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
-        int gridY = (this.height - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
+        int gridX = (vw() - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
+        int gridY = (vh() - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
         return mouseX >= gridX && mouseX < gridX + WORKSPACE_DIM && mouseY >= gridY && mouseY < gridY + WORKSPACE_DIM;
     }
 
@@ -976,8 +1030,8 @@ public class CustomizationScreen extends Screen {
 
     /** Grid cell under the mouse as {x, voxelY}, or null outside the grid. With clamp the nearest cell is returned instead. */
     private int[] cellAt(int mouseX, int mouseY, boolean clamp) {
-        int gridX = (this.width - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
-        int gridY = (this.height - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
+        int gridX = (vw() - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
+        int gridY = (vh() - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
         int cx = Math.floorDiv(mouseX - gridX, this.cellSize);
         int cy = Math.floorDiv(mouseY - gridY, this.cellSize);
         if (cx < 0 || cx >= this.gridSize || cy < 0 || cy >= this.gridSize) {
@@ -1162,12 +1216,15 @@ public class CustomizationScreen extends Screen {
             if (!isCreative && getAvailableCount(mat) <= 0) return false;
             if (workingVoxels.size() >= MAX_TOTAL_VOXELS()) return false;
             workingVoxels.add(new WeaponVoxel(x, y, layer, mat, shade));
+            this.workingCounts.merge(mat.id().toLowerCase(), 1, Integer::sum);
             return true;
         }
         if (existing.materialId().equalsIgnoreCase(mat.id()) && existing.shade() == shade) return false;
         if (!existing.materialId().equalsIgnoreCase(mat.id()) && !isCreative && getAvailableCount(mat) <= 0) return false;
         workingVoxels.remove(existing);
         workingVoxels.add(new WeaponVoxel(x, y, layer, mat, shade));
+        this.workingCounts.merge(existing.materialId().toLowerCase(), -1, Integer::sum);
+        this.workingCounts.merge(mat.id().toLowerCase(), 1, Integer::sum);
         return true;
     }
 
@@ -1176,6 +1233,7 @@ public class CustomizationScreen extends Screen {
         WeaponVoxel existing = findVoxel(x, y, layer);
         if (existing == null || workingVoxels.size() <= MIN_VOXELS) return false;
         workingVoxels.remove(existing);
+        this.workingCounts.merge(existing.materialId().toLowerCase(), -1, Integer::sum);
         return true;
     }
 
@@ -1212,7 +1270,7 @@ public class CustomizationScreen extends Screen {
         if (idx >= 0) {
             if (idx < this.materialIndexOffset) this.materialIndexOffset = idx;
             else if (idx >= this.materialIndexOffset + VISIBLE_SLOTS) this.materialIndexOffset = idx - VISIBLE_SLOTS + 1;
-            recalculateCachedStats();
+            refreshSlots();
         }
     }
 
@@ -1346,7 +1404,7 @@ public class CustomizationScreen extends Screen {
         if (tip != null && !this.draggingScrollbar) {
             List<ClientTooltipComponent> lines = new ArrayList<>();
             for (String t : tip) lines.add(ClientTooltipComponent.create(Component.literal(t).getVisualOrderText()));
-            g.tooltip(this.font, lines, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+            realTooltip(g, lines, realMouseX, realMouseY);
         }
     }
 
@@ -1366,7 +1424,7 @@ public class CustomizationScreen extends Screen {
             List<ClientTooltipComponent> lines = List.of(
                     ClientTooltipComponent.create(Component.literal("§eRecent: " + StringUtils.capitalize(hovered.material().id())).getVisualOrderText()),
                     ClientTooltipComponent.create(Component.literal("§7Shade " + (hovered.shade() + 1) + " - click to use").getVisualOrderText()));
-            g.tooltip(this.font, lines, mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, null);
+            realTooltip(g, lines, realMouseX, realMouseY);
         }
     }
 
@@ -1423,7 +1481,7 @@ public class CustomizationScreen extends Screen {
     }
 
     private void dragScrollbar(int mouseY) {
-        int topPos = (this.height - WINDOW_HEIGHT) / 2;
+        int topPos = (vh() - WINDOW_HEIGHT) / 2;
         int travel = LAYER_LIST_H - scrollerHeight();
         if (travel <= 0) return;
         double frac = (mouseY - this.scrollGrab - layerListY(topPos)) / (double) travel;
@@ -1437,7 +1495,8 @@ public class CustomizationScreen extends Screen {
     private int desiredRenderScale() {
         var window = this.minecraft.getWindow();
         int guiScaledWidth = Math.max(1, window.getGuiScaledWidth());
-        return Math.max(1, Math.min(3, (int) Math.round(window.getWidth() / (double) guiScaledWidth)));
+        // Real pixels per layout pixel: the GUI scale, reduced when the layout is scaled down to fit
+        return Math.max(1, Math.min(3, (int) Math.round(window.getWidth() / (double) guiScaledWidth * this.fit)));
     }
 
     private void ensureRaycaster() {
@@ -1465,7 +1524,10 @@ public class CustomizationScreen extends Screen {
         }
         this.fgBase = new int[n * n];
         this.fgView = new int[n * n];
-        this.bgBuffer = new int[WORKSPACE_DIM * WORKSPACE_DIM];
+        this.bgBuffer = new int[BG_DIM * BG_DIM];
+        this.sceneGrid = new int[this.raycaster.cellCount()];
+        this.lastHlRect = null;
+        this.nextBgFrame = 0;
         this.sceneDirty = true;
         this.lastHoverKey = -2;
     }
@@ -1479,7 +1541,7 @@ public class CustomizationScreen extends Screen {
             this.viewTextureId = Identifier.fromNamespaceAndPath("blocksmith", "forge_view_" + System.identityHashCode(this));
             this.minecraft.getTextureManager().register(this.viewTextureId, this.viewTexture);
 
-            this.bgImage = new NativeImage(WORKSPACE_DIM, WORKSPACE_DIM, true);
+            this.bgImage = new NativeImage(BG_DIM, BG_DIM, true);
             this.bgTexture = new DynamicTexture(() -> "blocksmith_forge_bg", this.bgImage);
             this.bgTextureId = Identifier.fromNamespaceAndPath("blocksmith", "forge_bg_" + System.identityHashCode(this));
             this.minecraft.getTextureManager().register(this.bgTextureId, this.bgTexture);
@@ -1509,12 +1571,21 @@ public class CustomizationScreen extends Screen {
         this.bgImage = null;
     }
 
-    private void rebuildScene() {
-        this.raycaster.clear();
+    /** Brings the renderer's grid in line with the design; only cells that differ mark their chunk for redraw. */
+    private void syncScene() {
+        java.util.Arrays.fill(this.sceneGrid, 0);
         for (WeaponVoxel v : workingVoxels) {
             if (this.layerHidden[v.z() + MAX_LAYER]) continue;
-            this.raycaster.setCell(v.x(), v.y(), v.z() + MAX_LAYER, v.getColorRgb() | 0xFF000000);
+            this.sceneGrid[this.raycaster.cellIndex(v.x(), v.y(), v.z() + MAX_LAYER)] = v.getColorRgb() | 0xFF000000;
         }
+        this.raycaster.syncCells(this.sceneGrid);
+    }
+
+    private static int[] unionRect(int[] a, int[] b) {
+        if (a == null || b == null) return null;
+        if (a[2] < a[0]) return b;
+        if (b[2] < b[0]) return a;
+        return new int[]{Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])};
     }
 
     private void render3dWorkspace(GuiGraphicsExtractor guiGraphics, int gridX, int gridY, int mouseX, int mouseY) {
@@ -1527,52 +1598,67 @@ public class CustomizationScreen extends Screen {
         boolean inside = px >= 0 && py >= 0 && px < WORKSPACE_DIM && py < WORKSPACE_DIM;
         int hoverKey = (inside && !this.orbiting && !this.panning) ? (px << 16) | py : -1;
 
-        boolean modelLayerChanged = false;
+        // Area of the model picture that changed this frame: {x0,y0,x1,y1}, empty when x1<x0, null = everything
+        int[] changed = new int[]{0, 0, -1, -1};
+        boolean baseChanged = false;
 
-        // Heavy pass: only when the model or camera changed. If a full pass is slow, a coarser,
-        // faster preview is drawn; a full-detail pass follows as soon as the mouse is released.
+        // Heavy pass: only when the model or camera changed. Edits redraw just the chunks they touched; if a full
+        // pass is slow, a coarser preview is drawn until the mouse is released.
         if (this.sceneDirty) {
-            rebuildScene();
-            // Full detail while turning the model, unless a full pass is too slow on this machine (the view is
-            // bigger now); then a coarser pass is used until the mouse is released
+            syncScene();
             int step = ((this.orbiting || this.panning) && this.fullRenderMs > 50.0) ? 2 : 1;
             long renderStart = System.nanoTime();
-            this.raycaster.render(this.fgBase, null, step);
+            int[] rect = this.raycaster.render(this.fgBase, null, step);
             double passMs = (System.nanoTime() - renderStart) / 1.0e6;
-            double fullMs = step == 1 ? passMs : passMs * 3.5;
-            this.fullRenderMs = this.fullRenderMs == 0 ? fullMs : this.fullRenderMs * 0.6 + fullMs * 0.4;
+            if (rect == null || step > 1) {
+                double fullMs = step == 1 ? passMs : passMs * 3.5;
+                this.fullRenderMs = this.fullRenderMs == 0 ? fullMs : this.fullRenderMs * 0.6 + fullMs * 0.4;
+            }
             this.sceneDirty = false;
-            modelLayerChanged = true;
+            changed = rect;
+            baseChanged = rect == null || rect[2] >= rect[0];
         }
 
         // Light pass: re-trace just the hovered voxel when the cursor moves
-        if (modelLayerChanged || hoverKey != this.lastHoverKey) {
+        if (baseChanged || hoverKey != this.lastHoverKey) {
             this.hoverHit = hoverKey >= 0 ? this.raycaster.pick(px * scale + scale / 2, py * scale + scale / 2) : null;
-            this.raycaster.renderWithHighlight(this.fgBase, this.fgView, this.hoverHit);
+            int[] hl = this.raycaster.renderWithHighlight(this.fgBase, this.fgView, this.hoverHit);
+            changed = unionRect(changed, hl);
+            changed = unionRect(changed, this.lastHlRect);
+            this.lastHlRect = hl;
             this.lastHoverKey = hoverKey;
-            modelLayerChanged = true;
         }
 
-        if (modelLayerChanged) {
-            for (int y = 0; y < n; y++) {
-                for (int x = 0; x < n; x++) {
-                    this.viewImage.setPixel(x, y, this.fgView[y * n + x]);
+        if (changed == null || changed[2] >= changed[0]) {
+            int x0 = 0, y0 = 0, x1 = n - 1, y1 = n - 1;
+            if (changed != null) {
+                x0 = Math.max(0, changed[0]); y0 = Math.max(0, changed[1]);
+                x1 = Math.min(n - 1, changed[2]); y1 = Math.min(n - 1, changed[3]);
+            }
+            for (int y = y0; y <= y1; y++) {
+                int row = y * n;
+                for (int x = x0; x <= x1; x++) {
+                    this.viewImage.setPixel(x, y, this.fgView[row + x]);
                 }
             }
             this.viewTexture.upload();
         }
 
-        // Every frame: the small animated background
-        double seconds = (System.nanoTime() - this.animStartNanos) / 1.0e9;
-        VoxelRaycaster.renderBackground(this.bgBuffer, WORKSPACE_DIM, WORKSPACE_DIM, seconds);
-        for (int y = 0; y < WORKSPACE_DIM; y++) {
-            for (int x = 0; x < WORKSPACE_DIM; x++) {
-                this.bgImage.setPixel(x, y, this.bgBuffer[y * WORKSPACE_DIM + x]);
+        // The small animated background: low resolution and ~24 fps is plenty for a slow gradient
+        long now = System.nanoTime();
+        if (now >= this.nextBgFrame) {
+            this.nextBgFrame = now + BG_FRAME_NANOS;
+            double seconds = (now - this.animStartNanos) / 1.0e9;
+            VoxelRaycaster.renderBackground(this.bgBuffer, BG_DIM, BG_DIM, seconds);
+            for (int y = 0; y < BG_DIM; y++) {
+                for (int x = 0; x < BG_DIM; x++) {
+                    this.bgImage.setPixel(x, y, this.bgBuffer[y * BG_DIM + x]);
+                }
             }
+            this.bgTexture.upload();
         }
-        this.bgTexture.upload();
 
-        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.bgTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM, WORKSPACE_DIM);
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.bgTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, BG_DIM, BG_DIM, BG_DIM, BG_DIM);
         // The model layer is rendered at native resolution (scale x the GUI size) and drawn scaled down 1:scale
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, n, n, n, n);
 
@@ -1592,8 +1678,8 @@ public class CustomizationScreen extends Screen {
         if (!isInsideWorkspace(mouseX, mouseY)) return false;
         ensureRaycaster();
 
-        int gridX = (this.width - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
-        int gridY = (this.height - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
+        int gridX = (vw() - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
+        int gridY = (vh() - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
         // GUI pixel -> centre of the matching block of render pixels
         final int scale = this.renderScale;
         int px = (mouseX - gridX) * scale + scale / 2;
@@ -1655,20 +1741,31 @@ public class CustomizationScreen extends Screen {
         ItemStack offhand = this.minecraft.player.getOffhandItem();
         if (offhand.is(mat.getIconItem())) inInventory += offhand.getCount();
 
-        int onOriginalWeapon = 0;
-        for (WeaponVoxel v : ModularSwordItem.getVoxels(weaponStack)) {
-            if (v.materialId().equalsIgnoreCase(mat.id())) onOriginalWeapon++;
-        }
-
-        int placedInWorking = 0;
-        for (WeaponVoxel v : workingVoxels) {
-            if (v.materialId().equalsIgnoreCase(mat.id())) placedInWorking++;
-        }
+        String key = mat.id().toLowerCase();
+        int onOriginalWeapon = this.originalCounts.getOrDefault(key, 0);
+        int placedInWorking = this.workingCounts.getOrDefault(key, 0);
 
         return inInventory + onOriginalWeapon - placedInWorking;
     }
 
-    private boolean hasMissingMaterials() {
+    /** Refreshes the material slots' icons and counts (cheap; used when only the visible materials change). */
+    private void refreshSlots() {
+        List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
+        for (int i = 0; i < VISIBLE_SLOTS; i++) {
+            int idx = i + materialIndexOffset;
+            if (idx < mats.size()) {
+                VoxelMaterial mat = mats.get(idx);
+                this.cachedMaterialStacks[i] = mat.getIconItem().getDefaultInstance();
+                this.cachedAvailableCounts[i] = getAvailableCount(mat);
+            } else {
+                this.cachedMaterialStacks[i] = ItemStack.EMPTY;
+                this.cachedAvailableCounts[i] = 0;
+            }
+        }
+        this.cachedMissing = computeMissingMaterials();
+    }
+
+    private boolean computeMissingMaterials() {
         if (this.minecraft.player == null) return false;
         if (this.minecraft.player.getAbilities().instabuild) return false;
 
@@ -1678,6 +1775,16 @@ public class CustomizationScreen extends Screen {
             }
         }
         return false;
+    }
+
+    /** Cached: the answer only changes when the design or the inventory does, and it is asked for every frame. */
+    private boolean hasMissingMaterials() {
+        long now = System.nanoTime();
+        if (now >= this.nextMissingCheck) {
+            this.cachedMissing = computeMissingMaterials();
+            this.nextMissingCheck = now + 400_000_000L;
+        }
+        return this.cachedMissing;
     }
 
     private boolean hasUnsavedChanges() {
@@ -1692,14 +1799,19 @@ public class CustomizationScreen extends Screen {
         return !new java.util.HashSet<>(saved).equals(new java.util.HashSet<>(workingVoxels));
     }
 
+    /** The design changed: redraw the 3D view and layer thumbnails and refresh every cached figure. */
     private void recalculateCachedStats() {
         this.sceneDirty = true;
         this.thumbsDirty = true;
         double gridArea = this.gridSize * this.gridSize;
 
         List<WeaponVoxel> savedVoxels = ModularSwordItem.getVoxels(weaponStack);
+        this.savedVoxelCount = savedVoxels.size();
+        this.originalCounts.clear();
+        this.workingCounts.clear();
         double savedRawDmg = 0, savedRawSpd = 0, savedRawDur = 0;
         for (WeaponVoxel v : savedVoxels) {
+            this.originalCounts.merge(v.materialId().toLowerCase(), 1, Integer::sum);
             VoxelMaterial m = v.material();
             savedRawDmg += m.getBonusDamage();
             savedRawSpd += m.getBonusSpeed();
@@ -1708,6 +1820,7 @@ public class CustomizationScreen extends Screen {
 
         double workingRawDmg = 0, workingRawSpd = 0, workingRawDur = 0;
         for (WeaponVoxel v : workingVoxels) {
+            this.workingCounts.merge(v.materialId().toLowerCase(), 1, Integer::sum);
             VoxelMaterial m = v.material();
             workingRawDmg += m.getBonusDamage();
             workingRawSpd += m.getBonusSpeed();
@@ -1729,18 +1842,7 @@ public class CustomizationScreen extends Screen {
         this.cachedDiffSpd = this.cachedCurrentSpd - savedSpd;
         this.cachedDiffDur = this.cachedCurrentDur - savedDur;
 
-        List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
-        for (int i = 0; i < VISIBLE_SLOTS; i++) {
-            int idx = i + materialIndexOffset;
-            if (idx < mats.size()) {
-                VoxelMaterial mat = mats.get(idx);
-                this.cachedMaterialStacks[i] = mat.getIconItem().getDefaultInstance();
-                this.cachedAvailableCounts[i] = getAvailableCount(mat);
-            } else {
-                this.cachedMaterialStacks[i] = ItemStack.EMPTY;
-                this.cachedAvailableCounts[i] = 0;
-            }
-        }
+        refreshSlots();
 
         this.cachedBreakdown.clear();
         if (!workingVoxels.isEmpty()) {
