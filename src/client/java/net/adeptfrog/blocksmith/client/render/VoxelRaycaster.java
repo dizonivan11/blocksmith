@@ -478,6 +478,18 @@ public final class VoxelRaycaster {
         return inBounds(c[0], c[1], c[2]) ? c : null;
     }
 
+    /**
+     * Screen position, in this raycaster's pixels, of a point in grid space ({@code gz} is a layer-cell index and may
+     * be fractional, e.g. {@code zi + 0.5} for the middle of a layer). Same projection the highlight uses.
+     */
+    public double[] project(double gx, double gy, double gz) {
+        updateBasis();
+        double relX = gx - gridSize / 2.0, relY = gy - gridSize / 2.0, relZ = gz * layerThickness - layers / 2.0 * layerThickness;
+        double sx = (relX * rx + relY * ry + relZ * rz + panRight) * scale + width / 2.0;
+        double sy = height / 2.0 - (relX * ux + relY * uy + relZ * uz + panUp) * scale;
+        return new double[]{sx, sy};
+    }
+
     /** Cell of the active layer under a pixel (where the ray crosses the middle of that layer), or null outside the grid. */
     public int[] pickCell(int pixelX, int pixelY) {
         if (pixelX < 0 || pixelY < 0 || pixelX >= width || pixelY >= height) return null;

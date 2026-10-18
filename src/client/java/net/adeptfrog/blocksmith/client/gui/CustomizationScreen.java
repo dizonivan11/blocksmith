@@ -89,8 +89,9 @@ public class CustomizationScreen extends Screen {
     private final List<Swatch> recentSwatches = new ArrayList<>();
 
     // Tools: the same five in the 2D and 3D editors (Pencil in 2D is called Add in 3D)
-    private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ERASE = 2, TOOL_PICK = 3, TOOL_FILL = 4;
-    private static final String[] TOOL_KEYS = {"P", "O", "R", "I", "B"};
+    private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ERASE = 2, TOOL_PICK = 3, TOOL_FILL = 4,
+            TOOL_SELECT = 5, TOOL_MOVE = 6;
+    private static final String[] TOOL_KEYS = {"P", "O", "R", "I", "B", "S", "V"};
     private int tool = TOOL_ADD;
 
     private String toolName(int i) {
@@ -99,15 +100,17 @@ public class CustomizationScreen extends Screen {
             case TOOL_RECOLOR -> "Recolor";
             case TOOL_ERASE -> "Erase";
             case TOOL_PICK -> "Eyedropper";
+            case TOOL_SELECT -> "Select";
+            case TOOL_MOVE -> "Move";
             default -> "Bucket fill";
         };
     }
     // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
     // Reset view only exists in the 3D editor. The five tool buttons come first, one button per tool (identical in
     // both editors); the active one is outlined.
-    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 5, BTN_FLIP_H = 5, BTN_FLIP_V = 6, BTN_ROT_CW = 7,
-            BTN_ROT_CCW = 8, BTN_VIEW = 9, BTN_UNDO = 10, BTN_REDO = 11, BTN_MIRROR = 12,
-            BTN_RESET = 13, BTN_CODEX = 14, BTN_COUNT = 15;
+    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 7, BTN_FLIP_H = 7, BTN_FLIP_V = 8, BTN_ROT_CW = 9,
+            BTN_ROT_CCW = 10, BTN_VIEW = 11, BTN_UNDO = 12, BTN_REDO = 13, BTN_MIRROR = 14,
+            BTN_RESET = 15, BTN_CODEX = 16, BTN_COUNT = 17;
     private static final int ICON_BTN = 18, ICON_STEP = 20, EI_BTN_W = 44;
     // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
     private static final ItemStack ICON_FLIP_H = new ItemStack(Items.PISTON);
@@ -116,7 +119,7 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_ROT_CCW = new ItemStack(Items.COMPARATOR);
     private static final ItemStack ICON_VIEW_3D = new ItemStack(Items.ENDER_EYE);
     private static final ItemStack ICON_VIEW_2D = new ItemStack(Items.MAP);
-    private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STICK), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE), new ItemStack(Items.SPYGLASS), new ItemStack(Items.BUCKET)};
+    private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STICK), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE), new ItemStack(Items.SPYGLASS), new ItemStack(Items.BUCKET), new ItemStack(Items.SHEARS), new ItemStack(Items.LEAD)};
     private static final ItemStack ICON_RESET = new ItemStack(Items.COMPASS);
     private static final ItemStack ICON_UNDO = new ItemStack(Items.CLOCK);
     private static final ItemStack ICON_MIRROR = new ItemStack(Items.GLASS_PANE);
@@ -326,6 +329,8 @@ public class CustomizationScreen extends Screen {
             case GLFW.GLFW_KEY_I -> "I";
             case GLFW.GLFW_KEY_O -> "O";
             case GLFW.GLFW_KEY_R -> "R";
+            case GLFW.GLFW_KEY_S -> "S";
+            case GLFW.GLFW_KEY_V -> "V";
             default -> null;
         };
         if (pressed == null) return false;
@@ -352,6 +357,8 @@ public class CustomizationScreen extends Screen {
             redo();
             return true;
         }
+        if (ctrl && !shift && handleSelectionShortcut(key)) return true;
+        if (!ctrl && !shift && handleSelectionKey(key)) return true;
         if (!ctrl && !shift && handleHotkey(key)) return true;
         if (key == GLFW.GLFW_KEY_PAGE_UP && this.activeLayer < MAX_LAYER) {
             this.activeLayer++;
@@ -446,6 +453,8 @@ public class CustomizationScreen extends Screen {
         if (importFeedbackTimer > 0) importFeedbackTimer--;
         else if (importFeedbackTimer < 0) importFeedbackTimer++;
 
+        this.curMouseX = mouseX;
+        this.curMouseY = mouseY;
         int leftPos = (vw() - WINDOW_WIDTH) / 2;
         int topPos = (vh() - WINDOW_HEIGHT) / 2;
 
@@ -587,6 +596,20 @@ public class CustomizationScreen extends Screen {
                 outline(guiGraphics, px, py, this.cellSize, this.cellSize, 0xAAFFFFFF);
             }
 
+            // Selection
+            if (this.selActive && this.selLayer == this.activeLayer) {
+                int sx0 = gridX + this.selX0 * this.cellSize;
+                int sx1 = gridX + (this.selX1 + 1) * this.cellSize;
+                int sy0 = gridY + (this.gridSize - 1 - this.selY1) * this.cellSize;
+                int sy1 = gridY + (this.gridSize - this.selY0) * this.cellSize;
+                guiGraphics.fill(sx0, sy0, sx1, sy1, 0x2255AAFF);
+                int ph = (int) (System.currentTimeMillis() / 90);
+                drawAntLine(guiGraphics, gridX, gridY, sx0, sy0, sx1, sy0, ph);
+                drawAntLine(guiGraphics, gridX, gridY, sx1, sy0, sx1, sy1, ph);
+                drawAntLine(guiGraphics, gridX, gridY, sx1, sy1, sx0, sy1, ph);
+                drawAntLine(guiGraphics, gridX, gridY, sx0, sy1, sx0, sy0, ph);
+            }
+
             // Mirror axis
             if (this.mirrorMode != 0) {
                 int size = this.gridSize * this.cellSize;
@@ -649,18 +672,18 @@ public class CustomizationScreen extends Screen {
         String leftLabel = "[Left] " + toolName(this.tool);
         guiGraphics.text(this.font, Component.literal(leftLabel), statsX + 6, statsY + 104, FONT_COLOR, false);
 
-        Component eraseText = Component.literal(this.view3d ? "[Right] Orbit" : (this.tool == TOOL_PICK ? "" : "[Right] Erase "));
+        Component eraseText = Component.literal(this.view3d ? "[Right] Orbit" : (this.tool == TOOL_PICK || this.tool == TOOL_MOVE ? "" : this.tool == TOOL_SELECT ? "[Right] Deselect" : "[Right] Erase "));
         guiGraphics.text(this.font, eraseText, statsX + 6, statsY + 114, FONT_COLOR, false);
 
         // Erase warning icon
         int infoX = statsX + 6 + this.font.width(eraseText);
         int infoY = statsY + 114;
-        Component infoIcon = Component.literal(this.view3d || this.tool == TOOL_PICK ? "" : "§6(!)");
+        Component infoIcon = Component.literal(this.view3d || this.tool == TOOL_PICK || this.tool == TOOL_SELECT || this.tool == TOOL_MOVE ? "" : "§6(!)");
         guiGraphics.text(this.font, infoIcon, infoX, infoY, 0xFFFFFFFF, false);
 
         // Hover detection for Erase warning icon
         int infoW = this.font.width(infoIcon);
-        if (!this.view3d && this.tool != TOOL_PICK && mouseX >= infoX - 1 && mouseX <= infoX + infoW + 1 && mouseY >= infoY - 1 && mouseY <= infoY + 9) {
+        if (!this.view3d && this.tool != TOOL_PICK && this.tool != TOOL_SELECT && this.tool != TOOL_MOVE && mouseX >= infoX - 1 && mouseX <= infoX + infoW + 1 && mouseY >= infoY - 1 && mouseY <= infoY + 9) {
             List<ClientTooltipComponent> infoTooltip = List.of(
                     ClientTooltipComponent.create(Component.literal("§cMaterials will be destroyed upon erasing!").getVisualOrderText())
             );
@@ -832,6 +855,8 @@ public class CustomizationScreen extends Screen {
                 }
             }
         }
+
+        drawSelectionStatus(guiGraphics, leftPos + WORKSPACE_OFFSET_X, topPos + WORKSPACE_OFFSET_Y);
 
         // Material tooltip
         if (hoveredMaterial != null) {
@@ -1124,6 +1149,9 @@ public class CustomizationScreen extends Screen {
     @Override
     public boolean mouseReleased(@NonNull MouseButtonEvent event) {
         this.draggingScrollbar = false;
+        this.selecting = false;
+        this.moving = false;
+        this.moveBase = null;
         if (!this.view3d) finish2dStroke();
         this.strokeSnapshot = null;
         this.orbiting = false;
@@ -1144,6 +1172,285 @@ public class CustomizationScreen extends Screen {
             if (v.x() == x && v.y() == y && v.z() == layer) return v;
         }
         return null;
+    }
+
+    // ----- Selection, move, copy / paste (shared by the 2D and 3D editors) -----
+    // A selection is a rectangle of cells on one layer (selLayer); it covers the voxels of that layer inside it.
+
+    private boolean selActive = false;
+    private int selX0, selY0, selX1, selY1, selLayer;
+    private boolean selecting = false;
+    private int selAnchorX, selAnchorY;
+
+    private boolean moving = false;
+    private int moveAnchorX, moveAnchorY, moveDx, moveDy;
+    private int[] moveOrig;
+    private List<WeaponVoxel> moveBase, moveSel;
+    private java.util.Set<WeaponVoxel> moveSelSet;
+
+    private record ClipVoxel(int dx, int dy, VoxelMaterial material, int shade) {}
+    private final List<ClipVoxel> clipboard = new ArrayList<>();
+    private int clipW = 0, clipH = 0;
+
+    private int curMouseX, curMouseY;
+    private String toastMsg = "";
+    private long toastUntil = 0;
+
+    private void toast(String msg) {
+        this.toastMsg = msg;
+        this.toastUntil = System.nanoTime() + 2_500_000_000L;
+    }
+
+    private void clearSelection() {
+        this.selActive = false;
+        this.selecting = false;
+    }
+
+    private void setSelection(int x0, int y0, int x1, int y1, int layer) {
+        this.selX0 = Math.clamp(Math.min(x0, x1), 0, this.gridSize - 1);
+        this.selX1 = Math.clamp(Math.max(x0, x1), 0, this.gridSize - 1);
+        this.selY0 = Math.clamp(Math.min(y0, y1), 0, this.gridSize - 1);
+        this.selY1 = Math.clamp(Math.max(y0, y1), 0, this.gridSize - 1);
+        this.selLayer = layer;
+        this.selActive = true;
+    }
+
+    private void beginSelect(int x, int y) {
+        this.selecting = true;
+        this.selAnchorX = x;
+        this.selAnchorY = y;
+        setSelection(x, y, x, y, this.activeLayer);
+    }
+
+    private void beginMove(int x, int y) {
+        if (!this.selActive) {
+            toast("Select an area first");
+            return;
+        }
+        if (isLayerLocked(this.selLayer)) {
+            toast("That layer is locked or hidden");
+            return;
+        }
+        if (!startMoveState()) return;
+        this.moving = true;
+        this.moveAnchorX = x;
+        this.moveAnchorY = y;
+    }
+
+    private void dragSelectOrMove(int x, int y) {
+        if (this.tool == TOOL_SELECT && this.selecting) {
+            setSelection(this.selAnchorX, this.selAnchorY, x, y, this.selLayer);
+        } else if (this.tool == TOOL_MOVE && this.moving) {
+            applyMove(x - this.moveAnchorX, y - this.moveAnchorY);
+        }
+    }
+
+    private List<WeaponVoxel> selectedVoxels() {
+        List<WeaponVoxel> out = new ArrayList<>();
+        if (!this.selActive) return out;
+        for (WeaponVoxel v : this.workingVoxels) {
+            if (v.z() == this.selLayer && v.x() >= this.selX0 && v.x() <= this.selX1 && v.y() >= this.selY0 && v.y() <= this.selY1) out.add(v);
+        }
+        return out;
+    }
+
+    private boolean startMoveState() {
+        this.moveBase = new ArrayList<>(this.workingVoxels);
+        this.moveSel = selectedVoxels();
+        this.moveSelSet = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        this.moveSelSet.addAll(this.moveSel);
+        this.moveOrig = new int[]{this.selX0, this.selY0, this.selX1, this.selY1};
+        this.moveDx = 0;
+        this.moveDy = 0;
+        return true;
+    }
+
+    /**
+     * Shows the selection's voxels shifted by (dx, dy) from where the move began. The result is always rebuilt from the
+     * untouched starting state, so voxels the selection passes over come back when it moves on.
+     */
+    private void applyMove(int dx, int dy) {
+        if (this.moveBase == null) return;
+        dx = Math.clamp(dx, -this.moveOrig[0], this.gridSize - 1 - this.moveOrig[2]);
+        dy = Math.clamp(dy, -this.moveOrig[1], this.gridSize - 1 - this.moveOrig[3]);
+        if (dx == this.moveDx && dy == this.moveDy) return;
+
+        java.util.Set<Long> targets = new java.util.HashSet<>();
+        for (WeaponVoxel v : this.moveSel) targets.add(((long) (v.x() + dx) << 32) | (v.y() + dy));
+        List<WeaponVoxel> result = new ArrayList<>(this.moveBase.size());
+        for (WeaponVoxel v : this.moveBase) {
+            if (this.moveSelSet.contains(v)) continue;
+            if (v.z() == this.selLayer && targets.contains(((long) v.x() << 32) | v.y())) continue; // overwritten
+            result.add(v);
+        }
+        for (WeaponVoxel v : this.moveSel) result.add(new WeaponVoxel(v.x() + dx, v.y() + dy, v.z(), v.material(), v.shade()));
+        if (result.size() < MIN_VOXELS) return;
+
+        if (dx != 0 || dy != 0) commitSnapshot();
+        this.workingVoxels.clear();
+        this.workingVoxels.addAll(result);
+        this.selX0 = this.moveOrig[0] + dx;
+        this.selX1 = this.moveOrig[2] + dx;
+        this.selY0 = this.moveOrig[1] + dy;
+        this.selY1 = this.moveOrig[3] + dy;
+        this.moveDx = dx;
+        this.moveDy = dy;
+        recalculateCachedStats();
+    }
+
+    private void nudgeSelection(int dx, int dy) {
+        if (!this.selActive || isLayerLocked(this.selLayer)) return;
+        beginStroke();
+        startMoveState();
+        applyMove(dx, dy);
+        this.strokeSnapshot = null;
+        this.moveBase = null;
+    }
+
+    private void copySelection() {
+        if (!this.selActive) {
+            toast("Nothing selected");
+            return;
+        }
+        this.clipboard.clear();
+        for (WeaponVoxel v : selectedVoxels()) {
+            this.clipboard.add(new ClipVoxel(v.x() - this.selX0, v.y() - this.selY0, v.material(), v.shade()));
+        }
+        this.clipW = this.selX1 - this.selX0 + 1;
+        this.clipH = this.selY1 - this.selY0 + 1;
+        toast(this.clipboard.isEmpty() ? "Selection is empty" : "Copied " + this.clipboard.size() + " voxels");
+    }
+
+    /** Pastes the clipboard centred on the cell under the cursor, on the selected layer, and selects what was pasted. */
+    private void pasteClipboard() {
+        if (this.clipboard.isEmpty()) {
+            toast("Nothing to paste: select and copy first");
+            return;
+        }
+        int[] cell = null;
+        if (isInsideWorkspace(this.curMouseX, this.curMouseY)) {
+            if (this.view3d) {
+                ensureRaycaster();
+                int gridX = (vw() - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
+                int gridY = (vh() - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
+                int px = (this.curMouseX - gridX) * this.renderScale + this.renderScale / 2;
+                int py = (this.curMouseY - gridY) * this.renderScale + this.renderScale / 2;
+                cell = this.raycaster.pickOnPlane(px, py, 2, this.activeLayer + MAX_LAYER);
+            } else {
+                cell = cellAt(this.curMouseX, this.curMouseY, false);
+            }
+        }
+        if (cell == null) {
+            toast("Point at the grid to paste");
+            return;
+        }
+        if (isLayerLocked(this.activeLayer)) {
+            toast("That layer is locked or hidden");
+            return;
+        }
+        int ox = Math.clamp(cell[0] - this.clipW / 2, 0, Math.max(0, this.gridSize - this.clipW));
+        int oy = Math.clamp(cell[1] - this.clipH / 2, 0, Math.max(0, this.gridSize - this.clipH));
+
+        beginStroke();
+        int placed = 0;
+        for (ClipVoxel c : this.clipboard) {
+            if (putVoxel(ox + c.dx(), oy + c.dy(), this.activeLayer, c.material(), c.shade())) placed++;
+        }
+        if (placed > 0) {
+            commitSnapshot();
+            recalculateCachedStats();
+        }
+        this.strokeSnapshot = null;
+        setSelection(ox, oy, ox + this.clipW - 1, oy + this.clipH - 1, this.activeLayer);
+        this.tool = TOOL_MOVE;
+        int missed = this.clipboard.size() - placed;
+        toast("Pasted " + placed + " voxels" + (missed > 0 ? " (" + missed + " skipped: no material left or no change)" : ""));
+    }
+
+    private void deleteSelection() {
+        if (!this.selActive || isLayerLocked(this.selLayer)) return;
+        beginStroke();
+        boolean changed = false;
+        for (WeaponVoxel v : selectedVoxels()) changed |= removeVoxel(v.x(), v.y(), v.z());
+        if (changed) {
+            commitSnapshot();
+            recalculateCachedStats();
+        }
+        this.strokeSnapshot = null;
+    }
+
+    private boolean handleSelectionShortcut(int key) {
+        switch (key) {
+            case GLFW.GLFW_KEY_C -> { copySelection(); return true; }
+            case GLFW.GLFW_KEY_V -> { pasteClipboard(); return true; }
+            case GLFW.GLFW_KEY_A -> {
+                setSelection(0, 0, this.gridSize - 1, this.gridSize - 1, this.activeLayer);
+                return true;
+            }
+            case GLFW.GLFW_KEY_D -> { clearSelection(); return true; }
+            default -> { return false; }
+        }
+    }
+
+    private boolean handleSelectionKey(int key) {
+        if (!this.selActive) return false;
+        switch (key) {
+            case GLFW.GLFW_KEY_LEFT -> nudgeSelection(-1, 0);
+            case GLFW.GLFW_KEY_RIGHT -> nudgeSelection(1, 0);
+            case GLFW.GLFW_KEY_UP -> nudgeSelection(0, 1);
+            case GLFW.GLFW_KEY_DOWN -> nudgeSelection(0, -1);
+            case GLFW.GLFW_KEY_DELETE, GLFW.GLFW_KEY_BACKSPACE -> deleteSelection();
+            default -> { return false; }
+        }
+        return true;
+    }
+
+    /** A dotted "marching ants" line in GUI pixels, clipped to the workspace. */
+    private void drawAntLine(GuiGraphicsExtractor g, int gridX, int gridY, double x0, double y0, double x1, double y1, int phase) {
+        int steps = (int) Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)));
+        if (steps < 1 || steps > 4000) return;
+        for (int i = 0; i <= steps; i++) {
+            int x = (int) Math.round(x0 + (x1 - x0) * i / steps);
+            int y = (int) Math.round(y0 + (y1 - y0) * i / steps);
+            if (x < gridX || y < gridY || x >= gridX + WORKSPACE_DIM || y >= gridY + WORKSPACE_DIM) continue;
+            g.fill(x, y, x + 1, y + 1, ((i + phase) / 4) % 2 == 0 ? 0xFFFFFFFF : 0xFF1A1A1A);
+        }
+    }
+
+    /** The selection rectangle drawn on the plane of its layer in the 3D view. */
+    private void drawSelection3d(GuiGraphicsExtractor g, int gridX, int gridY) {
+        if (!this.selActive || this.raycaster == null) return;
+        double z = this.selLayer + MAX_LAYER + 0.5;
+        double[][] c = {
+                this.raycaster.project(this.selX0, this.selY0, z),
+                this.raycaster.project(this.selX1 + 1, this.selY0, z),
+                this.raycaster.project(this.selX1 + 1, this.selY1 + 1, z),
+                this.raycaster.project(this.selX0, this.selY1 + 1, z)};
+        double s = this.renderScale;
+        int ph = (int) (System.currentTimeMillis() / 90);
+        for (int i = 0; i < 4; i++) {
+            double[] a = c[i], b = c[(i + 1) % 4];
+            drawAntLine(g, gridX, gridY, gridX + a[0] / s, gridY + a[1] / s, gridX + b[0] / s, gridY + b[1] / s, ph);
+        }
+    }
+
+    /** Small readout in the workspace corner: selection size, clipboard, and short messages. */
+    private void drawSelectionStatus(GuiGraphicsExtractor g, int gridX, int gridY) {
+        String text = null;
+        long now = System.nanoTime();
+        if (now < this.toastUntil) {
+            text = this.toastMsg;
+        } else if (this.selActive) {
+            int w = this.selX1 - this.selX0 + 1, h = this.selY1 - this.selY0 + 1;
+            text = "Selection " + w + "x" + h + " | " + selectedVoxels().size() + " voxels | layer " + this.selLayer;
+        } else if (this.tool == TOOL_SELECT || this.tool == TOOL_MOVE) {
+            text = this.tool == TOOL_SELECT ? "Drag to select an area" : "Select an area first";
+        }
+        if (text == null) return;
+        int tw = this.font.width(text);
+        int x = gridX + 4, y = gridY + 4;
+        g.fill(x - 3, y - 2, x + tw + 3, y + 10, 0x90000000);
+        g.text(this.font, Component.literal(text), x, y, 0xFFFFFFFF, false);
     }
 
     // ----- Undo / redo -----
@@ -1249,6 +1556,12 @@ public class CustomizationScreen extends Screen {
                 applyFootprint(List.of(cell), erase);
             }
             case TOOL_FILL -> fillLayerRegion(cell[0], cell[1], erase);
+            case TOOL_SELECT -> {
+                if (button == 1) clearSelection(); else beginSelect(cell[0], cell[1]);
+            }
+            case TOOL_MOVE -> {
+                if (button == 0) beginMove(cell[0], cell[1]);
+            }
             case TOOL_PICK -> {
                 if (!erase) {
                     WeaponVoxel v = findVoxel(cell[0], cell[1], this.activeLayer);
@@ -1282,6 +1595,11 @@ public class CustomizationScreen extends Screen {
 
     private boolean drag2d(int mouseX, int mouseY, int button) {
         if (button != 0 && button != 1) return false;
+        if (this.tool == TOOL_SELECT || this.tool == TOOL_MOVE) {
+            int[] cell = cellAt(mouseX, mouseY, true);
+            if (button == 0 && cell != null) dragSelectOrMove(cell[0], cell[1]);
+            return true;
+        }
         if (this.tool == TOOL_ADD || this.tool == TOOL_RECOLOR || this.tool == TOOL_ERASE) {
             int[] cell = cellAt(mouseX, mouseY, false);
             boolean eraseStroke = button == 1 || this.tool == TOOL_ERASE;
@@ -1889,6 +2207,7 @@ public class CustomizationScreen extends Screen {
         drawBackdrop(guiGraphics, gridX, gridY);
         // The model layer is rendered at native resolution (scale x the GUI size) and drawn scaled down 1:scale
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, this.viewTextureId, gridX, gridY, 0.0F, 0.0F, WORKSPACE_DIM, WORKSPACE_DIM, n, n, n, n);
+        drawSelection3d(guiGraphics, gridX, gridY);
 
         // Control hint: a small pill that shows for a few seconds, fades away, and returns while the cursor is over it
         String hint = "Right-drag orbit  |  Mid-drag pan  |  Wheel zoom";
@@ -1919,6 +2238,19 @@ public class CustomizationScreen extends Screen {
         int py = (mouseY - gridY) * scale + scale / 2;
 
         if (button != 0) return false; // right-drag orbits and middle-drag pans, handled in mouseClicked/Dragged
+
+        if (this.tool == TOOL_SELECT || this.tool == TOOL_MOVE) {
+            // Both work on the plane of one layer: the selected layer for a new selection, the selection's own layer for a move
+            int planeLayer = (this.tool == TOOL_MOVE && this.selActive) ? this.selLayer : this.activeLayer;
+            int[] c = this.raycaster.pickOnPlane(px, py, 2, planeLayer + MAX_LAYER);
+            if (c == null) return true;
+            if (!drag) {
+                if (this.tool == TOOL_SELECT) beginSelect(c[0], c[1]); else beginMove(c[0], c[1]);
+            } else {
+                dragSelectOrMove(c[0], c[1]);
+            }
+            return true;
+        }
 
         if (this.tool == TOOL_ERASE) {
             VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
@@ -2164,6 +2496,10 @@ public class CustomizationScreen extends Screen {
                 case TOOL_RECOLOR -> new String[]{"§eRecolor", "§7Repaint the voxel you point at", key};
                 case TOOL_ERASE -> new String[]{"§eErase", "§7Remove the voxel you point at", "§cErased materials are destroyed!", key};
                 case TOOL_PICK -> new String[]{"§eEyedropper", "§7Pick the material and shade of the voxel you point at", key};
+                case TOOL_SELECT -> new String[]{"§eSelect", "§7Drag a rectangle on the selected layer",
+                        "§7Ctrl+C copy, Ctrl+V paste at the cursor", "§7Ctrl+A select layer, Ctrl+D deselect, Del erase", key};
+                case TOOL_MOVE -> new String[]{"§eMove", "§7Drag the selected voxels to a new spot",
+                        "§7Arrow keys nudge by one cell", key};
                 default -> new String[]{"§eBucket fill", "§7On a voxel: recolor everything connected to it that matches",
                         "§7On empty space: fill the selected layer", key};
             };
@@ -2173,6 +2509,9 @@ public class CustomizationScreen extends Screen {
             case TOOL_RECOLOR -> new String[]{"§eRecolor", "§7Repaint existing voxels only, never adds new ones", key};
             case TOOL_ERASE -> new String[]{"§eErase", "§7Remove voxels freehand", "§cErased materials are destroyed!", key};
             case TOOL_PICK -> new String[]{"§eEyedropper", "§7Pick the material and shade", key};
+            case TOOL_SELECT -> new String[]{"§eSelect", "§7Drag a rectangle on the selected layer", "§7Right-click deselects",
+                    "§7Ctrl+C copy, Ctrl+V paste at the cursor", "§7Ctrl+A select layer, Del erase", key};
+            case TOOL_MOVE -> new String[]{"§eMove", "§7Drag the selected voxels to a new spot", "§7Arrow keys nudge by one cell", key};
             default -> new String[]{"§eBucket fill", "§7Fill a connected area", "§7Right-click erases it", key};
         };
     }
