@@ -1006,7 +1006,12 @@ public class CustomizationScreen extends Screen {
             if (isInsideWorkspace(mouseX, mouseY)) {
                 int btn = event.button();
                 this.strokeAxis = -1;
-                if (btn == 1) { // right-drag orbits
+                if (btn == 1) { // right-drag orbits around the point under the cursor
+                    ensureRaycaster();
+                    int gx = (vw() - WINDOW_WIDTH) / 2 + WORKSPACE_OFFSET_X;
+                    int gy = (vh() - WINDOW_HEIGHT) / 2 + WORKSPACE_OFFSET_Y;
+                    this.raycaster.beginOrbit((mouseX - gx) * this.renderScale + this.renderScale / 2.0,
+                            (mouseY - gy) * this.renderScale + this.renderScale / 2.0);
                     this.orbiting = true;
                     return true;
                 }
@@ -1058,6 +1063,7 @@ public class CustomizationScreen extends Screen {
         if (!this.view3d) finish2dStroke();
         this.strokeSnapshot = null;
         this.orbiting = false;
+        if (this.raycaster != null) this.raycaster.endOrbit();
         this.panning = false;
         this.strokeAxis = -1;
         this.sceneDirty = true;
