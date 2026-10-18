@@ -32,6 +32,11 @@ public interface WeaponAbility {
     WeaponType weaponType();
     Map<MaterialGroup, Double> requiredThresholds();
 
+    /** Minimum number of voxels a weapon needs for abilities to unlock (flat count). */
+    static int minVoxelCount() {
+        return (MAX_VOXELS() * ABILITY_MIN_VOXELS) / 100;
+    }
+
     default boolean isUnlocked(ItemStack stack) {
         boolean isBow = stack.getItem() instanceof ModularBowItem;
         boolean isSword = stack.getItem() instanceof ModularSwordItem;
@@ -39,7 +44,14 @@ public interface WeaponAbility {
         if (weaponType() == WeaponType.BOW && !isBow) return false;
 
         List<WeaponVoxel> voxels = isBow ? ModularBowItem.getVoxels(stack) : ModularSwordItem.getVoxels(stack);
-        if (voxels.size() < (MAX_VOXELS() * ABILITY_MIN_VOXELS) / 100) return false;
+        return isUnlockedFor(isBow, voxels);
+    }
+
+    /** Evaluates unlock conditions for an arbitrary voxel layout (used by the forging UI for live preview). */
+    default boolean isUnlockedFor(boolean isBow, List<WeaponVoxel> voxels) {
+        if (weaponType() == WeaponType.SWORD && isBow) return false;
+        if (weaponType() == WeaponType.BOW && !isBow) return false;
+        if (voxels.isEmpty() || voxels.size() < WeaponAbility.minVoxelCount()) return false;
 
         Map<String, Integer> counts = new HashMap<>();
         for (WeaponVoxel v : voxels) {

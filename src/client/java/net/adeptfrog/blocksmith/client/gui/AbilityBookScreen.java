@@ -15,8 +15,6 @@ import net.minecraft.network.chat.Style;
 
 import java.util.*;
 
-import static net.adeptfrog.blocksmith.Blocksmith.ABILITY_MIN_VOXELS;
-
 public class AbilityBookScreen extends BookViewScreen {
     private final Screen parent;
 
@@ -43,7 +41,7 @@ public class AbilityBookScreen extends BookViewScreen {
                 "§1§lBlocksmith\n"+
                 "§0§lAbility Codex\n\n"+
                 
-                "§0Forged weapons unlock powerful abilities when built to §4"+ABILITY_MIN_VOXELS+"% voxel capacity§0 and meeting material thresholds.\n\n"+
+                "§0Forged weapons unlock powerful abilities when built with at least §4"+WeaponAbility.minVoxelCount()+" voxels§0 and meeting material thresholds.\n\n"+
                 
                 "§8Turn pages to browse all active abilities §0➡"));
 

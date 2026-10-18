@@ -2,7 +2,9 @@ package net.adeptfrog.blocksmith.client.gui;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.NativeImage;
+import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
+import net.adeptfrog.blocksmith.data.MaterialGroup;
 import net.adeptfrog.blocksmith.client.render.VoxelRaycaster;
 import net.adeptfrog.blocksmith.client.utils.StringUtils;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
@@ -235,6 +237,7 @@ public class CustomizationScreen extends Screen {
     public record MaterialBreakdown(VoxelMaterial material, ItemStack iconStack, int percent) {}
     private final List<MaterialBreakdown> cachedBreakdown = new ArrayList<>();
     private static final int MAX_BREAKDOWN = 10;
+    private final List<WeaponAbility> cachedAbilities = new ArrayList<>();
 
     public CustomizationScreen(ItemStack weaponStack) {
         super(Component.literal("Weapon Forging"));
@@ -851,7 +854,63 @@ public class CustomizationScreen extends Screen {
             guiGraphics.text(this.font, Component.literal(pctText), breakdownX + 19, rowY + 4, 0xFFFFFFFF, true);
         }
 
+        drawAbilityPanel(guiGraphics, breakdownX, startY + Math.min(cachedBreakdown.size(), MAX_BREAKDOWN) * rowH + 8, mouseX, mouseY);
 
+
+    }
+
+    /** Lists the abilities the current design activates, with the material-group icons each one requires. */
+    private void drawAbilityPanel(GuiGraphicsExtractor g, int x, int y, int mouseX, int mouseY) {
+        g.text(this.font, Component.literal("§6✦ Abilities"), x, y, 0xFFFFFFFF, true);
+        y += 12;
+
+        boolean disabled = net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled();
+        if (disabled) {
+            g.text(this.font, Component.literal("Disabled in settings"), x, y, 0xFFFF7777, false);
+            return;
+        }
+        int need = WeaponAbility.minVoxelCount();
+        if (workingVoxels.size() < need) {
+            g.text(this.font, Component.literal("Needs " + need + " voxels"), x, y, 0xFFFFFFFF, false);
+            g.text(this.font, Component.literal("(" + workingVoxels.size() + "/" + need + ")"), x, y + 10, 0xFFAAAAAA, false);
+            return;
+        }
+        if (cachedAbilities.isEmpty()) {
+            g.text(this.font, Component.literal("None active"), x, y, 0xFFAAAAAA, false);
+            return;
+        }
+
+        WeaponAbility hovered = null;
+        for (WeaponAbility ability : cachedAbilities) {
+            Component name = ability.displayName();
+            g.text(this.font, name, x, y, 0xFFFFFFFF, true);
+            int nameW = this.font.width(name);
+            if (mouseX >= x && mouseX < x + nameW && mouseY >= y - 1 && mouseY < y + 10) hovered = ability;
+            y += 11;
+
+            int ix = x;
+            for (java.util.Map.Entry<MaterialGroup, Double> req : ability.requiredThresholds().entrySet()) {
+                ItemStack icon = req.getKey().icon().getDefaultInstance();
+                g.pose().pushMatrix();
+                g.pose().translate(ix, y);
+                g.pose().scale(0.75f, 0.75f);
+                g.fakeItem(icon, 0, 0);
+                g.pose().popMatrix();
+                String pct = req.getValue().intValue() + "%";
+                g.text(this.font, Component.literal(pct), ix + 13, y + 2, 0xFF000000 | req.getKey().color(), true);
+                ix += 13 + this.font.width(pct) + 6;
+            }
+            y += 16;
+        }
+
+        if (hovered != null) {
+            List<ClientTooltipComponent> lines = new ArrayList<>();
+            lines.add(ClientTooltipComponent.create(hovered.displayName().getVisualOrderText()));
+            for (net.minecraft.network.chat.FormattedText w : this.font.getSplitter().splitLines(hovered.description(), 180, net.minecraft.network.chat.Style.EMPTY)) {
+                lines.add(ClientTooltipComponent.create(Component.literal("§7" + w.getString().trim()).getVisualOrderText()));
+            }
+            realTooltip(g, lines, realMouseX, realMouseY);
+        }
     }
 
     @Override
@@ -2027,6 +2086,14 @@ public class CustomizationScreen extends Screen {
         this.cachedDiffDur = this.cachedCurrentDur - savedDur;
 
         refreshSlots();
+
+        this.cachedAbilities.clear();
+        if (!net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled()) {
+            boolean bow = weaponStack.getItem() instanceof ModularBowItem;
+            for (WeaponAbility ability : WeaponAbilityRegistry.getAll()) {
+                if (ability.isUnlockedFor(bow, workingVoxels)) cachedAbilities.add(ability);
+            }
+        }
 
         this.cachedBreakdown.clear();
         if (!workingVoxels.isEmpty()) {

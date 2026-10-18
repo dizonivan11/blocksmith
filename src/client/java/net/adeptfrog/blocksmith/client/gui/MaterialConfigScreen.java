@@ -33,7 +33,7 @@ public class MaterialConfigScreen extends Screen {
     private static final int ROW_HEIGHT = 28;
     private static final int ROW_SPACING = 31;
     private static final int TAB_Y = 38;
-    private static final int LIST_TOP = 64;
+    private static final int LIST_TOP = 68;
     private static final int FORM_WIDTH = 240;
 
     private int tab = TAB_MATERIALS;
@@ -58,19 +58,19 @@ public class MaterialConfigScreen extends Screen {
         super.init();
         int centerX = this.width / 2;
 
-        // Tab row
-        int tabW = 110;
-        int tabGap = 4;
-        int tabsLeft = centerX - ((3 * tabW + 2 * tabGap) / 2);
+        // Tab row (left-aligned compact tabs on a dark strip; the active tab is the greyed-out one)
+        int tx = 14;
         for (int i = 0; i < 3; i++) {
             final int idx = i;
+            int tw = this.font.width(TAB_NAMES[i]) + 14;
             Button tb = Button.builder(Component.literal(TAB_NAMES[i]), _ -> {
                 this.tab = idx;
                 this.formError = "";
                 this.rebuildWidgets();
-            }).bounds(tabsLeft + i * (tabW + tabGap), TAB_Y, tabW, 20).build();
+            }).bounds(tx, TAB_Y, tw, 20).build();
             tb.active = (tab != i);
             this.addRenderableWidget(tb);
+            tx += tw + 4;
         }
 
         int btnY = this.height - 25;
@@ -351,6 +351,10 @@ public class MaterialConfigScreen extends Screen {
         guiGraphics.fill(0, this.height - 30, this.width, this.height, 0xD0000000);
         guiGraphics.fill(0, this.height - 30, this.width, this.height - 29, 0x55FFFFFF);
 
+        // Tab strip backdrop
+        guiGraphics.fill(0, TAB_Y - 5, this.width, TAB_Y + 25, 0x90000000);
+        guiGraphics.fill(0, TAB_Y + 25, this.width, TAB_Y + 26, 0x55FFFFFF);
+
         if (tab == TAB_ADD) drawAddLabels(guiGraphics, centerX);
         if (tab == TAB_CONFIG) drawConfigLabels(guiGraphics, centerX);
 
@@ -465,8 +469,8 @@ public class MaterialConfigScreen extends Screen {
         Component warn = Component.literal("§cChanging grid resolution requires a server and client restart.");
         g.text(this.font, warn, centerX - this.font.width(warn) / 2, LIST_TOP + 62, 0xFFFF5555, false);
         g.text(this.font, Component.literal("Combat"), x, LIST_TOP + 84, 0xFFEEEEEE, true);
-        Component hint = Component.literal("§7Disables all sword and bow abilities; weapons keep their stats.");
-        g.text(this.font, hint, centerX - this.font.width(hint) / 2, LIST_TOP + 120, 0xFFAAAAAA, false);
+        Component hint = Component.literal("Disables all sword and bow abilities; weapons keep their stats.");
+        g.text(this.font, hint, centerX - this.font.width(hint) / 2, LIST_TOP + 120, 0xFFFFFFFF, false);
     }
 
     private void drawEditButton(GuiGraphicsExtractor g, int x, int y, int w, int h, boolean hovered) {
