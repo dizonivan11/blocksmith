@@ -58,11 +58,14 @@ public class CustomizationScreen extends Screen {
     private int activeLayer = 0; // 2D mode only: layer being edited, MIN_LAYER..MAX_LAYER, 0 = base layer
 
     // 2D drawing tools
-    private static final int T2_PENCIL = 0, T2_LINE = 1, T2_RECT = 2, T2_FRAME = 3, T2_FILL = 4, T2_PICK = 5;
-    private static final String[] TOOL2D_NAMES = {"Pencil", "Line", "Rectangle", "Frame", "Bucket fill", "Eyedropper"};
+    private static final int T2_PENCIL = 0, T2_LINE = 1, T2_RECT = 2, T2_FRAME = 3, T2_FILL = 4, T2_PICK = 5, T2_RECOLOR = 6, T2_ERASE = 7;
+    private static final String[] TOOL2D_NAMES = {"Pencil", "Line", "Rectangle", "Frame", "Bucket fill", "Eyedropper", "Recolor", "Erase"};
+    private static final String[] TOOL2D_KEYS = {"P", "L", "X", "F", "B", "I", "O", "R"};
     private static final int[] THICKNESS = {1, 3, 5, 7, 9};
     private int tool2d = T2_PENCIL;
-    private boolean mirrorX = false;
+    private static final String[] MIRROR_NAMES = {"Off", "Horizontal (left/right)", "Vertical (top/bottom)", "Diagonal /", "Diagonal \\"};
+    private static final String[] MIRROR_TAGS = {"", "H", "V", "/", "\\"};
+    private int mirrorMode = 0; // 0 off, 1 horizontal, 2 vertical, 3 diagonal /, 4 diagonal \
     private int thicknessIdx = 0;
     private int profile = 0;
     private int shapeAnchorX = -1, shapeAnchorY = -1, shapeCurX = -1, shapeCurY = -1;
@@ -94,14 +97,15 @@ public class CustomizationScreen extends Screen {
     private final List<Swatch> recentSwatches = new ArrayList<>();
 
     // 3D editor
-    private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ERASE = 2;
-    private static final String[] TOOL_NAMES = {"Add", "Recolor", "Erase"};
+    private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ERASE = 2, TOOL_PICK = 3, TOOL_FILL = 4;
+    private static final String[] TOOL_NAMES = {"Add", "Recolor", "Erase", "Eyedropper", "Bucket fill"};
+    private static final String[] TOOL_KEYS = {"P", "O", "R", "I", "B"};
     // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
     // Tool and Reset view only exist in the 3D editor; the drawing-tool, mirror and thickness buttons only in the 2D editor.
     // The tool buttons come first (3 in the 3D editor, 6 in the 2D editor): one button per tool, the active one is outlined.
-    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 6, BTN_FLIP_H = 6, BTN_FLIP_V = 7, BTN_ROT_CW = 8,
-            BTN_ROT_CCW = 9, BTN_VIEW = 10, BTN_UNDO = 11, BTN_REDO = 12, BTN_MIRROR = 13, BTN_THICK = 14,
-            BTN_PROFILE = 15, BTN_RESET = 16, BTN_CODEX = 17, BTN_COUNT = 18;
+    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 8, BTN_FLIP_H = 8, BTN_FLIP_V = 9, BTN_ROT_CW = 10,
+            BTN_ROT_CCW = 11, BTN_VIEW = 12, BTN_UNDO = 13, BTN_REDO = 14, BTN_MIRROR = 15, BTN_THICK = 16,
+            BTN_PROFILE = 17, BTN_RESET = 18, BTN_CODEX = 19, BTN_COUNT = 20;
     private static final int ICON_BTN = 18, ICON_STEP = 20, EI_BTN_W = 44;
     // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
     private static final ItemStack ICON_FLIP_H = new ItemStack(Items.PISTON);
@@ -110,11 +114,11 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_ROT_CCW = new ItemStack(Items.COMPARATOR);
     private static final ItemStack ICON_VIEW_3D = new ItemStack(Items.ENDER_EYE);
     private static final ItemStack ICON_VIEW_2D = new ItemStack(Items.MAP);
-    private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STONE), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE)};
+    private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STONE), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE), new ItemStack(Items.SPYGLASS), new ItemStack(Items.BUCKET)};
     private static final ItemStack ICON_RESET = new ItemStack(Items.COMPASS);
     private static final ItemStack ICON_UNDO = new ItemStack(Items.CLOCK);
     private static final ItemStack[] ICON_TOOLS_2D = {new ItemStack(Items.STICK), new ItemStack(Items.LEAD), new ItemStack(Items.ITEM_FRAME),
-            new ItemStack(Items.GLOW_ITEM_FRAME), new ItemStack(Items.BUCKET), new ItemStack(Items.SPYGLASS)};
+            new ItemStack(Items.GLOW_ITEM_FRAME), new ItemStack(Items.BUCKET), new ItemStack(Items.SPYGLASS), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE)};
     private static final ItemStack ICON_MIRROR = new ItemStack(Items.GLASS_PANE);
     private static final ItemStack ICON_THICK = new ItemStack(Items.SLIME_BLOCK);
     private static final ItemStack[] ICON_PROFILES = {new ItemStack(Items.SMOOTH_STONE_SLAB), new ItemStack(Items.STONE_STAIRS), new ItemStack(Items.HAY_BLOCK)};
@@ -267,6 +271,38 @@ public class CustomizationScreen extends Screen {
         return false;
     }
 
+    /** Tool hotkeys: P pencil/add, L line, X rectangle, F frame, B bucket, I eyedropper, O recolor, R erase, M mirror, Tab view. */
+    private boolean handleHotkey(int key) {
+        if (key == GLFW.GLFW_KEY_TAB) {
+            handleButtonAction(BTN_VIEW);
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_M) {
+            handleButtonAction(BTN_MIRROR);
+            return true;
+        }
+        String[] keys = this.view3d ? TOOL_KEYS : TOOL2D_KEYS;
+        String pressed = switch (key) {
+            case GLFW.GLFW_KEY_P -> "P";
+            case GLFW.GLFW_KEY_L -> "L";
+            case GLFW.GLFW_KEY_X -> "X";
+            case GLFW.GLFW_KEY_F -> "F";
+            case GLFW.GLFW_KEY_B -> "B";
+            case GLFW.GLFW_KEY_I -> "I";
+            case GLFW.GLFW_KEY_O -> "O";
+            case GLFW.GLFW_KEY_R -> "R";
+            default -> null;
+        };
+        if (pressed == null) return false;
+        for (int i = 0; i < keys.length; i++) {
+            if (keys[i].equals(pressed)) {
+                if (this.shapeAnchorX < 0) handleButtonAction(i); // not in the middle of dragging a shape
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         var window = this.minecraft.getWindow();
@@ -281,6 +317,7 @@ public class CustomizationScreen extends Screen {
             redo();
             return true;
         }
+        if (!ctrl && !shift && handleHotkey(key)) return true;
         if (key == GLFW.GLFW_KEY_PAGE_UP && this.activeLayer < MAX_LAYER) {
             this.activeLayer++;
             this.sceneDirty = true;
@@ -505,9 +542,22 @@ public class CustomizationScreen extends Screen {
             }
 
             // Mirror axis
-            if (this.mirrorX) {
-                int axisX = gridX + (this.gridSize * this.cellSize) / 2;
-                guiGraphics.fill(axisX, gridY, axisX + 1, gridY + this.gridSize * this.cellSize, 0xAAFFFF55);
+            if (this.mirrorMode != 0) {
+                int size = this.gridSize * this.cellSize;
+                if (this.mirrorMode == 1) {
+                    int axisX = gridX + size / 2;
+                    guiGraphics.fill(axisX, gridY, axisX + 1, gridY + size, 0xAAFFFF55);
+                } else if (this.mirrorMode == 2) {
+                    int axisY = gridY + size / 2;
+                    guiGraphics.fill(gridX, axisY, gridX + size, axisY + 1, 0xAAFFFF55);
+                } else {
+                    for (int i = 0; i < this.gridSize; i++) {
+                        int dx = this.mirrorMode == 3 ? i : this.gridSize - 1 - i;
+                        int px = gridX + dx * this.cellSize + this.cellSize / 2;
+                        int py = gridY + (this.gridSize - 1 - i) * this.cellSize + this.cellSize / 2;
+                        guiGraphics.fill(px, py, px + 1, py + 1, 0xAAFFFF55);
+                    }
+                }
             }
 
             // Live preview of a line / rectangle being dragged out
@@ -640,7 +690,7 @@ public class CustomizationScreen extends Screen {
             if (overlay != null) {
                 guiGraphics.text(this.font, Component.literal(overlay), subBtnX + ICON_BTN - 6, rowY + ICON_BTN - 9, 0xFFFFFFFF, true);
             }
-            if ((row == BTN_MIRROR && this.mirrorX) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
+            if ((row == BTN_MIRROR && this.mirrorMode != 0) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
                 int gc = 0xFF55FF55;
                 guiGraphics.fill(subBtnX - 1, rowY - 1, subBtnX + ICON_BTN + 1, rowY, gc);
                 guiGraphics.fill(subBtnX - 1, rowY + ICON_BTN, subBtnX + ICON_BTN + 1, rowY + ICON_BTN + 1, gc);
@@ -1064,12 +1114,24 @@ public class CustomizationScreen extends Screen {
         return EditorGeometry.rect(this.shapeAnchorX, this.shapeAnchorY, this.shapeCurX, this.shapeCurY, this.tool2d == T2_RECT);
     }
 
-    private List<int[]> withMirror(List<int[]> cells) {
-        if (!this.mirrorX) return cells;
+    /** The mirror image of a cell for the current mirror mode (equal to the cell itself when it lies on the axis). */
+    private int[] mirrorOf(int x, int y) {
         int n = this.gridSize - 1;
+        return switch (this.mirrorMode) {
+            case 1 -> new int[]{n - x, y};
+            case 2 -> new int[]{x, n - y};
+            case 3 -> new int[]{y, x};
+            case 4 -> new int[]{n - y, n - x};
+            default -> new int[]{x, y};
+        };
+    }
+
+    private List<int[]> withMirror(List<int[]> cells) {
+        if (this.mirrorMode == 0) return cells;
         List<int[]> all = new ArrayList<>(cells);
         for (int[] c : cells) {
-            if (n - c[0] != c[0]) all.add(new int[]{n - c[0], c[1]});
+            int[] m = mirrorOf(c[0], c[1]);
+            if (m[0] != c[0] || m[1] != c[1]) all.add(m);
         }
         return all;
     }
@@ -1078,10 +1140,10 @@ public class CustomizationScreen extends Screen {
         if (button != 0 && button != 1) return false;
         int[] cell = cellAt(mouseX, mouseY, false);
         if (cell == null) return false;
-        boolean erase = button == 1;
+        boolean erase = button == 1 || this.tool2d == T2_ERASE;
 
         switch (this.tool2d) {
-            case T2_PENCIL -> {
+            case T2_PENCIL, T2_RECOLOR, T2_ERASE -> {
                 this.lastPx = cell[0];
                 this.lastPy = cell[1];
                 applyFootprint(List.of(cell), erase);
@@ -1091,19 +1153,7 @@ public class CustomizationScreen extends Screen {
                 this.shapeAnchorY = this.shapeCurY = cell[1];
                 this.shapeErase = erase;
             }
-            case T2_FILL -> {
-                final int layer = this.activeLayer;
-                WeaponVoxel start = findVoxel(cell[0], cell[1], layer);
-                if (erase && start == null) return true;
-                if (!erase && start != null && start.materialId().equalsIgnoreCase(this.selectedMaterial.id()) && start.shade() == this.selectedShade) return true;
-                String startKey = voxelState(start);
-                java.util.Map<Long, String> states = new java.util.HashMap<>();
-                for (WeaponVoxel v : this.workingVoxels) {
-                    if (v.z() == layer) states.put(((long) v.x() << 32) | v.y(), voxelState(v));
-                }
-                applyFootprint(EditorGeometry.flood(this.gridSize, cell[0], cell[1],
-                        (x, y) -> startKey.equals(states.getOrDefault(((long) x << 32) | y, ""))), erase);
-            }
+            case T2_FILL -> fillLayerRegion(cell[0], cell[1], erase);
             case T2_PICK -> {
                 if (!erase) {
                     WeaponVoxel v = findVoxel(cell[0], cell[1], this.activeLayer);
@@ -1115,22 +1165,39 @@ public class CustomizationScreen extends Screen {
         return true;
     }
 
+    /** Bucket fill on the active layer: the connected area of identical cells around (x, y) is painted or erased. */
+    private boolean fillLayerRegion(int x, int y, boolean erase) {
+        final int layer = this.activeLayer;
+        WeaponVoxel start = findVoxel(x, y, layer);
+        if (erase && start == null) return true;
+        if (!erase && start != null && start.materialId().equalsIgnoreCase(this.selectedMaterial.id()) && start.shade() == this.selectedShade) return true;
+        String startKey = voxelState(start);
+        java.util.Map<Long, String> states = new java.util.HashMap<>();
+        for (WeaponVoxel v : this.workingVoxels) {
+            if (v.z() == layer) states.put(((long) v.x() << 32) | v.y(), voxelState(v));
+        }
+        applyFootprint(EditorGeometry.flood(this.gridSize, x, y,
+                (cx, cy) -> startKey.equals(states.getOrDefault(((long) cx << 32) | cy, ""))), erase);
+        return true;
+    }
+
     private static String voxelState(WeaponVoxel v) {
         return v == null ? "" : v.materialId().toLowerCase() + "#" + v.shade();
     }
 
     private boolean drag2d(int mouseX, int mouseY, int button) {
         if (button != 0 && button != 1) return false;
-        if (this.tool2d == T2_PENCIL) {
+        if (this.tool2d == T2_PENCIL || this.tool2d == T2_RECOLOR || this.tool2d == T2_ERASE) {
             int[] cell = cellAt(mouseX, mouseY, false);
+            boolean eraseStroke = button == 1 || this.tool2d == T2_ERASE;
             if (cell == null) {
                 this.lastPx = -1;
                 return true;
             }
             if (this.lastPx >= 0 && (cell[0] != this.lastPx || cell[1] != this.lastPy)) {
-                applyFootprint(EditorGeometry.line(this.lastPx, this.lastPy, cell[0], cell[1]), button == 1);
+                applyFootprint(EditorGeometry.line(this.lastPx, this.lastPy, cell[0], cell[1]), eraseStroke);
             } else if (this.lastPx < 0) {
-                applyFootprint(List.of(cell), button == 1);
+                applyFootprint(List.of(cell), eraseStroke);
             }
             this.lastPx = cell[0];
             this.lastPy = cell[1];
@@ -1162,6 +1229,14 @@ public class CustomizationScreen extends Screen {
         if (erase) {
             for (int[] c : all) {
                 for (int d = -half; d <= half; d++) changed |= removeVoxel(c[0], c[1], this.activeLayer + d);
+            }
+        } else if (this.tool2d == T2_RECOLOR) {
+            // Recolor only: voxels that are already there (on the layers the thickness covers) change, nothing is added
+            for (int[] c : all) {
+                for (int d = -half; d <= half; d++) {
+                    int layer = this.activeLayer + d;
+                    if (findVoxel(c[0], c[1], layer) != null) changed |= putVoxel(c[0], c[1], layer, this.selectedMaterial, this.selectedShade);
+                }
             }
         } else {
             for (int[] c : all) changed |= putVoxel(c[0], c[1], this.activeLayer, this.selectedMaterial, this.selectedShade);
@@ -1256,15 +1331,82 @@ public class CustomizationScreen extends Screen {
 
     /** Places a voxel of the selected material, or recolors the one already there (3D editor). */
     private boolean paintAt(int x, int y, int layer) {
-        if (!putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade)) return false;
+        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade);
+        if (this.mirrorMode != 0) {
+            int[] m = mirrorOf(x, y);
+            if (m[0] != x || m[1] != y) changed |= putVoxel(m[0], m[1], layer, this.selectedMaterial, this.selectedShade);
+        }
+        if (!changed) return false;
         commitSnapshot();
         noteRecent(this.selectedMaterial, this.selectedShade);
         recalculateCachedStats();
         return true;
     }
 
+    /** Recolors an existing voxel (and its mirror image, if that cell holds a voxel too); never adds new ones. */
+    private boolean recolorAt(int x, int y, int layer) {
+        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade);
+        if (this.mirrorMode != 0) {
+            int[] m = mirrorOf(x, y);
+            if ((m[0] != x || m[1] != y) && findVoxel(m[0], m[1], layer) != null) {
+                changed |= putVoxel(m[0], m[1], layer, this.selectedMaterial, this.selectedShade);
+            }
+        }
+        if (!changed) return false;
+        commitSnapshot();
+        noteRecent(this.selectedMaterial, this.selectedShade);
+        recalculateCachedStats();
+        return true;
+    }
+
+    /** 3D bucket fill: every voxel face-connected to the one at (x, y, layer) with the same material and shade is recolored. */
+    private boolean fillConnected(int x, int y, int layer) {
+        WeaponVoxel start = findVoxel(x, y, layer);
+        if (start == null) return false;
+        if (start.materialId().equalsIgnoreCase(this.selectedMaterial.id()) && start.shade() == this.selectedShade) return false;
+        String key = voxelState(start);
+        java.util.Map<Long, WeaponVoxel> byCell = new java.util.HashMap<>();
+        for (WeaponVoxel v : this.workingVoxels) byCell.put(cellKey(v.x(), v.y(), v.z()), v);
+
+        List<WeaponVoxel> region = new ArrayList<>();
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        java.util.ArrayDeque<WeaponVoxel> queue = new java.util.ArrayDeque<>();
+        queue.add(start);
+        seen.add(cellKey(x, y, layer));
+        int[][] nb = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        while (!queue.isEmpty()) {
+            WeaponVoxel v = queue.poll();
+            region.add(v);
+            for (int[] d : nb) {
+                long k = cellKey(v.x() + d[0], v.y() + d[1], v.z() + d[2]);
+                if (seen.contains(k)) continue;
+                WeaponVoxel w = byCell.get(k);
+                if (w == null || !key.equals(voxelState(w))) continue;
+                seen.add(k);
+                queue.add(w);
+            }
+        }
+
+        boolean changed = false;
+        for (WeaponVoxel v : region) changed |= putVoxel(v.x(), v.y(), v.z(), this.selectedMaterial, this.selectedShade);
+        if (!changed) return false;
+        commitSnapshot();
+        noteRecent(this.selectedMaterial, this.selectedShade);
+        recalculateCachedStats();
+        return true;
+    }
+
+    private static long cellKey(int x, int y, int z) {
+        return ((long) (x + 512) << 40) | ((long) (y + 512) << 20) | (z + 512);
+    }
+
     private boolean eraseAt(int x, int y, int layer) {
-        if (!removeVoxel(x, y, layer)) return false;
+        boolean changed = removeVoxel(x, y, layer);
+        if (this.mirrorMode != 0) {
+            int[] m = mirrorOf(x, y);
+            if (m[0] != x || m[1] != y) changed |= removeVoxel(m[0], m[1], layer);
+        }
+        if (!changed) return false;
         commitSnapshot();
         recalculateCachedStats();
         return true;
@@ -1713,7 +1855,27 @@ public class CustomizationScreen extends Screen {
         if (this.tool3d == TOOL_RECOLOR) {
             VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
             if (hit == null || hit.floor()) return false;
-            return paintAt(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
+            return recolorAt(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
+        }
+
+        if (drag && (this.tool3d == TOOL_PICK || this.tool3d == TOOL_FILL)) return false; // these act once per click
+
+        if (this.tool3d == TOOL_PICK) {
+            VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
+            if (hit == null || hit.floor()) return false;
+            WeaponVoxel v = findVoxel(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
+            if (v == null) return false;
+            selectSwatch(v.material(), v.shade());
+            return true;
+        }
+
+        if (this.tool3d == TOOL_FILL) {
+            VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
+            if (hit != null && !hit.floor()) return fillConnected(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
+            // Empty space: fill the selected layer instead, at the cell where the ray crosses that layer
+            int[] c = this.raycaster.pickOnPlane(px, py, 2, this.activeLayer + MAX_LAYER);
+            if (c == null) return false;
+            return fillLayerRegion(c[0], c[1], false);
         }
 
         // Add tool: place on the face under the cursor; a drag stays on the plane of the first voxel placed
@@ -1908,28 +2070,34 @@ public class CustomizationScreen extends Screen {
 
     private boolean buttonVisible(int row) {
         if (row < BTN_TOOL_SLOTS) return row < (this.view3d ? TOOL_NAMES.length : TOOL2D_NAMES.length);
-        if (row == BTN_MIRROR || row == BTN_THICK) return !this.view3d;
+        if (row == BTN_THICK) return !this.view3d;
         if (row == BTN_PROFILE) return !this.view3d && THICKNESS[this.thicknessIdx] > 1;
         if (row == BTN_RESET) return this.view3d;
         return true;
     }
 
     private String[] toolTooltip(int i) {
+        String key = "§8Hotkey: " + (this.view3d ? TOOL_KEYS[i] : TOOL2D_KEYS[i]);
         if (this.view3d) {
             return switch (i) {
                 case TOOL_ADD -> new String[]{"§eAdd", "§7Place a voxel on the face you point at",
-                        "§7Right-drag orbits, middle-drag pans, wheel zooms"};
-                case TOOL_RECOLOR -> new String[]{"§eRecolor", "§7Repaint the voxel you point at"};
-                default -> new String[]{"§eErase", "§7Remove the voxel you point at", "§cErased materials are destroyed!"};
+                        "§7Right-drag orbits, middle-drag pans, wheel zooms", key};
+                case TOOL_RECOLOR -> new String[]{"§eRecolor", "§7Repaint the voxel you point at", key};
+                case TOOL_ERASE -> new String[]{"§eErase", "§7Remove the voxel you point at", "§cErased materials are destroyed!", key};
+                case TOOL_PICK -> new String[]{"§eEyedropper", "§7Pick the material and shade of the voxel you point at", key};
+                default -> new String[]{"§eBucket fill", "§7On a voxel: recolor everything connected to it that matches",
+                        "§7On empty space: fill the selected layer", key};
             };
         }
         return switch (i) {
-            case T2_PENCIL -> new String[]{"§ePencil", "§7Freehand, drags join up smoothly", "§7Right-click erases"};
-            case T2_LINE -> new String[]{"§eLine", "§7Drag out a straight line", "§7Right-click erases"};
-            case T2_RECT -> new String[]{"§eRectangle", "§7Drag out a filled rectangle", "§7Right-click erases"};
-            case T2_FRAME -> new String[]{"§eFrame", "§7Drag out a rectangle outline", "§7Right-click erases"};
-            case T2_FILL -> new String[]{"§eBucket fill", "§7Fill a connected area", "§7Right-click erases it"};
-            default -> new String[]{"§eEyedropper", "§7Pick the material and shade"};
+            case T2_PENCIL -> new String[]{"§ePencil", "§7Freehand, drags join up smoothly", "§7Right-click erases", key};
+            case T2_LINE -> new String[]{"§eLine", "§7Drag out a straight line", "§7Right-click erases", key};
+            case T2_RECT -> new String[]{"§eRectangle", "§7Drag out a filled rectangle", "§7Right-click erases", key};
+            case T2_FRAME -> new String[]{"§eFrame", "§7Drag out a rectangle outline", "§7Right-click erases", key};
+            case T2_FILL -> new String[]{"§eBucket fill", "§7Fill a connected area", "§7Right-click erases it", key};
+            case T2_PICK -> new String[]{"§eEyedropper", "§7Pick the material and shade", key};
+            case T2_RECOLOR -> new String[]{"§eRecolor", "§7Repaint existing voxels only, never adds new ones", key};
+            default -> new String[]{"§eErase", "§7Remove voxels freehand", "§cErased materials are destroyed!", key};
         };
     }
 
@@ -1959,6 +2127,7 @@ public class CustomizationScreen extends Screen {
             case BTN_UNDO -> "<";
             case BTN_REDO -> ">";
             case BTN_THICK -> String.valueOf(THICKNESS[this.thicknessIdx]);
+            case BTN_MIRROR -> this.mirrorMode == 0 ? null : MIRROR_TAGS[this.mirrorMode];
             default -> null;
         };
     }
@@ -1971,11 +2140,14 @@ public class CustomizationScreen extends Screen {
             case BTN_ROT_CW -> new String[]{"§eRotate clockwise"};
             case BTN_ROT_CCW -> new String[]{"§eRotate counter-clockwise"};
             case BTN_VIEW -> this.view3d
-                    ? new String[]{"§eView: 3D", "§7Click to switch to the 2D layer editor"}
-                    : new String[]{"§eView: 2D", "§7Click to switch to the 3D editor"};
+                    ? new String[]{"§eView: 3D", "§7Click to switch to the 2D layer editor", "§8Hotkey: Tab"}
+                    : new String[]{"§eView: 2D", "§7Click to switch to the 3D editor", "§8Hotkey: Tab"};
             case BTN_UNDO -> new String[]{"§eUndo", "§7Ctrl+Z" + (this.undoStack.isEmpty() ? " §8(nothing to undo)" : "")};
             case BTN_REDO -> new String[]{"§eRedo", "§7Ctrl+Y or Ctrl+Shift+Z" + (this.redoStack.isEmpty() ? " §8(nothing to redo)" : "")};
-            case BTN_MIRROR -> new String[]{"§eMirror: " + (this.mirrorX ? "§aOn" : "§cOff"), "§7Draw on both sides of the centre line"};
+            case BTN_MIRROR -> new String[]{"§eMirror: " + (this.mirrorMode == 0 ? "§cOff" : "§a" + MIRROR_NAMES[this.mirrorMode]) + " §7(click to cycle)",
+                    "§7Off / Horizontal / Vertical / Diagonal / and \\",
+                    this.view3d ? "§7In 3D the copy lands on the same layer as the original" : "§7Draws on both sides of the axis",
+                    "§8Hotkey: M"};
             case BTN_THICK -> new String[]{"§eThickness: " + THICKNESS[this.thicknessIdx] + (THICKNESS[this.thicknessIdx] == 1 ? " layer" : " layers"),
                     "§7Click to cycle 1 / 3 / 5 / 7 / 9", "§7Extrudes what you draw onto the layers around it"};
             case BTN_PROFILE -> new String[]{"§eShape: " + EditorGeometry.PROFILE_NAMES[this.profile] + " §7(click to cycle)",
@@ -2034,7 +2206,7 @@ public class CustomizationScreen extends Screen {
             case BTN_UNDO -> undo();
             case BTN_REDO -> redo();
             case BTN_MIRROR -> {
-                this.mirrorX = !this.mirrorX;
+                this.mirrorMode = (this.mirrorMode + 1) % MIRROR_NAMES.length;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             }
             case BTN_THICK -> {

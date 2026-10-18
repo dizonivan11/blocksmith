@@ -239,6 +239,17 @@ public final class VoxelRaycaster {
 
     // camera basis, recomputed per call
     private double rx, ry, rz, ux, uy, uz, fx, fy, fz;
+
+    // Camera-following light: a light that sits up, to the left and in front of the viewer, so whatever faces the
+    // camera is always lit as the model turns. lightDir* is the unit direction towards it; lightOff* its offset
+    // from the model centre in grid-width units.
+    private boolean cameraLight = true;
+    private double lightDirX, lightDirY, lightDirZ, lightOffX, lightOffY, lightOffZ;
+
+    /** When true (default) the lighting follows the camera; when false it is fixed in the world. */
+    public void setCameraLight(boolean on) {
+        if (cameraLight != on) { cameraLight = on; forceFull = true; }
+    }
     // cells per pixel of the base-layer floor along x and y (constant across the image for an orthographic camera)
     private double floorFootX, floorFootY;
 
@@ -253,6 +264,13 @@ public final class VoxelRaycaster {
         ux = py * rz - pz * ry;
         uy = pz * rx - px * rz;
         uz = px * ry - py * rx;
+
+        // A headlight slightly above and to the left of the viewer (p = towards the camera, r = right, u = up), so
+        // the faces turned towards the camera are always the best lit ones while still reading as a 3D shape
+        double hx0 = px + 0.25 * ux - 0.2 * rx, hy0 = py + 0.25 * uy - 0.2 * ry, hz0 = pz + 0.25 * uz - 0.2 * rz;
+        double ll = Math.sqrt(hx0 * hx0 + hy0 * hy0 + hz0 * hz0);
+        lightOffX = 1.8 * hx0 / ll; lightOffY = 1.8 * hy0 / ll; lightOffZ = 1.8 * hz0 / ll;
+        lightDirX = hx0 / ll; lightDirY = hy0 / ll; lightDirZ = hz0 / ll;
 
         // How many floor cells one screen pixel spans: d(floorXY)/d(screen) for the plane z = const
         if (Math.abs(fz) < 1e-3) {
@@ -612,6 +630,9 @@ public final class VoxelRaycaster {
         yaw = p.yaw; pitch = p.pitch; scale = p.scale; activeZi = p.activeZi; panRight = p.panRight; panUp = p.panUp;
         rx = p.rx; ry = p.ry; rz = p.rz; ux = p.ux; uy = p.uy; uz = p.uz; fx = p.fx; fy = p.fy; fz = p.fz;
         floorFootX = p.floorFootX; floorFootY = p.floorFootY;
+        cameraLight = p.cameraLight;
+        lightDirX = p.lightDirX; lightDirY = p.lightDirY; lightDirZ = p.lightDirZ;
+        lightOffX = p.lightOffX; lightOffY = p.lightOffY; lightOffZ = p.lightOffZ;
     }
 
     private VoxelRaycaster workerFor(long renderId) {
@@ -796,7 +817,11 @@ public final class VoxelRaycaster {
     private void shadeHit(Hit highlight) {
         int base = cells[index(hx, hy, hz)];
         double light;
-        if (hny > 0) light = 1.0;
+        if (cameraLight) {
+            // Faces turned towards the camera-side light are bright, faces turned away fall to half brightness
+            double facing = Math.max(0, hnx * lightDirX + hny * lightDirY + hnz * lightDirZ);
+            light = 0.55 + 0.45 * Math.sqrt(facing);
+        } else if (hny > 0) light = 1.0;
         else if (hny < 0) light = 0.5;
         else if (hnz > 0) light = 0.85;
         else if (hnz < 0) light = 0.6;
@@ -823,7 +848,12 @@ public final class VoxelRaycaster {
         // brightens towards white where it shines, and adds a small specular glint.
         double wx = ox + dx * hitT, wy = oy + dy * hitT, wz = (oz + dz * hitT) * LAYER_THICKNESS;
         double g = gridSize;
-        double lx = g * 0.5 - 0.7 * g - wx, ly = g * 0.5 + 0.9 * g - wy, lz = layers / 2.0 * LAYER_THICKNESS + 1.4 * g - wz;
+        double lx, ly, lz;
+        if (cameraLight) {
+            lx = g * 0.5 + lightOffX * g - wx; ly = g * 0.5 + lightOffY * g - wy; lz = layers / 2.0 * LAYER_THICKNESS + lightOffZ * g - wz;
+        } else {
+            lx = g * 0.5 - 0.7 * g - wx; ly = g * 0.5 + 0.9 * g - wy; lz = layers / 2.0 * LAYER_THICKNESS + 1.4 * g - wz;
+        }
         double ld = Math.sqrt(lx * lx + ly * ly + lz * lz);
         lx /= ld; ly /= ld; lz /= ld;
         double ndl = Math.max(0, hnx * lx + hny * ly + hnz * lz / 1.0);
