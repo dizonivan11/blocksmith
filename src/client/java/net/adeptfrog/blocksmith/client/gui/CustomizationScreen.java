@@ -167,16 +167,24 @@ public class CustomizationScreen extends Screen {
     private int vw() { return (int) Math.floor(this.width / this.fit); }
     private int vh() { return (int) Math.floor(this.height / this.fit); }
 
-    /** Draws a tooltip at the real (unscaled) cursor position so it keeps its normal size while the layout is scaled down. */
+    private List<ClientTooltipComponent> pendingTooltip = null;
+    private int pendingTipX, pendingTipY;
+
+    /**
+     * Queues a tooltip at the real (unscaled) cursor position so it keeps its normal size while the layout is scaled
+     * down. It is drawn after everything else ({@link #flushTooltip}) so nothing paints over it.
+     */
     private void realTooltip(GuiGraphicsExtractor g, List<ClientTooltipComponent> lines, int realX, int realY) {
-        if (this.fit == 1.0) {
-            g.tooltip(this.font, lines, realX, realY, DefaultTooltipPositioner.INSTANCE, null);
-            return;
-        }
-        g.pose().pushMatrix();
-        g.pose().scale((float) (1.0 / this.fit), (float) (1.0 / this.fit));
-        g.tooltip(this.font, lines, realX, realY, DefaultTooltipPositioner.INSTANCE, null);
-        g.pose().popMatrix();
+        this.pendingTooltip = lines;
+        this.pendingTipX = realX;
+        this.pendingTipY = realY;
+    }
+
+    private void flushTooltip(GuiGraphicsExtractor g) {
+        List<ClientTooltipComponent> lines = this.pendingTooltip;
+        this.pendingTooltip = null;
+        if (lines == null) return;
+        g.tooltip(this.font, lines, pendingTipX, pendingTipY, DefaultTooltipPositioner.INSTANCE, null);
     }
     private int realMouseX, realMouseY;
     private DynamicTexture viewTexture;
@@ -417,14 +425,16 @@ public class CustomizationScreen extends Screen {
         updateFit();
         this.realMouseX = mouseX;
         this.realMouseY = mouseY;
+        this.pendingTooltip = null;
         if (this.fit == 1.0) {
             renderContents(guiGraphics, mouseX, mouseY, delta);
-            return;
+        } else {
+            guiGraphics.pose().pushMatrix();
+            guiGraphics.pose().scale((float) this.fit, (float) this.fit);
+            renderContents(guiGraphics, (int) Math.floor(mouseX / this.fit), (int) Math.floor(mouseY / this.fit), delta);
+            guiGraphics.pose().popMatrix();
         }
-        guiGraphics.pose().pushMatrix();
-        guiGraphics.pose().scale((float) this.fit, (float) this.fit);
-        renderContents(guiGraphics, (int) Math.floor(mouseX / this.fit), (int) Math.floor(mouseY / this.fit), delta);
-        guiGraphics.pose().popMatrix();
+        flushTooltip(guiGraphics);
     }
 
     private void renderContents(@NonNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
