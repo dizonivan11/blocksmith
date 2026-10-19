@@ -155,7 +155,7 @@ public class DesignLibraryScreen extends Screen {
         this.profileButton.setMessage(Component.literal(EditorGeometry.PROFILE_NAMES[o.profile()]));
         this.ditherButton.setMessage(Component.literal("Dither: " + (o.dither() ? "On" : "Off")));
         this.fitButton.setMessage(Component.literal(o.stretch() ? "Stretch" : "Keep ratio"));
-        this.profileButton.active = o.thickness() > 1;
+        this.profileButton.active = true; // Tapered also shapes a single layer
     }
 
     /** Remembers new picture options and converts every picture in the library again with them. */

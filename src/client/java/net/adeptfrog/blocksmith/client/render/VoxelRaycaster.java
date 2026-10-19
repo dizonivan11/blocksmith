@@ -1,5 +1,7 @@
 package net.adeptfrog.blocksmith.client.render;
 
+import net.adeptfrog.blocksmith.data.VoxelShape;
+
 /**
  * Minecraft-independent software ray-caster used by the forging screen's 3D editor.
  * <p>
@@ -56,6 +58,7 @@ public final class VoxelRaycaster {
     private final int ss;              // supersampling per axis (only needed when rendering at low resolution)
     private final double lineHalfWidth; // half width of floor grid lines in render pixels
     private int[] cells;
+    private byte[] shapes; // VoxelShape of every cell (0 = full cube)
 
     // Chunks: the grid is cut into small blocks. Empty ones are skipped by rays in one step, and a block that
     // changed is the only part of the picture that has to be drawn again after an edit.
@@ -95,6 +98,9 @@ public final class VoxelRaycaster {
 
     // Scratch values for the last trace
     private int hx, hy, hz, hnx, hny, hnz;
+    private double hfx, hfy, hfz; // exact surface normal of the last hit (equal to hn* for flat cube faces)
+    private boolean hShaped;      // the last hit was on a non-cube shape
+    private final float[] quadScratch = new float[VoxelShape.MAX_QUADS * VoxelShape.QUAD_FLOATS];
     private double hitT;
 
     // Scratch values for the last shaded sample (straight, non-premultiplied colour + alpha, all 0..1 / 0..255)
@@ -118,6 +124,7 @@ public final class VoxelRaycaster {
         this.ss = this.pixelScale >= 2 ? 1 : 2;
         this.lineHalfWidth = Math.max(0.6, 0.4 * this.pixelScale);
         this.cells = new int[gridSize * gridSize * layers];
+        this.shapes = new byte[gridSize * gridSize * layers];
         this.chunksX = (gridSize + CHUNK_XY - 1) / CHUNK_XY;
         this.chunksY = this.chunksX;
         this.chunksZ = (layers + CHUNK_Z - 1) / CHUNK_Z;
@@ -147,6 +154,7 @@ public final class VoxelRaycaster {
 
     public void clear() {
         java.util.Arrays.fill(cells, 0);
+        java.util.Arrays.fill(shapes, (byte) 0);
         java.util.Arrays.fill(chunkCount, 0);
         forceFull = true;
         anyDirty = true;
@@ -161,15 +169,28 @@ public final class VoxelRaycaster {
     }
 
     public void setCell(int x, int y, int zi, int argb) {
+        setCell(x, y, zi, argb, VoxelShape.FULL);
+    }
+
+    public void setCell(int x, int y, int zi, int argb, int shape) {
         if (!inBounds(x, y, zi)) return;
         int i = index(x, y, zi);
         int old = cells[i];
-        if (old == argb) return;
+        if (argb == 0) shape = VoxelShape.FULL;
+        if (old == argb && shapes[i] == shape) return;
         cells[i] = argb;
+        shapes[i] = (byte) shape;
         int ci = chunkIndex(x, y, zi);
-        if (old == 0) chunkCount[ci]++;
-        else if (argb == 0) chunkCount[ci]--;
+        if (old == 0 && argb != 0) chunkCount[ci]++;
+        else if (argb == 0 && old != 0) chunkCount[ci]--;
         chunkDirty[ci] = true;
+        if ((old == 0) != (argb == 0)) {
+            // A tapered neighbour reshapes itself when a voxel appears or disappears next to it
+            int[][] nb = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+            for (int[] d : nb) {
+                if (inBounds(x + d[0], y + d[1], zi + d[2])) chunkDirty[chunkIndex(x + d[0], y + d[1], zi + d[2])] = true;
+            }
+        }
         anyDirty = true;
     }
 
@@ -178,11 +199,17 @@ public final class VoxelRaycaster {
      * touching only the cells that differ so only their chunks are redrawn.
      */
     public void syncCells(int[] next) {
+        syncCells(next, null);
+    }
+
+    /** As {@link #syncCells(int[])}, with the {@link VoxelShape} of every cell (null = all full cubes). */
+    public void syncCells(int[] next, byte[] nextShapes) {
         if (next.length != cells.length) throw new IllegalArgumentException("wrong grid size");
         for (int i = 0; i < next.length; i++) {
-            if (cells[i] == next[i]) continue;
+            int sh = nextShapes == null ? 0 : nextShapes[i];
+            if (cells[i] == next[i] && (next[i] == 0 || shapes[i] == sh)) continue;
             int x = i % gridSize, y = (i / gridSize) % gridSize, zi = i / (gridSize * gridSize);
-            setCell(x, y, zi, next[i]);
+            setCell(x, y, zi, next[i], sh);
         }
     }
 
@@ -426,9 +453,15 @@ public final class VoxelRaycaster {
                 tMaxZ = Math.abs(d[2]) < 1e-12 ? inf : ((stepZ > 0 ? cz + 1 : cz) - o[2]) / d[2];
                 continue;
             }
-            if (cells[index(cx, cy, cz)] != 0) {
-                hx = cx; hy = cy; hz = cz; hnx = nx; hny = ny; hnz = nz; hitT = tCurrent;
-                return true;
+            int ci = index(cx, cy, cz);
+            if (cells[ci] != 0) {
+                int sh = shapes[ci];
+                if (sh == VoxelShape.FULL) {
+                    hx = cx; hy = cy; hz = cz; hnx = nx; hny = ny; hnz = nz; hitT = tCurrent;
+                    hfx = nx; hfy = ny; hfz = nz; hShaped = false;
+                    return true;
+                }
+                if (shapeHit(cx, cy, cz, sh, tCurrent)) return true;
             }
             if (tMaxX <= tMaxY && tMaxX <= tMaxZ) {
                 cx += stepX; tCurrent = tMaxX; tMaxX += tDeltaX; nx = -stepX; ny = 0; nz = 0;
@@ -442,6 +475,67 @@ public final class VoxelRaycaster {
             }
         }
         return false;
+    }
+
+    /**
+     * Ray against the real geometry of a non-cube voxel (the ray is already set; cell space is a unit cube per cell).
+     * On a hit it fills the h* fields and returns true.
+     */
+    private boolean shapeHit(int cx, int cy, int cz, int shape, double tFrom) {
+        int free = 0;
+        if (VoxelShape.isTapered(shape)) {
+            if (!solidAt(cx - 1, cy, cz)) free |= VoxelShape.FREE_XM;
+            if (!solidAt(cx + 1, cy, cz)) free |= VoxelShape.FREE_XP;
+            if (!solidAt(cx, cy - 1, cz)) free |= VoxelShape.FREE_YM;
+            if (!solidAt(cx, cy + 1, cz)) free |= VoxelShape.FREE_YP;
+            if (!solidAt(cx, cy, cz - 1)) free |= VoxelShape.FREE_ZM;
+            if (!solidAt(cx, cy, cz + 1)) free |= VoxelShape.FREE_ZP;
+        }
+        final float[] q = quadScratch;
+        int count = VoxelShape.buildQuads(shape, free, 0, q);
+        double lx = ox - cx, ly = oy - cy, lz = oz - cz;
+        double best = Double.POSITIVE_INFINITY;
+        int bestQ = -1;
+        for (int i = 0; i < count; i++) {
+            int o = i * VoxelShape.QUAD_FLOATS;
+            // two triangles: (0,1,2) and (0,2,3)
+            double t = triangleT(lx, ly, lz, q, o, o + 3, o + 6);
+            double t2 = triangleT(lx, ly, lz, q, o, o + 6, o + 9);
+            if (t2 < t) t = t2;
+            if (t >= tFrom - 1e-9 && t < best) { best = t; bestQ = i; }
+        }
+        if (bestQ < 0) return false;
+        int o = bestQ * VoxelShape.QUAD_FLOATS + 12;
+        double qx = q[o], qy = q[o + 1], qz = q[o + 2];
+        // The normal in physical space: cell z is squashed by the layer thickness, so slopes tilt with it
+        double nzp = qz / layerThickness;
+        double len = Math.sqrt(qx * qx + qy * qy + nzp * nzp);
+        hfx = qx / len; hfy = qy / len; hfz = nzp / len;
+        // Dominant axis, for placing and for the highlight
+        double ax = Math.abs(qx), ay = Math.abs(qy), az = Math.abs(qz);
+        hnx = hny = hnz = 0;
+        if (ax >= ay && ax >= az) hnx = qx > 0 ? 1 : -1;
+        else if (ay >= az) hny = qy > 0 ? 1 : -1;
+        else hnz = qz > 0 ? 1 : -1;
+        hx = cx; hy = cy; hz = cz; hitT = best; hShaped = true;
+        return true;
+    }
+
+    /** Möller-Trumbore ray / triangle distance for the ray (o + t d), vertices read from {@code q}; infinity on a miss. */
+    private double triangleT(double lx, double ly, double lz, float[] q, int ia, int ib, int ic) {
+        double e1x = q[ib] - q[ia], e1y = q[ib + 1] - q[ia + 1], e1z = q[ib + 2] - q[ia + 2];
+        double e2x = q[ic] - q[ia], e2y = q[ic + 1] - q[ia + 1], e2z = q[ic + 2] - q[ia + 2];
+        double px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+        double det = e1x * px + e1y * py + e1z * pz;
+        if (Math.abs(det) < 1e-12) return Double.POSITIVE_INFINITY;
+        double inv = 1.0 / det;
+        double tx = lx - q[ia], ty = ly - q[ia + 1], tz = lz - q[ia + 2];
+        double u = (tx * px + ty * py + tz * pz) * inv;
+        if (u < -1e-9 || u > 1 + 1e-9) return Double.POSITIVE_INFINITY;
+        double qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+        double v = (dx * qx + dy * qy + dz * qz) * inv;
+        if (v < -1e-9 || u + v > 1 + 1e-9) return Double.POSITIVE_INFINITY;
+        return (e2x * qx + e2y * qy + e2z * qz) * inv;
     }
 
     private static int clamp(int v, int n) {
@@ -683,6 +777,7 @@ public final class VoxelRaycaster {
         this.ss = p.ss;
         this.lineHalfWidth = p.lineHalfWidth;
         this.cells = p.cells;
+        this.shapes = p.shapes;
         this.chunksX = p.chunksX;
         this.chunksY = p.chunksY;
         this.chunksZ = p.chunksZ;
@@ -896,7 +991,7 @@ public final class VoxelRaycaster {
         double light;
         if (cameraLight) {
             // Faces turned towards the camera-side light are bright, faces turned away fall to half brightness
-            double facing = Math.max(0, hnx * lightDirX + hny * lightDirY + hnz * lightDirZ);
+            double facing = Math.max(0, hfx * lightDirX + hfy * lightDirY + hfz * lightDirZ);
             light = 0.55 + 0.45 * Math.sqrt(facing);
         } else if (hny > 0) light = 1.0;
         else if (hny < 0) light = 0.5;
@@ -915,8 +1010,10 @@ public final class VoxelRaycaster {
         double edge = Math.max(0.08, 0.6 * pixelScale / scale);
         double du = Math.min(u, 1 - u), dv = Math.min(v, 1 - v);
         double rim = Double.MAX_VALUE;
-        if (du < edge && isRealEdge(uAxis, u < 0.5 ? -1 : 1)) rim = du;
-        if (dv < edge && dv < rim && isRealEdge(vAxis, v < 0.5 ? -1 : 1)) rim = dv;
+        if (!hShaped) {
+            if (du < edge && isRealEdge(uAxis, u < 0.5 ? -1 : 1)) rim = du;
+            if (dv < edge && dv < rim && isRealEdge(vAxis, v < 0.5 ? -1 : 1)) rim = dv;
+        }
         if (rim < edge) {
             light *= 1.0 - 0.5 * smooth(1.0 - rim / edge);
         }
@@ -933,13 +1030,13 @@ public final class VoxelRaycaster {
         }
         double ld = Math.sqrt(lx * lx + ly * ly + lz * lz);
         lx /= ld; ly /= ld; lz /= ld;
-        double ndl = Math.max(0, hnx * lx + hny * ly + hnz * lz / 1.0);
+        double ndl = Math.max(0, hfx * lx + hfy * ly + hfz * lz);
         double atten = 1.0 / (1.0 + Math.pow(ld / (g * 2.2), 2));
         double shine = 0.80 + 0.75 * ndl * (0.55 + 0.45 * atten) - 0.05;
         light *= shine;
         // reflect the light about the normal and compare with the view direction (towards the camera = -f)
-        double dot = hnx * lx + hny * ly + hnz * lz;
-        double rxv = 2 * dot * hnx - lx, ryv = 2 * dot * hny - ly, rzv = 2 * dot * hnz - lz;
+        double dot = hfx * lx + hfy * ly + hfz * lz;
+        double rxv = 2 * dot * hfx - lx, ryv = 2 * dot * hfy - ly, rzv = 2 * dot * hfz - lz;
         double spec = Math.pow(Math.max(0, -(rxv * fx + ryv * fy + rzv * fz / layerThickness * layerThickness)), 24) * 0.35 * atten * (ndl > 0 ? 1 : 0);
 
         double rr = ((base >> 16) & 0xFF) * light, gg = ((base >> 8) & 0xFF) * light, bb = (base & 0xFF) * light;

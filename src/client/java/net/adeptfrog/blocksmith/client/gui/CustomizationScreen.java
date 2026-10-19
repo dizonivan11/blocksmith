@@ -94,6 +94,27 @@ public class CustomizationScreen extends Screen {
     private static final String[] TOOL_KEYS = {"P", "O", "R", "I", "B", "S", "V"};
     private int tool = TOOL_ADD;
 
+    // Voxel shape placed by the Add tool and the bucket on empty cells; one button cycles through them
+    private static final int[] SHAPE_CYCLE = {VoxelShape.FULL, VoxelShape.SLAB_BOTTOM, VoxelShape.SLAB_LEFT,
+            VoxelShape.TAPERED_HALF, VoxelShape.TAPERED_FULL};
+    private static final String[] SHAPE_NAMES = {"Full block", "Horizontal slab", "Vertical slab",
+            "Tapered (half-block fade)", "Tapered (full-block fade)"};
+    private static final String[] SHAPE_TAGS = {null, "H", "V", "\u00BD", "T"};
+    private int shapeIdx = 0;
+
+    private int placedShape() {
+        return SHAPE_CYCLE[this.shapeIdx];
+    }
+
+    private void selectShapeOf(int shape) {
+        int kind = switch (shape) {
+            case VoxelShape.SLAB_BOTTOM, VoxelShape.SLAB_TOP -> VoxelShape.SLAB_BOTTOM;
+            case VoxelShape.SLAB_LEFT, VoxelShape.SLAB_RIGHT -> VoxelShape.SLAB_LEFT;
+            default -> shape;
+        };
+        for (int i = 0; i < SHAPE_CYCLE.length; i++) if (SHAPE_CYCLE[i] == kind) this.shapeIdx = i;
+    }
+
     private String toolName(int i) {
         return switch (i) {
             case TOOL_ADD -> this.view3d ? "Add" : "Pencil";
@@ -108,9 +129,9 @@ public class CustomizationScreen extends Screen {
     // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
     // Reset view only exists in the 3D editor. The five tool buttons come first, one button per tool (identical in
     // both editors); the active one is outlined.
-    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 7, BTN_FLIP_H = 7, BTN_FLIP_V = 8, BTN_ROT_CW = 9,
-            BTN_ROT_CCW = 10, BTN_VIEW = 11, BTN_UNDO = 12, BTN_REDO = 13, BTN_MIRROR = 14,
-            BTN_RESET = 15, BTN_CODEX = 16, BTN_COUNT = 17;
+    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 7, BTN_SHAPE = 7, BTN_FLIP_H = 8, BTN_FLIP_V = 9, BTN_ROT_CW = 10,
+            BTN_ROT_CCW = 11, BTN_VIEW = 12, BTN_UNDO = 13, BTN_REDO = 14, BTN_MIRROR = 15,
+            BTN_RESET = 16, BTN_CODEX = 17, BTN_COUNT = 18;
     private static final int ICON_BTN = 18, ICON_STEP = 20, EI_BTN_W = 44;
     // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
     private static final ItemStack ICON_FLIP_H = new ItemStack(Items.PISTON);
@@ -121,6 +142,9 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_VIEW_2D = new ItemStack(Items.MAP);
     private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STICK), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE), new ItemStack(Items.SPYGLASS), new ItemStack(Items.BUCKET), new ItemStack(Items.SHEARS), new ItemStack(Items.LEAD)};
     private static final ItemStack ICON_RESET = new ItemStack(Items.COMPASS);
+    private static final ItemStack ICON_SHAPE_FULL = new ItemStack(Items.STONE);
+    private static final ItemStack ICON_SHAPE_SLAB = new ItemStack(Items.STONE_SLAB);
+    private static final ItemStack ICON_SHAPE_TAPER = new ItemStack(Items.STONE_STAIRS);
     private static final ItemStack ICON_UNDO = new ItemStack(Items.CLOCK);
     private static final ItemStack ICON_MIRROR = new ItemStack(Items.GLASS_PANE);
     private static final ItemStack ICON_CODEX = new ItemStack(Items.ENCHANTED_BOOK);
@@ -146,6 +170,7 @@ public class CustomizationScreen extends Screen {
     private int[] fgView;          // fgBase plus hover highlight
     private int[] bgBuffer;        // animated background, BG_DIM x BG_DIM (stretched over the workspace; it is a soft gradient)
     private int[] sceneGrid;       // scratch grid for VoxelRaycaster.syncCells
+    private byte[] sceneShapes;    // ... and the matching voxel shapes
     private int[] lastHlRect;      // area the previous hover highlight touched in fgView
     private boolean bgDirty = true;
     private static final int BG_DIM = 192;
@@ -293,6 +318,10 @@ public class CustomizationScreen extends Screen {
         }
         if (key == GLFW.GLFW_KEY_M) {
             handleButtonAction(BTN_MIRROR);
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_X) {
+            handleButtonAction(BTN_SHAPE);
             return true;
         }
         if ((key >= GLFW.GLFW_KEY_1 && key <= GLFW.GLFW_KEY_5) || (key >= GLFW.GLFW_KEY_KP_1 && key <= GLFW.GLFW_KEY_KP_5)) {
@@ -490,12 +519,19 @@ public class CustomizationScreen extends Screen {
                 guiGraphics.fill(gx, gy, gx + this.cellSize, gy + this.cellSize, (v.getColorRgb() & 0xFFFFFF) | (ghostAlpha << 24));
             }
 
+            this.slabCells.clear();
+            this.taperCells.clear();
             for (WeaponVoxel v : workingVoxels) {
                 if (v.z() != this.activeLayer || this.layerHidden[this.activeLayer + MAX_LAYER]) continue;
                 if (v.x() >= 0 && v.x() < this.gridSize && v.y() >= 0 && v.y() < this.gridSize) {
+                    if (VoxelShape.isSlab(v.shape())) { // slabs only fill half a cell, drawn separately below
+                        this.slabCells.add(v);
+                        continue;
+                    }
                     int idx = v.x() + v.y() * this.gridSize;
                     this.occupiedGrid[idx] = true;
                     this.colorGrid[idx] = v.getColorRgb() | 0xFF000000;
+                    if (VoxelShape.isTapered(v.shape())) this.taperCells.add(v);
                 }
             }
 
@@ -559,6 +595,8 @@ public class CustomizationScreen extends Screen {
                     guiGraphics.fill(gridX + startX * this.cellSize, py + this.cellSize, gridX + x * this.cellSize, py + this.cellSize + 1, outlineColor);
                 }
             }
+
+            drawShapedCells2d(guiGraphics, gridX, gridY);
 
             for (WeaponVoxel voxel : workingVoxels) {
                 if (voxel.z() != this.activeLayer || this.layerHidden[this.activeLayer + MAX_LAYER]) continue;
@@ -637,6 +675,33 @@ public class CustomizationScreen extends Screen {
 
         boolean isBow = weaponStack.getItem() instanceof ModularBowItem;
         int diffVoxels = workingVoxels.size() - this.savedVoxelCount;
+
+        // Hovering the "Bonus Stats" header explains how the stats are worked out
+        if (mouseX >= leftPos + 406 && mouseX < leftPos + 501 && mouseY >= topPos + 8 && mouseY < topPos + 27) {
+            int cap = net.adeptfrog.blocksmith.Blocksmith.MAX_VOXELS();
+            int count = workingVoxels.size();
+            double eff = StatScaling.effectiveCount(count);
+            List<ClientTooltipComponent> tip = new ArrayList<>();
+            String[] lines = {
+                    "§eBonus Stats",
+                    "§7Each voxel adds the stats of its material and shade.",
+                    "§7The sum is divided by the grid area (" + this.gridSize + "x" + this.gridSize + " = " + cap + "),",
+                    "§7so a fully covered layer gives each material's full bonus.",
+                    "",
+                    "§eDiminishing value",
+                    "§7Up to §f" + cap + " §7voxels every voxel counts in full.",
+                    "§7Past that, extra voxels are worth less and less:",
+                    "§fcounted = " + cap + " + 0.1 x " + cap + " x ln(1 + (n - " + cap + ") / " + cap + ")",
+                    "§7so the first voxel past the cap is worth ~10% and it keeps falling.",
+                    "§7The bonus is scaled by counted / n, so a mixed build",
+                    "§7keeps its proportions but loses power as it grows.",
+                    "",
+                    "§7Your build: §f" + count + " §7voxels count as §a" + String.format("%.1f", eff),
+                    "§8Shapes (slabs, tapered) do not change stats."
+            };
+            for (String line : lines) tip.add(ClientTooltipComponent.create(Component.literal(line).getVisualOrderText()));
+            realTooltip(guiGraphics, tip, realMouseX, realMouseY);
+        }
 
         // Stats text
         guiGraphics.text(this.font, Component.literal("Voxels:"), statsX + 6, statsY + 6, FONT_COLOR, false);
@@ -754,7 +819,7 @@ public class CustomizationScreen extends Screen {
             if (overlay != null) {
                 guiGraphics.text(this.font, Component.literal(overlay), subBtnX + ICON_BTN - 6, rowY + ICON_BTN - 9, 0xFFFFFFFF, true);
             }
-            if ((row == BTN_MIRROR && this.mirrorMode != 0) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
+            if ((row == BTN_MIRROR && this.mirrorMode != 0) || (row == BTN_SHAPE && this.shapeIdx != 0) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
                 int gc = 0xFF55FF55;
                 guiGraphics.fill(subBtnX - 1, rowY - 1, subBtnX + ICON_BTN + 1, rowY, gc);
                 guiGraphics.fill(subBtnX - 1, rowY + ICON_BTN, subBtnX + ICON_BTN + 1, rowY + ICON_BTN + 1, gc);
@@ -1188,7 +1253,7 @@ public class CustomizationScreen extends Screen {
     private List<WeaponVoxel> moveBase, moveSel;
     private java.util.Set<WeaponVoxel> moveSelSet;
 
-    private record ClipVoxel(int dx, int dy, VoxelMaterial material, int shade) {}
+    private record ClipVoxel(int dx, int dy, VoxelMaterial material, int shade, int shape) {}
     private final List<ClipVoxel> clipboard = new ArrayList<>();
     private int clipW = 0, clipH = 0;
 
@@ -1283,7 +1348,7 @@ public class CustomizationScreen extends Screen {
             if (v.z() == this.selLayer && targets.contains(((long) v.x() << 32) | v.y())) continue; // overwritten
             result.add(v);
         }
-        for (WeaponVoxel v : this.moveSel) result.add(new WeaponVoxel(v.x() + dx, v.y() + dy, v.z(), v.material(), v.shade()));
+        for (WeaponVoxel v : this.moveSel) result.add(new WeaponVoxel(v.x() + dx, v.y() + dy, v.z(), v.material(), v.shade(), v.shape()));
         if (result.size() < MIN_VOXELS) return;
 
         if (dx != 0 || dy != 0) commitSnapshot();
@@ -1314,7 +1379,7 @@ public class CustomizationScreen extends Screen {
         }
         this.clipboard.clear();
         for (WeaponVoxel v : selectedVoxels()) {
-            this.clipboard.add(new ClipVoxel(v.x() - this.selX0, v.y() - this.selY0, v.material(), v.shade()));
+            this.clipboard.add(new ClipVoxel(v.x() - this.selX0, v.y() - this.selY0, v.material(), v.shade(), v.shape()));
         }
         this.clipW = this.selX1 - this.selX0 + 1;
         this.clipH = this.selY1 - this.selY0 + 1;
@@ -1354,7 +1419,7 @@ public class CustomizationScreen extends Screen {
         beginStroke();
         int placed = 0;
         for (ClipVoxel c : this.clipboard) {
-            if (putVoxel(ox + c.dx(), oy + c.dy(), this.activeLayer, c.material(), c.shade())) placed++;
+            if (putVoxel(ox + c.dx(), oy + c.dy(), this.activeLayer, c.material(), c.shade(), c.shape())) placed++;
         }
         if (placed > 0) {
             commitSnapshot();
@@ -1565,7 +1630,7 @@ public class CustomizationScreen extends Screen {
             case TOOL_PICK -> {
                 if (!erase) {
                     WeaponVoxel v = findVoxel(cell[0], cell[1], this.activeLayer);
-                    if (v != null) selectSwatch(v.material(), v.shade());
+                    if (v != null) { selectSwatch(v.material(), v.shade()); selectShapeOf(v.shape()); }
                 }
             }
             default -> { }
@@ -1646,14 +1711,21 @@ public class CustomizationScreen extends Screen {
         if (erase) {
             for (int[] c : all) changed |= removeVoxel(c[0], c[1], this.activeLayer);
         } else if (this.tool == TOOL_RECOLOR) {
-            // Recolor only: voxels that are already there change, nothing is added
+            // Recolor only: voxels that are already there change colour and keep their shape, nothing is added
             for (int[] c : all) {
-                if (findVoxel(c[0], c[1], this.activeLayer) != null) {
-                    changed |= putVoxel(c[0], c[1], this.activeLayer, this.selectedMaterial, this.selectedShade);
-                }
+                WeaponVoxel ex = findVoxel(c[0], c[1], this.activeLayer);
+                if (ex != null) changed |= putVoxel(c[0], c[1], this.activeLayer, this.selectedMaterial, this.selectedShade, ex.shape());
             }
         } else {
-            for (int[] c : all) changed |= putVoxel(c[0], c[1], this.activeLayer, this.selectedMaterial, this.selectedShade);
+            int shape = placedShape();
+            int mirrored = VoxelShape.mirror(shape, this.mirrorMode);
+            for (int i = 0; i < all.size(); i++) {
+                int[] c = all.get(i);
+                WeaponVoxel ex = findVoxel(c[0], c[1], this.activeLayer);
+                int sh = i < cells.size() ? shape : mirrored;
+                if (this.tool == TOOL_FILL && ex != null) sh = ex.shape(); // the bucket only shapes cells that were empty
+                changed |= putVoxel(c[0], c[1], this.activeLayer, this.selectedMaterial, this.selectedShade, sh);
+            }
         }
 
         if (changed) {
@@ -1665,7 +1737,7 @@ public class CustomizationScreen extends Screen {
     }
 
     /** Places or recolors one voxel with no undo or stats bookkeeping. */
-    private boolean putVoxel(int x, int y, int layer, VoxelMaterial mat, int shade) {
+    private boolean putVoxel(int x, int y, int layer, VoxelMaterial mat, int shade, int shape) {
         if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize || !WeaponVoxel.isValidLayer(layer)) return false;
         if (isLayerLocked(layer)) return false;
         WeaponVoxel existing = findVoxel(x, y, layer);
@@ -1674,14 +1746,14 @@ public class CustomizationScreen extends Screen {
         if (existing == null) {
             if (!isCreative && getAvailableCount(mat) <= 0) return false;
             if (workingVoxels.size() >= MAX_TOTAL_VOXELS()) return false;
-            workingVoxels.add(new WeaponVoxel(x, y, layer, mat, shade));
+            workingVoxels.add(new WeaponVoxel(x, y, layer, mat, shade, shape));
             this.workingCounts.merge(mat.id().toLowerCase(), 1, Integer::sum);
             return true;
         }
-        if (existing.materialId().equalsIgnoreCase(mat.id()) && existing.shade() == shade) return false;
+        if (existing.materialId().equalsIgnoreCase(mat.id()) && existing.shade() == shade && existing.shape() == shape) return false;
         if (!existing.materialId().equalsIgnoreCase(mat.id()) && !isCreative && getAvailableCount(mat) <= 0) return false;
         workingVoxels.remove(existing);
-        workingVoxels.add(new WeaponVoxel(x, y, layer, mat, shade));
+        workingVoxels.add(new WeaponVoxel(x, y, layer, mat, shade, shape));
         this.workingCounts.merge(existing.materialId().toLowerCase(), -1, Integer::sum);
         this.workingCounts.merge(mat.id().toLowerCase(), 1, Integer::sum);
         return true;
@@ -1698,9 +1770,10 @@ public class CustomizationScreen extends Screen {
 
     /** Places a voxel of the selected material, or recolors the one already there (3D editor). */
     private boolean paintAt(int x, int y, int layer) {
-        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade);
+        int shape = placedShape();
+        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade, shape);
         int[] m = mirror3(x, y, layer);
-        if (m != null) changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade);
+        if (m != null) changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade, VoxelShape.mirror(shape, this.mirrorMode));
         if (!changed) return false;
         commitSnapshot();
         noteRecent(this.selectedMaterial, this.selectedShade);
@@ -1710,11 +1783,11 @@ public class CustomizationScreen extends Screen {
 
     /** Recolors an existing voxel (and its mirror image, if that cell holds a voxel too); never adds new ones. */
     private boolean recolorAt(int x, int y, int layer) {
-        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade);
+        WeaponVoxel here = findVoxel(x, y, layer);
+        boolean changed = here != null && putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade, here.shape());
         int[] m = mirror3(x, y, layer);
-        if (m != null && findVoxel(m[0], m[1], m[2]) != null) {
-            changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade);
-        }
+        WeaponVoxel there = m == null ? null : findVoxel(m[0], m[1], m[2]);
+        if (there != null) changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade, there.shape());
         if (!changed) return false;
         commitSnapshot();
         noteRecent(this.selectedMaterial, this.selectedShade);
@@ -1751,7 +1824,7 @@ public class CustomizationScreen extends Screen {
         }
 
         boolean changed = false;
-        for (WeaponVoxel v : region) changed |= putVoxel(v.x(), v.y(), v.z(), this.selectedMaterial, this.selectedShade);
+        for (WeaponVoxel v : region) changed |= putVoxel(v.x(), v.y(), v.z(), this.selectedMaterial, this.selectedShade, v.shape());
         if (!changed) return false;
         commitSnapshot();
         noteRecent(this.selectedMaterial, this.selectedShade);
@@ -2092,6 +2165,7 @@ public class CustomizationScreen extends Screen {
         this.fgView = new int[n * n];
         this.bgBuffer = new int[BG_DIM * BG_DIM];
         this.sceneGrid = new int[this.raycaster.cellCount()];
+        this.sceneShapes = new byte[this.raycaster.cellCount()];
         this.lastHlRect = null;
         this.bgDirty = true;
         this.sceneDirty = true;
@@ -2141,11 +2215,14 @@ public class CustomizationScreen extends Screen {
     /** Brings the renderer's grid in line with the design; only cells that differ mark their chunk for redraw. */
     private void syncScene() {
         java.util.Arrays.fill(this.sceneGrid, 0);
+        java.util.Arrays.fill(this.sceneShapes, (byte) 0);
         for (WeaponVoxel v : workingVoxels) {
             if (this.layerHidden[v.z() + MAX_LAYER]) continue;
-            this.sceneGrid[this.raycaster.cellIndex(v.x(), v.y(), v.z() + MAX_LAYER)] = v.getColorRgb() | 0xFF000000;
+            int ci = this.raycaster.cellIndex(v.x(), v.y(), v.z() + MAX_LAYER);
+            this.sceneGrid[ci] = v.getColorRgb() | 0xFF000000;
+            this.sceneShapes[ci] = (byte) v.shape();
         }
-        this.raycaster.syncCells(this.sceneGrid);
+        this.raycaster.syncCells(this.sceneGrid, this.sceneShapes);
     }
 
     private static int[] unionRect(int[] a, int[] b) {
@@ -2279,6 +2356,7 @@ public class CustomizationScreen extends Screen {
             WeaponVoxel v = findVoxel(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
             if (v == null) return false;
             selectSwatch(v.material(), v.shade());
+            selectShapeOf(v.shape());
             return true;
         }
 
@@ -2312,6 +2390,35 @@ public class CustomizationScreen extends Screen {
         releaseViewTextures();
         this.sceneDirty = true;
         super.removed();
+    }
+
+    private final List<WeaponVoxel> slabCells = new ArrayList<>();
+    private final List<WeaponVoxel> taperCells = new ArrayList<>();
+
+    /** Slabs (half a cell) and the sloped edge bands of tapered voxels in the 2D editor. */
+    private void drawShapedCells2d(GuiGraphicsExtractor g, int gridX, int gridY) {
+        int cs = this.cellSize;
+        for (WeaponVoxel v : this.slabCells) {
+            float[] fp = VoxelShape.footprint(v.shape());
+            int cx = gridX + v.x() * cs, cy = gridY + (this.gridSize - 1 - v.y()) * cs;
+            int x0 = cx + Math.round(fp[0] * cs), x1 = cx + Math.round(fp[2] * cs);
+            int y0 = cy + Math.round((1 - fp[3]) * cs), y1 = cy + Math.round((1 - fp[1]) * cs);
+            g.fill(x0, y0, x1, y1, v.getColorRgb() | 0xFF000000);
+            g.fill(x0, y0 - 1, x1, y0, 0xFFFFFFFF);
+            g.fill(x0, y1, x1, y1 + 1, 0xFFFFFFFF);
+            g.fill(x0 - 1, y0, x0, y1, 0xFFFFFFFF);
+            g.fill(x1, y0, x1 + 1, y1, 0xFFFFFFFF);
+        }
+        for (WeaponVoxel v : this.taperCells) {
+            int cx = gridX + v.x() * cs, cy = gridY + (this.gridSize - 1 - v.y()) * cs;
+            int band = v.shape() == VoxelShape.TAPERED_HALF ? Math.max(1, cs / 4) : Math.max(1, cs / 2);
+            int rgb = v.getColorRgb();
+            int dark = 0xFF000000 | (((rgb >> 16 & 0xFF) * 7 / 10) << 16) | (((rgb >> 8 & 0xFF) * 7 / 10) << 8) | ((rgb & 0xFF) * 7 / 10);
+            if (!isOccupied(v.x() - 1, v.y())) g.fill(cx, cy, cx + band, cy + cs, dark);
+            if (!isOccupied(v.x() + 1, v.y())) g.fill(cx + cs - band, cy, cx + cs, cy + cs, dark);
+            if (!isOccupied(v.x(), v.y() + 1)) g.fill(cx, cy, cx + cs, cy + band, dark);
+            if (!isOccupied(v.x(), v.y() - 1)) g.fill(cx, cy + cs - band, cx + cs, cy + cs, dark);
+        }
     }
 
     private boolean isOccupied(int x, int y) {
@@ -2530,6 +2637,10 @@ public class CustomizationScreen extends Screen {
     private ItemStack buttonIcon(int row) {
         if (row < BTN_TOOL_SLOTS) return ICON_TOOLS[row];
         return switch (row) {
+            case BTN_SHAPE -> {
+                int sh = placedShape();
+                yield sh == VoxelShape.FULL ? ICON_SHAPE_FULL : VoxelShape.isSlab(sh) ? ICON_SHAPE_SLAB : ICON_SHAPE_TAPER;
+            }
             case BTN_FLIP_H -> ICON_FLIP_H;
             case BTN_FLIP_V -> ICON_FLIP_V;
             case BTN_ROT_CW -> ICON_ROT_CW;
@@ -2547,6 +2658,7 @@ public class CustomizationScreen extends Screen {
         if (row < BTN_TOOL_SLOTS) return TOOL_KEYS[row];
         return switch (row) {
             case BTN_MIRROR -> "M";
+            case BTN_SHAPE -> "X";
             default -> null;
         };
     }
@@ -2556,6 +2668,7 @@ public class CustomizationScreen extends Screen {
             case BTN_UNDO -> "<";
             case BTN_REDO -> ">";
             case BTN_MIRROR -> this.mirrorMode == 0 ? null : MIRROR_TAGS[this.mirrorMode];
+            case BTN_SHAPE -> SHAPE_TAGS[this.shapeIdx];
             default -> null;
         };
     }
@@ -2563,6 +2676,11 @@ public class CustomizationScreen extends Screen {
     private String[] buttonTooltip(int row) {
         if (row < BTN_TOOL_SLOTS) return toolTooltip(row);
         return switch (row) {
+            case BTN_SHAPE -> new String[]{"§eVoxel shape: §a" + SHAPE_NAMES[this.shapeIdx] + " §7(click to cycle)",
+                    "§7Used by the Add tool and by the bucket on empty cells; Recolor keeps a voxel's shape",
+                    "§7Slabs fill half a block. Tapered faces slope to an edge wherever there is no neighbour",
+                    "§7Half fade slopes over half the block, full fade over the whole block",
+                    "§8Hotkey: X"};
             case BTN_FLIP_H -> new String[]{"§eFlip horizontally"};
             case BTN_FLIP_V -> new String[]{"§eFlip vertically"};
             case BTN_ROT_CW -> new String[]{"§eRotate clockwise"};
@@ -2614,10 +2732,14 @@ public class CustomizationScreen extends Screen {
             return;
         }
         switch (row) {
-            case BTN_FLIP_H -> transformVoxels(v -> new WeaponVoxel(n - v.x(), v.y(), v.z(), v.materialId(), v.shade()));
-            case BTN_FLIP_V -> transformVoxels(v -> new WeaponVoxel(v.x(), n - v.y(), v.z(), v.materialId(), v.shade()));
-            case BTN_ROT_CW -> transformVoxels(v -> new WeaponVoxel(v.y(), n - v.x(), v.z(), v.materialId(), v.shade()));
-            case BTN_ROT_CCW -> transformVoxels(v -> new WeaponVoxel(n - v.y(), v.x(), v.z(), v.materialId(), v.shade()));
+            case BTN_SHAPE -> {
+                this.shapeIdx = (this.shapeIdx + 1) % SHAPE_CYCLE.length;
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            }
+            case BTN_FLIP_H -> transformVoxels(v -> new WeaponVoxel(n - v.x(), v.y(), v.z(), v.materialId(), v.shade(), VoxelShape.flipX(v.shape())));
+            case BTN_FLIP_V -> transformVoxels(v -> new WeaponVoxel(v.x(), n - v.y(), v.z(), v.materialId(), v.shade(), VoxelShape.flipY(v.shape())));
+            case BTN_ROT_CW -> transformVoxels(v -> new WeaponVoxel(v.y(), n - v.x(), v.z(), v.materialId(), v.shade(), VoxelShape.rotateCw(v.shape())));
+            case BTN_ROT_CCW -> transformVoxels(v -> new WeaponVoxel(n - v.y(), v.x(), v.z(), v.materialId(), v.shade(), VoxelShape.rotateCcw(v.shape())));
             case BTN_VIEW -> {
                 this.view3d = !this.view3d;
                 this.bgDirty = true;

@@ -14,14 +14,15 @@ import java.util.List;
 import static net.adeptfrog.blocksmith.Blocksmith.MAX_LAYER;
 import static net.adeptfrog.blocksmith.Blocksmith.MIN_LAYER;
 
-public record WeaponVoxel(int x, int y, int z, String materialId, int shade) {
+public record WeaponVoxel(int x, int y, int z, String materialId, int shade, int shape) {
     public static final Codec<WeaponVoxel> CODEC = RecordCodecBuilder.create(instance ->
             instance.group(
                     Codec.INT.fieldOf("x").forGetter(WeaponVoxel::x),
                     Codec.INT.fieldOf("y").forGetter(WeaponVoxel::y),
                     Codec.INT.fieldOf("z").forGetter(WeaponVoxel::z),
                     Codec.STRING.fieldOf("material").forGetter(WeaponVoxel::materialId),
-                    Codec.INT.optionalFieldOf("shade", 2).forGetter(WeaponVoxel::shade)
+                    Codec.INT.optionalFieldOf("shade", 2).forGetter(WeaponVoxel::shade),
+                    Codec.INT.optionalFieldOf("shape", VoxelShape.FULL).forGetter(WeaponVoxel::shape)
             ).apply(instance, WeaponVoxel::new)
     );
 
@@ -31,6 +32,7 @@ public record WeaponVoxel(int x, int y, int z, String materialId, int shade) {
             ByteBufCodecs.VAR_INT, WeaponVoxel::z,
             ByteBufCodecs.STRING_UTF8, WeaponVoxel::materialId,
             ByteBufCodecs.VAR_INT, WeaponVoxel::shade,
+            ByteBufCodecs.VAR_INT, WeaponVoxel::shape,
             WeaponVoxel::new
     );
 
@@ -39,18 +41,35 @@ public record WeaponVoxel(int x, int y, int z, String materialId, int shade) {
             bytes -> {
                 List<WeaponVoxel> out = new ArrayList<>();
                 for (VoxelPacking.Raw r : VoxelPacking.unpack(bytes)) {
-                    out.add(new WeaponVoxel(r.x(), r.y(), r.z(), r.material(), r.shade()));
+                    out.add(new WeaponVoxel(r.x(), r.y(), r.z(), r.material(), r.shade(), r.shape()));
                 }
                 return out;
             },
             voxels -> {
                 List<VoxelPacking.Raw> raw = new ArrayList<>(voxels.size());
-                for (WeaponVoxel v : voxels) raw.add(new VoxelPacking.Raw(v.x(), v.y(), v.z(), v.materialId(), v.shade()));
+                for (WeaponVoxel v : voxels) raw.add(new VoxelPacking.Raw(v.x(), v.y(), v.z(), v.materialId(), v.shade(), v.shape()));
                 return VoxelPacking.pack(raw);
             });
 
+    public WeaponVoxel {
+        if (!VoxelShape.isValid(shape)) shape = VoxelShape.FULL;
+    }
+
+    public WeaponVoxel(int x, int y, int z, String materialId, int shade) {
+        this(x, y, z, materialId, shade, VoxelShape.FULL);
+    }
+
     public WeaponVoxel(int x, int y, int z, VoxelMaterial mat, int shade) {
-        this(x, y, z, mat.id(), shade);
+        this(x, y, z, mat.id(), shade, VoxelShape.FULL);
+    }
+
+    public WeaponVoxel(int x, int y, int z, VoxelMaterial mat, int shade, int shape) {
+        this(x, y, z, mat.id(), shade, shape);
+    }
+
+    /** The same voxel moved to another cell, keeping material, shade and shape. */
+    public WeaponVoxel at(int nx, int ny, int nz) {
+        return new WeaponVoxel(nx, ny, nz, materialId, shade, shape);
     }
 
     public static boolean isValidLayer(int z) {

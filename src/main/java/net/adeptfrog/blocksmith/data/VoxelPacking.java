@@ -17,7 +17,9 @@ import java.util.Map;
 public final class VoxelPacking {
     private VoxelPacking() {}
 
-    public record Raw(int x, int y, int z, String material, int shade) {}
+    public record Raw(int x, int y, int z, String material, int shade, int shape) {
+        public Raw(int x, int y, int z, String material, int shade) { this(x, y, z, material, shade, 0); }
+    }
 
     private static final int MAX_TABLE = 1 << 12;
     private static final int MAX_ROWS = 1 << 16;
@@ -31,16 +33,17 @@ public final class VoxelPacking {
         sorted.sort(Comparator.comparingInt(Raw::z).thenComparingInt(Raw::y).thenComparingInt(Raw::x));
 
         Map<String, Integer> table = new LinkedHashMap<>();
-        for (Raw v : sorted) table.putIfAbsent(v.material() + "\u0000" + v.shade(), table.size());
+        for (Raw v : sorted) table.putIfAbsent(tableKey(v), table.size());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         writeVar(out, table.size());
         for (String key : table.keySet()) {
-            int sep = key.lastIndexOf('\u0000');
-            byte[] name = key.substring(0, sep).getBytes(StandardCharsets.UTF_8);
+            String[] parts = key.split("\u0000", -1); // material, shade, shape
+            byte[] name = parts[0].getBytes(StandardCharsets.UTF_8);
             writeVar(out, name.length);
             out.write(name, 0, name.length);
-            writeVar(out, zigzag(Integer.parseInt(key.substring(sep + 1))));
+            writeVar(out, zigzag(Integer.parseInt(parts[1])));
+            writeVar(out, parts.length > 2 ? Integer.parseInt(parts[2]) : 0);
         }
 
         // Rows (same z and y), each a list of runs
@@ -59,7 +62,7 @@ public final class VoxelPacking {
             // Runs: consecutive x with the same table entry
             List<int[]> runs = new ArrayList<>(); // {startX, length, tableIndex}
             for (Raw v : row) {
-                int idx = table.get(v.material() + "\u0000" + v.shade());
+                int idx = table.get(tableKey(v));
                 int[] last = runs.isEmpty() ? null : runs.getLast();
                 if (last != null && last[2] == idx && last[0] + last[1] == v.x()) last[1]++;
                 else runs.add(new int[]{v.x(), 1, idx});
@@ -84,12 +87,14 @@ public final class VoxelPacking {
         if (tableSize < 0 || tableSize > MAX_TABLE) throw new IllegalArgumentException("Bad voxel table size " + tableSize);
         String[] names = new String[tableSize];
         int[] shades = new int[tableSize];
+        int[] shapes = new int[tableSize];
         for (int i = 0; i < tableSize; i++) {
             int len = readVar(data, p);
             if (len < 0 || p[0] + len > data.length) throw new IllegalArgumentException("Bad material name length");
             names[i] = new String(data, p[0], len, StandardCharsets.UTF_8);
             p[0] += len;
             shades[i] = unzigzag(readVar(data, p));
+            shapes[i] = readVar(data, p);
         }
 
         int rowCount = readVar(data, p);
@@ -108,11 +113,15 @@ public final class VoxelPacking {
                 if (len < 1 || idx < 0 || idx >= tableSize || out.size() + (long) len > MAX_VOXELS) {
                     throw new IllegalArgumentException("Bad voxel run");
                 }
-                for (int k = 0; k < len; k++) out.add(new Raw(start + k, y, z, names[idx], shades[idx]));
+                for (int k = 0; k < len; k++) out.add(new Raw(start + k, y, z, names[idx], shades[idx], shapes[idx]));
                 pos = start + len;
             }
         }
         return out;
+    }
+
+    private static String tableKey(Raw v) {
+        return v.material() + "\u0000" + v.shade() + "\u0000" + v.shape();
     }
 
     private static int zigzag(int v) { return (v << 1) ^ (v >> 31); }

@@ -6,6 +6,7 @@ import com.mojang.serialization.MapCodec;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
+import net.adeptfrog.blocksmith.data.VoxelShape;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
@@ -78,9 +79,9 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
         float voxelDepth = 1.25f / 32.0f; // fixed for every grid size (the 32x32 thickness)
         float baseZOffset = 0.5f - (voxelDepth / 2.0f);
 
-        // Occupancy lookup so faces hidden between touching layers are not drawn
-        java.util.Set<Long> occupied = new java.util.HashSet<>();
-        for (WeaponVoxel v : state.voxels()) occupied.add(cellKey(v.x(), v.y(), v.z()));
+        // Shape lookup so faces hidden between touching layers are not drawn and tapered voxels know their neighbours
+        java.util.Map<Long, Integer> occupied = new java.util.HashMap<>();
+        for (WeaponVoxel v : state.voxels()) occupied.put(cellKey(v.x(), v.y(), v.z()), v.shape());
 
         collector.submitCustomGeometry(poseStack, VOXEL_RENDER_TYPE, (pose, consumer) -> {
             Matrix4f baseMatrix = pose.pose();
@@ -95,16 +96,29 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
             int applyOffX = isGui ? 0 : state.offsetX();
             int applyOffY = isGui ? 0 : state.offsetY();
 
+            float[] quads = new float[VoxelShape.MAX_QUADS * VoxelShape.QUAD_FLOATS];
             for (WeaponVoxel voxel : state.voxels()) {
                 Matrix4f voxelMatrix = new Matrix4f(baseMatrix)
                         // Translates voxels by the player's custom grip offset
                         .translate((voxel.x() + applyOffX) * voxelSize, (voxel.y() + applyOffY) * voxelSize,
                                 baseZOffset + voxel.z() * voxelDepth);
 
-                boolean hideBack = occupied.contains(cellKey(voxel.x(), voxel.y(), voxel.z() - 1));
-                boolean hideFront = occupied.contains(cellKey(voxel.x(), voxel.y(), voxel.z() + 1));
+                int x = voxel.x(), y = voxel.y(), z = voxel.z();
+                int free = 0, hide = 0;
+                Integer back = occupied.get(cellKey(x, y, z - 1)), front = occupied.get(cellKey(x, y, z + 1));
+                if (back != null && VoxelShape.covers(back, voxel.shape())) hide |= VoxelShape.HIDE_BACK;
+                if (front != null && VoxelShape.covers(front, voxel.shape())) hide |= VoxelShape.HIDE_FRONT;
+                if (VoxelShape.isTapered(voxel.shape())) {
+                    if (!occupied.containsKey(cellKey(x - 1, y, z))) free |= VoxelShape.FREE_XM;
+                    if (!occupied.containsKey(cellKey(x + 1, y, z))) free |= VoxelShape.FREE_XP;
+                    if (!occupied.containsKey(cellKey(x, y - 1, z))) free |= VoxelShape.FREE_YM;
+                    if (!occupied.containsKey(cellKey(x, y + 1, z))) free |= VoxelShape.FREE_YP;
+                    if (back == null) free |= VoxelShape.FREE_ZM;
+                    if (front == null) free |= VoxelShape.FREE_ZP;
+                }
 
-                renderSolidCube(voxelMatrix, consumer, voxelSize, voxelDepth, voxel.getColorRgb(), lightCoords, overlayCoords, hideBack, hideFront);
+                int count = VoxelShape.buildQuads(voxel.shape(), free, hide, quads);
+                renderShape(voxelMatrix, consumer, quads, count, voxelSize, voxelDepth, voxel.getColorRgb(), lightCoords, overlayCoords);
             }
         });
     }
@@ -119,51 +133,23 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
         return ((long) (z + 8) << 48) | ((long) (x & 0xFFFFFF) << 24) | (y & 0xFFFFFFL);
     }
 
-    private void renderSolidCube(Matrix4f matrix, VertexConsumer consumer, float size, float depth, int argb, int light, int overlay, boolean hideBack, boolean hideFront) {
+    /** Emits the quads of one voxel (cell space, see {@link VoxelShape}) scaled to the voxel's real size. */
+    private void renderShape(Matrix4f matrix, VertexConsumer consumer, float[] quads, int count, float size, float depth,
+                             int argb, int light, int overlay) {
         int a = (argb >> 24) & 0xFF;
         if (a == 0) a = 255;
         int r = (argb >> 16) & 0xFF;
         int g = (argb >> 8) & 0xFF;
         int b = argb & 0xFF;
 
-        // DOWN (-Y)
-        consumer.addVertex(matrix, 0, 0, 0).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(0, -1, 0);
-        consumer.addVertex(matrix, size, 0, 0).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(0, -1, 0);
-        consumer.addVertex(matrix, size, 0, depth).setColor(r, g, b, a).setUv(1, 1).setOverlay(overlay).setLight(light).setNormal(0, -1, 0);
-        consumer.addVertex(matrix, 0, 0, depth).setColor(r, g, b, a).setUv(0, 1).setOverlay(overlay).setLight(light).setNormal(0, -1, 0);
-
-        // UP (+Y)
-        consumer.addVertex(matrix, 0, size, 0).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(0, 1, 0);
-        consumer.addVertex(matrix, 0, size, depth).setColor(r, g, b, a).setUv(0, 1).setOverlay(overlay).setLight(light).setNormal(0, 1, 0);
-        consumer.addVertex(matrix, size, size, depth).setColor(r, g, b, a).setUv(1, 1).setOverlay(overlay).setLight(light).setNormal(0, 1, 0);
-        consumer.addVertex(matrix, size, size, 0).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(0, 1, 0);
-
-        // NORTH (-Z)
-        if (!hideBack) {
-        consumer.addVertex(matrix, 0, 0, 0).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(0, 0, -1);
-        consumer.addVertex(matrix, 0, size, 0).setColor(r, g, b, a).setUv(0, 1).setOverlay(overlay).setLight(light).setNormal(0, 0, -1);
-        consumer.addVertex(matrix, size, size, 0).setColor(r, g, b, a).setUv(1, 1).setOverlay(overlay).setLight(light).setNormal(0, 0, -1);
-        consumer.addVertex(matrix, size, 0, 0).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(0, 0, -1);
+        for (int q = 0; q < count; q++) {
+            int o = q * VoxelShape.QUAD_FLOATS;
+            float nx = quads[o + 12], ny = quads[o + 13], nz = quads[o + 14];
+            for (int i = 0; i < 4; i++) {
+                float vx = quads[o + i * 3] * size, vy = quads[o + i * 3 + 1] * size, vz = quads[o + i * 3 + 2] * depth;
+                consumer.addVertex(matrix, vx, vy, vz).setColor(r, g, b, a).setUv(i == 0 || i == 3 ? 0 : 1, i < 2 ? 0 : 1)
+                        .setOverlay(overlay).setLight(light).setNormal(nx, ny, nz);
+            }
         }
-
-        // SOUTH (+Z)
-        if (!hideFront) {
-        consumer.addVertex(matrix, 0, 0, depth).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, size, 0, depth).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, size, size, depth).setColor(r, g, b, a).setUv(1, 1).setOverlay(overlay).setLight(light).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, 0, size, depth).setColor(r, g, b, a).setUv(0, 1).setOverlay(overlay).setLight(light).setNormal(0, 0, 1);
-        }
-
-        // WEST (-X)
-        consumer.addVertex(matrix, 0, 0, 0).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(-1, 0, 0);
-        consumer.addVertex(matrix, 0, 0, depth).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(-1, 0, 0);
-        consumer.addVertex(matrix, 0, size, depth).setColor(r, g, b, a).setUv(1, 1).setOverlay(overlay).setLight(light).setNormal(-1, 0, 0);
-        consumer.addVertex(matrix, 0, size, 0).setColor(r, g, b, a).setUv(0, 1).setOverlay(overlay).setLight(light).setNormal(-1, 0, 0);
-
-        // EAST (+X)
-        consumer.addVertex(matrix, size, 0, 0).setColor(r, g, b, a).setUv(0, 0).setOverlay(overlay).setLight(light).setNormal(1, 0, 0);
-        consumer.addVertex(matrix, size, 0, depth).setColor(r, g, b, a).setUv(0, 1).setOverlay(overlay).setLight(light).setNormal(1, 0, 0);
-        consumer.addVertex(matrix, size, size, depth).setColor(r, g, b, a).setUv(1, 1).setOverlay(overlay).setLight(light).setNormal(1, 0, 0);
-        consumer.addVertex(matrix, size, size, 0).setColor(r, g, b, a).setUv(1, 0).setOverlay(overlay).setLight(light).setNormal(1, 0, 0);
     }
 }

@@ -112,6 +112,7 @@ public class VoxelDesignSerializer {
             if (v.z() != 0) obj.addProperty("z", v.z()); // Layer index; omitted for the base layer (z = 0)
             obj.addProperty("m", v.materialId());
             obj.addProperty("s", v.shade());
+            if (v.shape() != VoxelShape.FULL) obj.addProperty("sh", v.shape()); // voxel shape; omitted for full cubes
             array.add(obj);
         }
         root.add("voxels", array);
@@ -161,11 +162,12 @@ public class VoxelDesignSerializer {
             if (!WeaponVoxel.isValidLayer(z)) continue; // Outside the supported layer range
             String mat = obj.has("m") ? obj.get("m").getAsString() : "iron";
             int s = obj.has("s") ? obj.get("s").getAsInt() : 2;
+            int sh = obj.has("sh") ? obj.get("sh").getAsInt() : VoxelShape.FULL;
 
             if (targetGrid == sourceGrid) {
                 // Exact match: 1-to-1 mapping
                 if (srcX >= 0 && srcX < targetGrid && srcY >= 0 && srcY < targetGrid) {
-                    scaledMap.put(voxelKey(srcX, srcY, z), new WeaponVoxel(srcX, srcY, z, mat, s));
+                    scaledMap.put(voxelKey(srcX, srcY, z), new WeaponVoxel(srcX, srcY, z, mat, s, sh));
                 }
             } else if (targetGrid > sourceGrid) {
                 // Upscaling (e.g. 16 -> 64): Fills target sub-grid area to prevent hollow gaps
@@ -176,14 +178,14 @@ public class VoxelDesignSerializer {
 
                 for (int tx = minX; tx < maxX && tx < targetGrid; tx++) {
                     for (int ty = minY; ty < maxY && ty < targetGrid; ty++) {
-                        scaledMap.put(voxelKey(tx, ty, z), new WeaponVoxel(tx, ty, z, mat, s));
+                        scaledMap.put(voxelKey(tx, ty, z), new WeaponVoxel(tx, ty, z, mat, s, sh));
                     }
                 }
             } else {
                 // Downscaling (e.g. 64 -> 16): Deduplicates points to fit smaller resolution
                 int tx = Math.clamp((int) Math.round(srcX * scale), 0, targetGrid - 1);
                 int ty = Math.clamp((int) Math.round(srcY * scale), 0, targetGrid - 1);
-                scaledMap.put(voxelKey(tx, ty, z), new WeaponVoxel(tx, ty, z, mat, s));
+                scaledMap.put(voxelKey(tx, ty, z), new WeaponVoxel(tx, ty, z, mat, s, sh));
             }
         }
 
@@ -224,9 +226,12 @@ public class VoxelDesignSerializer {
         int[] rgb = colors.stream().mapToInt(Integer::intValue).toArray();
         List<ImageVoxelizer.Cell> cells = ImageVoxelizer.convert(img, targetGridSize, options, rgb, MAX_TOTAL_VOXELS());
 
+        // The Tapered profile steps each layer in by one cell and also gives every voxel the tapered shape, so the
+        // faces slope down to a sharp edge where no neighbouring voxel continues the surface
+        int shape = options.profile() == 1 ? VoxelShape.TAPERED_FULL : VoxelShape.FULL;
         List<WeaponVoxel> list = new ArrayList<>(cells.size());
         for (ImageVoxelizer.Cell c : cells) {
-            list.add(new WeaponVoxel(c.x(), c.y(), c.z(), owners.get(c.paletteIndex()).id(), shades.get(c.paletteIndex())));
+            list.add(new WeaponVoxel(c.x(), c.y(), c.z(), owners.get(c.paletteIndex()).id(), shades.get(c.paletteIndex()), shape));
         }
         return list;
     }
