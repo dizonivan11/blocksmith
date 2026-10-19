@@ -104,20 +104,12 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Weapon
                                 baseZOffset + voxel.z() * voxelDepth);
 
                 int x = voxel.x(), y = voxel.y(), z = voxel.z();
-                int free = 0, hide = 0;
+                int hide = 0;
                 Integer back = occupied.get(cellKey(x, y, z - 1)), front = occupied.get(cellKey(x, y, z + 1));
-                if (back != null && VoxelShape.covers(back, voxel.shape())) hide |= VoxelShape.HIDE_BACK;
-                if (front != null && VoxelShape.covers(front, voxel.shape())) hide |= VoxelShape.HIDE_FRONT;
-                if (VoxelShape.isTapered(voxel.shape())) {
-                    if (!occupied.containsKey(cellKey(x - 1, y, z))) free |= VoxelShape.FREE_XM;
-                    if (!occupied.containsKey(cellKey(x + 1, y, z))) free |= VoxelShape.FREE_XP;
-                    if (!occupied.containsKey(cellKey(x, y - 1, z))) free |= VoxelShape.FREE_YM;
-                    if (!occupied.containsKey(cellKey(x, y + 1, z))) free |= VoxelShape.FREE_YP;
-                    if (back == null) free |= VoxelShape.FREE_ZM;
-                    if (front == null) free |= VoxelShape.FREE_ZP;
-                }
+                if (back != null && VoxelShape.coversBack(back, voxel.shape())) hide |= VoxelShape.HIDE_BACK;
+                if (front != null && VoxelShape.coversFront(front, voxel.shape())) hide |= VoxelShape.HIDE_FRONT;
 
-                int count = VoxelShape.buildQuads(voxel.shape(), free, hide, quads);
+                int count = VoxelShape.buildQuads(voxel.shape(), hide, quads);
                 renderShape(voxelMatrix, consumer, quads, count, voxelSize, voxelDepth, voxel.getColorRgb(), lightCoords, overlayCoords);
             }
         });

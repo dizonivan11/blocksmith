@@ -482,17 +482,8 @@ public final class VoxelRaycaster {
      * On a hit it fills the h* fields and returns true.
      */
     private boolean shapeHit(int cx, int cy, int cz, int shape, double tFrom) {
-        int free = 0;
-        if (VoxelShape.isTapered(shape)) {
-            if (!solidAt(cx - 1, cy, cz)) free |= VoxelShape.FREE_XM;
-            if (!solidAt(cx + 1, cy, cz)) free |= VoxelShape.FREE_XP;
-            if (!solidAt(cx, cy - 1, cz)) free |= VoxelShape.FREE_YM;
-            if (!solidAt(cx, cy + 1, cz)) free |= VoxelShape.FREE_YP;
-            if (!solidAt(cx, cy, cz - 1)) free |= VoxelShape.FREE_ZM;
-            if (!solidAt(cx, cy, cz + 1)) free |= VoxelShape.FREE_ZP;
-        }
         final float[] q = quadScratch;
-        int count = VoxelShape.buildQuads(shape, free, 0, q);
+        int count = VoxelShape.buildQuads(shape, 0, q);
         double lx = ox - cx, ly = oy - cy, lz = oz - cz;
         double best = Double.POSITIVE_INFINITY;
         int bestQ = -1;

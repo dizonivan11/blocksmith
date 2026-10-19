@@ -94,25 +94,75 @@ public class CustomizationScreen extends Screen {
     private static final String[] TOOL_KEYS = {"P", "O", "R", "I", "B", "S", "V"};
     private int tool = TOOL_ADD;
 
-    // Voxel shape placed by the Add tool and the bucket on empty cells; one button cycles through them
-    private static final int[] SHAPE_CYCLE = {VoxelShape.FULL, VoxelShape.SLAB_BOTTOM, VoxelShape.SLAB_LEFT,
-            VoxelShape.TAPERED_HALF, VoxelShape.TAPERED_FULL};
-    private static final String[] SHAPE_NAMES = {"Full block", "Horizontal slab", "Vertical slab",
-            "Tapered (half-block fade)", "Tapered (full-block fade)"};
-    private static final String[] SHAPE_TAGS = {null, "H", "V", "\u00BD", "T"};
-    private int shapeIdx = 0;
+    // Voxel shape placed by the Add tool and the bucket on empty cells. One button cycles the kind; the side (left/right,
+    // bottom/top, front/back) of the kinds that have one is toggled with right-click on the button or the Z key.
+    private static final int SHAPE_FULL = 0, SHAPE_HALF = 1, SHAPE_HSLAB = 2, SHAPE_VSLAB = 3, SHAPE_STAIR = 4;
+    private static final String[] SHAPE_NAMES = {"Full block", "Half block", "Horizontal slab", "Vertical slab", "Stairs"};
+    private static final String[][] SHAPE_SIDES = {null, {"Left", "Right"}, {"Bottom", "Top"}, {"Front", "Back"}, null};
+    private static final String[][] SHAPE_SIDE_TAGS = {null, {"L", "R"}, {"D", "U"}, {"F", "B"}, null};
+    private int shapeKind = SHAPE_FULL;
+    private final boolean[] shapeAlt = new boolean[5];
 
-    private int placedShape() {
-        return SHAPE_CYCLE[this.shapeIdx];
+    private boolean shapeHasSide() {
+        return SHAPE_SIDES[this.shapeKind] != null;
     }
 
-    private void selectShapeOf(int shape) {
-        int kind = switch (shape) {
-            case VoxelShape.SLAB_BOTTOM, VoxelShape.SLAB_TOP -> VoxelShape.SLAB_BOTTOM;
-            case VoxelShape.SLAB_LEFT, VoxelShape.SLAB_RIGHT -> VoxelShape.SLAB_LEFT;
-            default -> shape;
+    private String shapeLabel() {
+        return shapeHasSide() ? SHAPE_NAMES[this.shapeKind] + " (" + SHAPE_SIDES[this.shapeKind][this.shapeAlt[this.shapeKind] ? 1 : 0] + ")"
+                : SHAPE_NAMES[this.shapeKind];
+    }
+
+    /** The shape the tools place; for stairs this is only a marker, the real orientation is worked out per cell. */
+    private int placedShape() {
+        boolean alt = this.shapeAlt[this.shapeKind];
+        return switch (this.shapeKind) {
+            case SHAPE_HALF -> alt ? VoxelShape.HALF_RIGHT : VoxelShape.HALF_LEFT;
+            case SHAPE_HSLAB -> alt ? VoxelShape.SLAB_TOP : VoxelShape.SLAB_BOTTOM;
+            case SHAPE_VSLAB -> alt ? VoxelShape.SLAB_BACK : VoxelShape.SLAB_FRONT;
+            case SHAPE_STAIR -> VoxelShape.STAIR_TR;
+            default -> VoxelShape.FULL;
         };
-        for (int i = 0; i < SHAPE_CYCLE.length; i++) if (SHAPE_CYCLE[i] == kind) this.shapeIdx = i;
+    }
+
+    private void cycleShapeSide() {
+        if (!shapeHasSide()) return;
+        this.shapeAlt[this.shapeKind] = !this.shapeAlt[this.shapeKind];
+        this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+    }
+
+    /** Makes the Shape tool match a picked voxel (kind and side). */
+    private void selectShapeOf(int shape) {
+        switch (shape) {
+            case VoxelShape.HALF_LEFT, VoxelShape.HALF_RIGHT -> { this.shapeKind = SHAPE_HALF; this.shapeAlt[SHAPE_HALF] = shape == VoxelShape.HALF_RIGHT; }
+            case VoxelShape.SLAB_BOTTOM, VoxelShape.SLAB_TOP -> { this.shapeKind = SHAPE_HSLAB; this.shapeAlt[SHAPE_HSLAB] = shape == VoxelShape.SLAB_TOP; }
+            case VoxelShape.SLAB_FRONT, VoxelShape.SLAB_BACK -> { this.shapeKind = SHAPE_VSLAB; this.shapeAlt[SHAPE_VSLAB] = shape == VoxelShape.SLAB_BACK; }
+            default -> this.shapeKind = VoxelShape.isStair(shape) ? SHAPE_STAIR : SHAPE_FULL;
+        }
+    }
+
+    /**
+     * Stairs pick their orientation like stair blocks do: the cut-away corner faces the open side. Each corner scores
+     * one point per empty orthogonal neighbour next to it and half a point for an empty diagonal one.
+     */
+    private int stairFor(int x, int y, int layer) {
+        boolean l = findVoxel(x - 1, y, layer) == null, r = findVoxel(x + 1, y, layer) == null;
+        boolean d = findVoxel(x, y - 1, layer) == null, u = findVoxel(x, y + 1, layer) == null;
+        double tr = (r ? 1 : 0) + (u ? 1 : 0) + (findVoxel(x + 1, y + 1, layer) == null ? 0.5 : 0);
+        double tl = (l ? 1 : 0) + (u ? 1 : 0) + (findVoxel(x - 1, y + 1, layer) == null ? 0.5 : 0);
+        double bl = (l ? 1 : 0) + (d ? 1 : 0) + (findVoxel(x - 1, y - 1, layer) == null ? 0.5 : 0);
+        double br = (r ? 1 : 0) + (d ? 1 : 0) + (findVoxel(x + 1, y - 1, layer) == null ? 0.5 : 0);
+        double best = Math.max(Math.max(tr, tl), Math.max(bl, br));
+        if (tr == best) return VoxelShape.STAIR_TR;
+        if (tl == best) return VoxelShape.STAIR_TL;
+        if (bl == best) return VoxelShape.STAIR_BL;
+        return VoxelShape.STAIR_BR;
+    }
+
+    /** The shape to put in a cell: stairs are oriented from the cell's surroundings, the rest as chosen (mirrored for mirror copies). */
+    private int shapeFor(int x, int y, int layer, boolean mirrorCopy) {
+        int shape = placedShape();
+        if (VoxelShape.isStair(shape)) return stairFor(x, y, layer);
+        return mirrorCopy ? VoxelShape.mirror(shape, this.mirrorMode) : shape;
     }
 
     private String toolName(int i) {
@@ -142,9 +192,8 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_VIEW_2D = new ItemStack(Items.MAP);
     private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STICK), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE), new ItemStack(Items.SPYGLASS), new ItemStack(Items.BUCKET), new ItemStack(Items.SHEARS), new ItemStack(Items.LEAD)};
     private static final ItemStack ICON_RESET = new ItemStack(Items.COMPASS);
-    private static final ItemStack ICON_SHAPE_FULL = new ItemStack(Items.STONE);
-    private static final ItemStack ICON_SHAPE_SLAB = new ItemStack(Items.STONE_SLAB);
-    private static final ItemStack ICON_SHAPE_TAPER = new ItemStack(Items.STONE_STAIRS);
+    private static final ItemStack[] ICON_SHAPES = {new ItemStack(Items.STONE), new ItemStack(Items.SMOOTH_STONE),
+            new ItemStack(Items.STONE_SLAB), new ItemStack(Items.COBBLESTONE_SLAB), new ItemStack(Items.STONE_STAIRS)};
     private static final ItemStack ICON_UNDO = new ItemStack(Items.CLOCK);
     private static final ItemStack ICON_MIRROR = new ItemStack(Items.GLASS_PANE);
     private static final ItemStack ICON_CODEX = new ItemStack(Items.ENCHANTED_BOOK);
@@ -322,6 +371,10 @@ public class CustomizationScreen extends Screen {
         }
         if (key == GLFW.GLFW_KEY_X) {
             handleButtonAction(BTN_SHAPE);
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_Z) {
+            cycleShapeSide();
             return true;
         }
         if ((key >= GLFW.GLFW_KEY_1 && key <= GLFW.GLFW_KEY_5) || (key >= GLFW.GLFW_KEY_KP_1 && key <= GLFW.GLFW_KEY_KP_5)) {
@@ -519,19 +572,19 @@ public class CustomizationScreen extends Screen {
                 guiGraphics.fill(gx, gy, gx + this.cellSize, gy + this.cellSize, (v.getColorRgb() & 0xFFFFFF) | (ghostAlpha << 24));
             }
 
-            this.slabCells.clear();
-            this.taperCells.clear();
+            this.partialCells.clear();
+            this.depthCells.clear();
             for (WeaponVoxel v : workingVoxels) {
                 if (v.z() != this.activeLayer || this.layerHidden[this.activeLayer + MAX_LAYER]) continue;
                 if (v.x() >= 0 && v.x() < this.gridSize && v.y() >= 0 && v.y() < this.gridSize) {
-                    if (VoxelShape.isSlab(v.shape())) { // slabs only fill half a cell, drawn separately below
-                        this.slabCells.add(v);
+                    if (VoxelShape.isPartialInPlane(v.shape())) { // halves, horizontal slabs and stairs: drawn piece by piece below
+                        this.partialCells.add(v);
                         continue;
                     }
                     int idx = v.x() + v.y() * this.gridSize;
                     this.occupiedGrid[idx] = true;
                     this.colorGrid[idx] = v.getColorRgb() | 0xFF000000;
-                    if (VoxelShape.isTapered(v.shape())) this.taperCells.add(v);
+                    if (v.shape() != VoxelShape.FULL) this.depthCells.add(v); // vertical slabs fill the face but only half the depth
                 }
             }
 
@@ -819,7 +872,7 @@ public class CustomizationScreen extends Screen {
             if (overlay != null) {
                 guiGraphics.text(this.font, Component.literal(overlay), subBtnX + ICON_BTN - 6, rowY + ICON_BTN - 9, 0xFFFFFFFF, true);
             }
-            if ((row == BTN_MIRROR && this.mirrorMode != 0) || (row == BTN_SHAPE && this.shapeIdx != 0) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
+            if ((row == BTN_MIRROR && this.mirrorMode != 0) || (row == BTN_SHAPE && this.shapeKind != SHAPE_FULL) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
                 int gc = 0xFF55FF55;
                 guiGraphics.fill(subBtnX - 1, rowY - 1, subBtnX + ICON_BTN + 1, rowY, gc);
                 guiGraphics.fill(subBtnX - 1, rowY + ICON_BTN, subBtnX + ICON_BTN + 1, rowY + ICON_BTN + 1, gc);
@@ -1030,7 +1083,8 @@ public class CustomizationScreen extends Screen {
                 if (!buttonVisible(row)) continue;
                 int rowY = buttonY(topPos, row);
                 if (mouseY >= rowY && mouseY < rowY + ICON_BTN) {
-                    handleButtonAction(row);
+                    if (row == BTN_SHAPE && event.button() == 1) cycleShapeSide();
+                    else handleButtonAction(row);
                     return true;
                 }
             }
@@ -1717,12 +1771,10 @@ public class CustomizationScreen extends Screen {
                 if (ex != null) changed |= putVoxel(c[0], c[1], this.activeLayer, this.selectedMaterial, this.selectedShade, ex.shape());
             }
         } else {
-            int shape = placedShape();
-            int mirrored = VoxelShape.mirror(shape, this.mirrorMode);
             for (int i = 0; i < all.size(); i++) {
                 int[] c = all.get(i);
                 WeaponVoxel ex = findVoxel(c[0], c[1], this.activeLayer);
-                int sh = i < cells.size() ? shape : mirrored;
+                int sh = shapeFor(c[0], c[1], this.activeLayer, i >= cells.size());
                 if (this.tool == TOOL_FILL && ex != null) sh = ex.shape(); // the bucket only shapes cells that were empty
                 changed |= putVoxel(c[0], c[1], this.activeLayer, this.selectedMaterial, this.selectedShade, sh);
             }
@@ -1770,10 +1822,9 @@ public class CustomizationScreen extends Screen {
 
     /** Places a voxel of the selected material, or recolors the one already there (3D editor). */
     private boolean paintAt(int x, int y, int layer) {
-        int shape = placedShape();
-        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade, shape);
+        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade, shapeFor(x, y, layer, false));
         int[] m = mirror3(x, y, layer);
-        if (m != null) changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade, VoxelShape.mirror(shape, this.mirrorMode));
+        if (m != null) changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade, shapeFor(m[0], m[1], m[2], true));
         if (!changed) return false;
         commitSnapshot();
         noteRecent(this.selectedMaterial, this.selectedShade);
@@ -2392,32 +2443,38 @@ public class CustomizationScreen extends Screen {
         super.removed();
     }
 
-    private final List<WeaponVoxel> slabCells = new ArrayList<>();
-    private final List<WeaponVoxel> taperCells = new ArrayList<>();
+    private final List<WeaponVoxel> partialCells = new ArrayList<>();
+    private final List<WeaponVoxel> depthCells = new ArrayList<>();
 
-    /** Slabs (half a cell) and the sloped edge bands of tapered voxels in the 2D editor. */
+    /** Voxels that do not fill their whole face (halves, horizontal slabs, stairs) and the marker for vertical slabs. */
     private void drawShapedCells2d(GuiGraphicsExtractor g, int gridX, int gridY) {
         int cs = this.cellSize;
-        for (WeaponVoxel v : this.slabCells) {
-            float[] fp = VoxelShape.footprint(v.shape());
+        final int line = 0xFFFFFFFF;
+        for (WeaponVoxel v : this.partialCells) {
             int cx = gridX + v.x() * cs, cy = gridY + (this.gridSize - 1 - v.y()) * cs;
-            int x0 = cx + Math.round(fp[0] * cs), x1 = cx + Math.round(fp[2] * cs);
-            int y0 = cy + Math.round((1 - fp[3]) * cs), y1 = cy + Math.round((1 - fp[1]) * cs);
-            g.fill(x0, y0, x1, y1, v.getColorRgb() | 0xFF000000);
-            g.fill(x0, y0 - 1, x1, y0, 0xFFFFFFFF);
-            g.fill(x0, y1, x1, y1 + 1, 0xFFFFFFFF);
-            g.fill(x0 - 1, y0, x0, y1, 0xFFFFFFFF);
-            g.fill(x1, y0, x1 + 1, y1, 0xFFFFFFFF);
+            int mask = VoxelShape.xyMask(v.shape());
+            int color = v.getColorRgb() | 0xFF000000;
+            int[] xs = {cx, cx + cs / 2, cx + cs}, ys = {cy, cy + cs / 2, cy + cs}; // screen y runs downwards
+            for (int qy = 0; qy < 2; qy++) {
+                for (int qx = 0; qx < 2; qx++) {
+                    if ((mask & (1 << (qx + 2 * qy))) == 0) continue;
+                    int x0 = xs[qx], x1 = xs[qx + 1], y0 = ys[1 - qy], y1 = ys[2 - qy];
+                    g.fill(x0, y0, x1, y1, color);
+                    // Outline the sides that face empty space: an empty quarter of this cell, or a neighbour cell that is not a full voxel
+                    if (qx == 0 ? !isOccupied(v.x() - 1, v.y()) : (mask & (1 << (0 + 2 * qy))) == 0) g.fill(x0 - 1, y0, x0, y1, line);
+                    if (qx == 1 ? !isOccupied(v.x() + 1, v.y()) : (mask & (1 << (1 + 2 * qy))) == 0) g.fill(x1, y0, x1 + 1, y1, line);
+                    if (qy == 1 ? !isOccupied(v.x(), v.y() + 1) : (mask & (1 << (qx + 2))) == 0) g.fill(x0, y0 - 1, x1, y0, line);
+                    if (qy == 0 ? !isOccupied(v.x(), v.y() - 1) : (mask & (1 << qx)) == 0) g.fill(x0, y1, x1, y1 + 1, line);
+                }
+            }
         }
-        for (WeaponVoxel v : this.taperCells) {
+        for (WeaponVoxel v : this.depthCells) {
             int cx = gridX + v.x() * cs, cy = gridY + (this.gridSize - 1 - v.y()) * cs;
-            int band = v.shape() == VoxelShape.TAPERED_HALF ? Math.max(1, cs / 4) : Math.max(1, cs / 2);
-            int rgb = v.getColorRgb();
-            int dark = 0xFF000000 | (((rgb >> 16 & 0xFF) * 7 / 10) << 16) | (((rgb >> 8 & 0xFF) * 7 / 10) << 8) | ((rgb & 0xFF) * 7 / 10);
-            if (!isOccupied(v.x() - 1, v.y())) g.fill(cx, cy, cx + band, cy + cs, dark);
-            if (!isOccupied(v.x() + 1, v.y())) g.fill(cx + cs - band, cy, cx + cs, cy + cs, dark);
-            if (!isOccupied(v.x(), v.y() + 1)) g.fill(cx, cy, cx + cs, cy + band, dark);
-            if (!isOccupied(v.x(), v.y() - 1)) g.fill(cx, cy + cs - band, cx + cs, cy + cs, dark);
+            int mark = v.shape() == VoxelShape.SLAB_FRONT ? 0xB0FFFFFF : 0xB0000000; // light = front half, dark = back half
+            g.fill(cx + 1, cy + 1, cx + cs - 1, cy + 2, mark);
+            g.fill(cx + 1, cy + cs - 2, cx + cs - 1, cy + cs - 1, mark);
+            g.fill(cx + 1, cy + 2, cx + 2, cy + cs - 2, mark);
+            g.fill(cx + cs - 2, cy + 2, cx + cs - 1, cy + cs - 2, mark);
         }
     }
 
@@ -2637,10 +2694,7 @@ public class CustomizationScreen extends Screen {
     private ItemStack buttonIcon(int row) {
         if (row < BTN_TOOL_SLOTS) return ICON_TOOLS[row];
         return switch (row) {
-            case BTN_SHAPE -> {
-                int sh = placedShape();
-                yield sh == VoxelShape.FULL ? ICON_SHAPE_FULL : VoxelShape.isSlab(sh) ? ICON_SHAPE_SLAB : ICON_SHAPE_TAPER;
-            }
+            case BTN_SHAPE -> ICON_SHAPES[this.shapeKind];
             case BTN_FLIP_H -> ICON_FLIP_H;
             case BTN_FLIP_V -> ICON_FLIP_V;
             case BTN_ROT_CW -> ICON_ROT_CW;
@@ -2668,7 +2722,7 @@ public class CustomizationScreen extends Screen {
             case BTN_UNDO -> "<";
             case BTN_REDO -> ">";
             case BTN_MIRROR -> this.mirrorMode == 0 ? null : MIRROR_TAGS[this.mirrorMode];
-            case BTN_SHAPE -> SHAPE_TAGS[this.shapeIdx];
+            case BTN_SHAPE -> shapeHasSide() ? SHAPE_SIDE_TAGS[this.shapeKind][this.shapeAlt[this.shapeKind] ? 1 : 0] : null;
             default -> null;
         };
     }
@@ -2676,11 +2730,13 @@ public class CustomizationScreen extends Screen {
     private String[] buttonTooltip(int row) {
         if (row < BTN_TOOL_SLOTS) return toolTooltip(row);
         return switch (row) {
-            case BTN_SHAPE -> new String[]{"§eVoxel shape: §a" + SHAPE_NAMES[this.shapeIdx] + " §7(click to cycle)",
-                    "§7Used by the Add tool and by the bucket on empty cells; Recolor keeps a voxel's shape",
-                    "§7Slabs fill half a block. Tapered faces slope to an edge wherever there is no neighbour",
-                    "§7Half fade slopes over half the block, full fade over the whole block",
-                    "§8Hotkey: X"};
+            case BTN_SHAPE -> new String[]{"§eVoxel shape: §a" + shapeLabel() + " §7(click to change shape)",
+                    shapeHasSide() ? "§7Right-click or Z: other side (" + String.join(" / ", SHAPE_SIDES[this.shapeKind]) + ")"
+                            : (this.shapeKind == SHAPE_STAIR ? "§7Stairs turn towards the open side by themselves" : "§7This shape has no side to choose"),
+                    "§7Half block: left / right half. Horizontal slab: bottom / top half",
+                    "§7Vertical slab: front / back half of the layer (inner border in 2D)",
+                    "§7Used by Add and by the bucket on empty cells; Recolor keeps a voxel's shape",
+                    "§8Hotkeys: X shape, Z side"};
             case BTN_FLIP_H -> new String[]{"§eFlip horizontally"};
             case BTN_FLIP_V -> new String[]{"§eFlip vertically"};
             case BTN_ROT_CW -> new String[]{"§eRotate clockwise"};
@@ -2733,7 +2789,7 @@ public class CustomizationScreen extends Screen {
         }
         switch (row) {
             case BTN_SHAPE -> {
-                this.shapeIdx = (this.shapeIdx + 1) % SHAPE_CYCLE.length;
+                this.shapeKind = (this.shapeKind + 1) % SHAPE_NAMES.length;
                 this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
             }
             case BTN_FLIP_H -> transformVoxels(v -> new WeaponVoxel(n - v.x(), v.y(), v.z(), v.materialId(), v.shade(), VoxelShape.flipX(v.shape())));

@@ -226,12 +226,9 @@ public class VoxelDesignSerializer {
         int[] rgb = colors.stream().mapToInt(Integer::intValue).toArray();
         List<ImageVoxelizer.Cell> cells = ImageVoxelizer.convert(img, targetGridSize, options, rgb, MAX_TOTAL_VOXELS());
 
-        // The Tapered profile steps each layer in by one cell and also gives every voxel the tapered shape, so the
-        // faces slope down to a sharp edge where no neighbouring voxel continues the surface
-        int shape = options.profile() == 1 ? VoxelShape.TAPERED_FULL : VoxelShape.FULL;
         List<WeaponVoxel> list = new ArrayList<>(cells.size());
         for (ImageVoxelizer.Cell c : cells) {
-            list.add(new WeaponVoxel(c.x(), c.y(), c.z(), owners.get(c.paletteIndex()).id(), shades.get(c.paletteIndex()), shape));
+            list.add(new WeaponVoxel(c.x(), c.y(), c.z(), owners.get(c.paletteIndex()).id(), shades.get(c.paletteIndex())));
         }
         return list;
     }
