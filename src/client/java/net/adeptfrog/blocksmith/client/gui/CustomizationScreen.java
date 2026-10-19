@@ -90,8 +90,8 @@ public class CustomizationScreen extends Screen {
 
     // Tools: the same five in the 2D and 3D editors (Pencil in 2D is called Add in 3D)
     private static final int TOOL_ADD = 0, TOOL_RECOLOR = 1, TOOL_ERASE = 2, TOOL_PICK = 3, TOOL_FILL = 4,
-            TOOL_SELECT = 5, TOOL_MOVE = 6;
-    private static final String[] TOOL_KEYS = {"P", "O", "R", "I", "B", "S", "V"};
+            TOOL_SELECT = 5, TOOL_MOVE = 6, TOOL_SHAPER = 7;
+    private static final String[] TOOL_KEYS = {"P", "O", "R", "I", "B", "S", "V", "G"};
     private int tool = TOOL_ADD;
 
     // Voxel shape placed by the Add tool and the bucket on empty cells, picked from the shape list under the recent colours.
@@ -104,6 +104,33 @@ public class CustomizationScreen extends Screen {
             "Left half of the block", "Right half of the block", "Lower half of the block", "Upper half of the block",
             "Turns towards the open side by itself"};
     private int shapeSel = 0;
+
+    private int shaperShape = VoxelShape.FULL; // shape the current Shaper stroke paints
+
+    /** Works out what a Shaper stroke starting on {@code ex} paints; clicking a stair again moves on to its next orientation. */
+    private void startShaper(WeaponVoxel ex) {
+        int sel = placedShape();
+        if (VoxelShape.isStair(sel)) {
+            boolean again = ex != null && VoxelShape.isStair(ex.shape());
+            this.shaperShape = !again ? VoxelShape.STAIR_FIRST
+                    : ex.shape() >= VoxelShape.STAIR_LAST ? VoxelShape.STAIR_FIRST : ex.shape() + 1;
+        } else {
+            this.shaperShape = sel;
+        }
+    }
+
+    /** Gives the voxel at a cell (and its mirror image) the stroke's shape, keeping material and shade. */
+    private boolean shaperAt(int x, int y, int layer) {
+        WeaponVoxel ex = findVoxel(x, y, layer);
+        boolean changed = ex != null && putVoxel(x, y, layer, ex.material(), ex.shade(), this.shaperShape);
+        int[] m = mirror3(x, y, layer);
+        WeaponVoxel ex2 = m == null ? null : findVoxel(m[0], m[1], m[2]);
+        if (ex2 != null) changed |= putVoxel(m[0], m[1], m[2], ex2.material(), ex2.shade(), VoxelShape.mirror(this.shaperShape, this.mirrorMode));
+        if (!changed) return false;
+        commitSnapshot();
+        recalculateCachedStats();
+        return true;
+    }
 
     private int placedShape() {
         return SHAPE_LIST[this.shapeSel];
@@ -148,15 +175,16 @@ public class CustomizationScreen extends Screen {
             case TOOL_PICK -> "Eyedropper";
             case TOOL_SELECT -> "Select";
             case TOOL_MOVE -> "Move";
+            case TOOL_SHAPER -> "Shaper";
             default -> "Bucket fill";
         };
     }
     // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
     // Reset view only exists in the 3D editor. The five tool buttons come first, one button per tool (identical in
     // both editors); the active one is outlined.
-    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 7, BTN_FLIP_H = 7, BTN_FLIP_V = 8, BTN_ROT_CW = 9,
-            BTN_ROT_CCW = 10, BTN_VIEW = 11, BTN_UNDO = 12, BTN_REDO = 13, BTN_MIRROR = 14,
-            BTN_RESET = 15, BTN_CODEX = 16, BTN_COUNT = 17;
+    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 8, BTN_FLIP_H = 8, BTN_FLIP_V = 9, BTN_ROT_CW = 10,
+            BTN_ROT_CCW = 11, BTN_VIEW = 12, BTN_UNDO = 13, BTN_REDO = 14, BTN_MIRROR = 15,
+            BTN_RESET = 16, BTN_CODEX = 17, BTN_COUNT = 18;
     private static final int ICON_BTN = 18, ICON_STEP = 20, EI_BTN_W = 44;
     // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
     private static final ItemStack ICON_FLIP_H = new ItemStack(Items.PISTON);
@@ -165,7 +193,7 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_ROT_CCW = new ItemStack(Items.COMPARATOR);
     private static final ItemStack ICON_VIEW_3D = new ItemStack(Items.ENDER_EYE);
     private static final ItemStack ICON_VIEW_2D = new ItemStack(Items.MAP);
-    private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STICK), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE), new ItemStack(Items.SPYGLASS), new ItemStack(Items.BUCKET), new ItemStack(Items.SHEARS), new ItemStack(Items.LEAD)};
+    private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STICK), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE), new ItemStack(Items.SPYGLASS), new ItemStack(Items.BUCKET), new ItemStack(Items.SHEARS), new ItemStack(Items.LEAD), new ItemStack(Items.STONECUTTER)};
     private static final ItemStack ICON_RESET = new ItemStack(Items.COMPASS);
 
     private static final ItemStack ICON_UNDO = new ItemStack(Items.CLOCK);
@@ -381,6 +409,7 @@ public class CustomizationScreen extends Screen {
             case GLFW.GLFW_KEY_R -> "R";
             case GLFW.GLFW_KEY_S -> "S";
             case GLFW.GLFW_KEY_V -> "V";
+            case GLFW.GLFW_KEY_G -> "G";
             default -> null;
         };
         if (pressed == null) return false;
@@ -758,18 +787,18 @@ public class CustomizationScreen extends Screen {
         String leftLabel = "[Left] " + toolName(this.tool);
         guiGraphics.text(this.font, Component.literal(leftLabel), statsX + 6, statsY + 104, FONT_COLOR, false);
 
-        Component eraseText = Component.literal(this.view3d ? "[Right] Orbit" : (this.tool == TOOL_PICK || this.tool == TOOL_MOVE ? "" : this.tool == TOOL_SELECT ? "[Right] Deselect" : "[Right] Erase "));
+        Component eraseText = Component.literal(this.view3d ? "[Right] Orbit" : (this.tool == TOOL_PICK || this.tool == TOOL_MOVE || this.tool == TOOL_SHAPER ? "" : this.tool == TOOL_SELECT ? "[Right] Deselect" : "[Right] Erase "));
         guiGraphics.text(this.font, eraseText, statsX + 6, statsY + 114, FONT_COLOR, false);
 
         // Erase warning icon
         int infoX = statsX + 6 + this.font.width(eraseText);
         int infoY = statsY + 114;
-        Component infoIcon = Component.literal(this.view3d || this.tool == TOOL_PICK || this.tool == TOOL_SELECT || this.tool == TOOL_MOVE ? "" : "§6(!)");
+        Component infoIcon = Component.literal(this.view3d || this.tool == TOOL_PICK || this.tool == TOOL_SELECT || this.tool == TOOL_MOVE || this.tool == TOOL_SHAPER ? "" : "§6(!)");
         guiGraphics.text(this.font, infoIcon, infoX, infoY, 0xFFFFFFFF, false);
 
         // Hover detection for Erase warning icon
         int infoW = this.font.width(infoIcon);
-        if (!this.view3d && this.tool != TOOL_PICK && this.tool != TOOL_SELECT && this.tool != TOOL_MOVE && mouseX >= infoX - 1 && mouseX <= infoX + infoW + 1 && mouseY >= infoY - 1 && mouseY <= infoY + 9) {
+        if (!this.view3d && this.tool != TOOL_PICK && this.tool != TOOL_SELECT && this.tool != TOOL_MOVE && this.tool != TOOL_SHAPER && mouseX >= infoX - 1 && mouseX <= infoX + infoW + 1 && mouseY >= infoY - 1 && mouseY <= infoY + 9) {
             List<ClientTooltipComponent> infoTooltip = List.of(
                     ClientTooltipComponent.create(Component.literal("§cMaterials will be destroyed upon erasing!").getVisualOrderText())
             );
@@ -1637,7 +1666,11 @@ public class CustomizationScreen extends Screen {
         boolean erase = button == 1 || this.tool == TOOL_ERASE;
 
         switch (this.tool) {
-            case TOOL_ADD, TOOL_RECOLOR, TOOL_ERASE -> {
+            case TOOL_ADD, TOOL_RECOLOR, TOOL_ERASE, TOOL_SHAPER -> {
+                if (this.tool == TOOL_SHAPER) {
+                    if (button != 0) break;
+                    startShaper(findVoxel(cell[0], cell[1], this.activeLayer));
+                }
                 this.lastPx = cell[0];
                 this.lastPy = cell[1];
                 applyFootprint(List.of(cell), erase);
@@ -1687,7 +1720,8 @@ public class CustomizationScreen extends Screen {
             if (button == 0 && cell != null) dragSelectOrMove(cell[0], cell[1]);
             return true;
         }
-        if (this.tool == TOOL_ADD || this.tool == TOOL_RECOLOR || this.tool == TOOL_ERASE) {
+        if (this.tool == TOOL_ADD || this.tool == TOOL_RECOLOR || this.tool == TOOL_ERASE || this.tool == TOOL_SHAPER) {
+            if (this.tool == TOOL_SHAPER && button != 0) return true;
             int[] cell = cellAt(mouseX, mouseY, false);
             boolean eraseStroke = button == 1 || this.tool == TOOL_ERASE;
             if (cell == null) {
@@ -1732,6 +1766,15 @@ public class CustomizationScreen extends Screen {
 
         if (erase) {
             for (int[] c : all) changed |= removeVoxel(c[0], c[1], this.activeLayer);
+        } else if (this.tool == TOOL_SHAPER) {
+            // Shape only: voxels that are there keep material and shade, nothing is added
+            for (int i = 0; i < all.size(); i++) {
+                int[] c = all.get(i);
+                WeaponVoxel ex = findVoxel(c[0], c[1], this.activeLayer);
+                if (ex == null) continue;
+                int sh = i < cells.size() ? this.shaperShape : VoxelShape.mirror(this.shaperShape, this.mirrorMode);
+                changed |= putVoxel(c[0], c[1], this.activeLayer, ex.material(), ex.shade(), sh);
+            }
         } else if (this.tool == TOOL_RECOLOR) {
             // Recolor only: voxels that are already there change colour and keep their shape, nothing is added
             for (int[] c : all) {
@@ -1750,7 +1793,7 @@ public class CustomizationScreen extends Screen {
 
         if (changed) {
             commitSnapshot();
-            if (!erase) noteRecent(this.selectedMaterial, this.selectedShade);
+            if (!erase && this.tool != TOOL_SHAPER) noteRecent(this.selectedMaterial, this.selectedShade);
             recalculateCachedStats();
         }
         return changed;
@@ -2455,6 +2498,14 @@ public class CustomizationScreen extends Screen {
             return eraseAt(hit.x(), hit.y(), hit.zi() - MAX_LAYER);
         }
 
+        if (this.tool == TOOL_SHAPER) {
+            VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
+            if (hit == null || hit.floor()) return false;
+            int hx = hit.x(), hy = hit.y(), hl = hit.zi() - MAX_LAYER;
+            if (!drag) startShaper(findVoxel(hx, hy, hl));
+            return shaperAt(hx, hy, hl);
+        }
+
         if (this.tool == TOOL_RECOLOR) {
             VoxelRaycaster.Hit hit = this.raycaster.pick(px, py);
             if (hit == null || hit.floor()) return false;
@@ -2734,6 +2785,8 @@ public class CustomizationScreen extends Screen {
                         "§7Ctrl+C copy, Ctrl+V paste at the cursor", "§7Ctrl+A select layer, Ctrl+D deselect, Del erase", key};
                 case TOOL_MOVE -> new String[]{"§eMove", "§7Drag the selected voxels to a new spot",
                         "§7Arrow keys nudge by one cell", key};
+                case TOOL_SHAPER -> new String[]{"§eShaper", "§7Turn the voxels you click or drag over into the selected shape",
+                        "§7Keeps material and shade. With Stair selected, each click on a voxel", "§7cycles through all twelve stair orientations", key};
                 default -> new String[]{"§eBucket fill", "§7On a voxel: recolor everything connected to it that matches",
                         "§7On empty space: fill the selected layer", key};
             };
@@ -2746,6 +2799,8 @@ public class CustomizationScreen extends Screen {
             case TOOL_SELECT -> new String[]{"§eSelect", "§7Drag a rectangle on the selected layer", "§7Right-click deselects",
                     "§7Ctrl+C copy, Ctrl+V paste at the cursor", "§7Ctrl+A select layer, Del erase", key};
             case TOOL_MOVE -> new String[]{"§eMove", "§7Drag the selected voxels to a new spot", "§7Arrow keys nudge by one cell", key};
+            case TOOL_SHAPER -> new String[]{"§eShaper", "§7Turn the voxels you click or drag over into the selected shape",
+                    "§7Keeps material and shade. With Stair selected, each click on a voxel", "§7cycles through all twelve stair orientations", key};
             default -> new String[]{"§eBucket fill", "§7Fill a connected area", "§7Right-click erases it", key};
         };
     }
