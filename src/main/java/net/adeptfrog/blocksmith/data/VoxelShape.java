@@ -79,6 +79,11 @@ public final class VoxelShape {
         return xyMask(shape) != 15;
     }
 
+    /** The filled octants of the shape (bit x + 2y + 4z, z = 1 towards the front). */
+    public static int octants(int shape) {
+        return MASKS[isValid(shape) ? shape : FULL];
+    }
+
     /** Which quarters of the face are filled (bit x + 2y), seen from the front. */
     public static int xyMask(int shape) {
         int m = MASKS[isValid(shape) ? shape : FULL];

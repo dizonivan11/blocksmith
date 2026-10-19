@@ -94,50 +94,25 @@ public class CustomizationScreen extends Screen {
     private static final String[] TOOL_KEYS = {"P", "O", "R", "I", "B", "S", "V"};
     private int tool = TOOL_ADD;
 
-    // Voxel shape placed by the Add tool and the bucket on empty cells. One button cycles the kind; the side (left/right,
-    // bottom/top, front/back) of the kinds that have one is toggled with right-click on the button or the Z key.
-    private static final int SHAPE_FULL = 0, SHAPE_HALF = 1, SHAPE_HSLAB = 2, SHAPE_VSLAB = 3, SHAPE_STAIR = 4;
-    private static final String[] SHAPE_NAMES = {"Full block", "Half block", "Horizontal slab", "Vertical slab", "Stairs"};
-    private static final String[][] SHAPE_SIDES = {null, {"Left", "Right"}, {"Bottom", "Top"}, {"Front", "Back"}, null};
-    private static final String[][] SHAPE_SIDE_TAGS = {null, {"L", "R"}, {"D", "U"}, {"F", "B"}, null};
-    private int shapeKind = SHAPE_FULL;
-    private final boolean[] shapeAlt = new boolean[5];
+    // Voxel shape placed by the Add tool and the bucket on empty cells, picked from the shape list under the recent colours.
+    // The order of the list is the order shown in the editor; stairs are only a marker, their orientation is worked out per cell.
+    private static final int[] SHAPE_LIST = {VoxelShape.FULL, VoxelShape.SLAB_BACK, VoxelShape.SLAB_FRONT, VoxelShape.HALF_LEFT,
+            VoxelShape.HALF_RIGHT, VoxelShape.SLAB_BOTTOM, VoxelShape.SLAB_TOP, VoxelShape.STAIR_TR};
+    private static final String[] SHAPE_NAMES = {"Full", "Slab - Back", "Slab - Front", "Slab - Left", "Slab - Right",
+            "Slab - Down", "Slab - Up", "Stair"};
+    private static final String[] SHAPE_HINTS = {"The whole block", "Back half of the layer", "Front half of the layer",
+            "Left half of the block", "Right half of the block", "Lower half of the block", "Upper half of the block",
+            "Turns towards the open side by itself"};
+    private int shapeSel = 0;
 
-    private boolean shapeHasSide() {
-        return SHAPE_SIDES[this.shapeKind] != null;
-    }
-
-    private String shapeLabel() {
-        return shapeHasSide() ? SHAPE_NAMES[this.shapeKind] + " (" + SHAPE_SIDES[this.shapeKind][this.shapeAlt[this.shapeKind] ? 1 : 0] + ")"
-                : SHAPE_NAMES[this.shapeKind];
-    }
-
-    /** The shape the tools place; for stairs this is only a marker, the real orientation is worked out per cell. */
     private int placedShape() {
-        boolean alt = this.shapeAlt[this.shapeKind];
-        return switch (this.shapeKind) {
-            case SHAPE_HALF -> alt ? VoxelShape.HALF_RIGHT : VoxelShape.HALF_LEFT;
-            case SHAPE_HSLAB -> alt ? VoxelShape.SLAB_TOP : VoxelShape.SLAB_BOTTOM;
-            case SHAPE_VSLAB -> alt ? VoxelShape.SLAB_BACK : VoxelShape.SLAB_FRONT;
-            case SHAPE_STAIR -> VoxelShape.STAIR_TR;
-            default -> VoxelShape.FULL;
-        };
+        return SHAPE_LIST[this.shapeSel];
     }
 
-    private void cycleShapeSide() {
-        if (!shapeHasSide()) return;
-        this.shapeAlt[this.shapeKind] = !this.shapeAlt[this.shapeKind];
-        this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-    }
-
-    /** Makes the Shape tool match a picked voxel (kind and side). */
+    /** Makes the shape list match a picked voxel. */
     private void selectShapeOf(int shape) {
-        switch (shape) {
-            case VoxelShape.HALF_LEFT, VoxelShape.HALF_RIGHT -> { this.shapeKind = SHAPE_HALF; this.shapeAlt[SHAPE_HALF] = shape == VoxelShape.HALF_RIGHT; }
-            case VoxelShape.SLAB_BOTTOM, VoxelShape.SLAB_TOP -> { this.shapeKind = SHAPE_HSLAB; this.shapeAlt[SHAPE_HSLAB] = shape == VoxelShape.SLAB_TOP; }
-            case VoxelShape.SLAB_FRONT, VoxelShape.SLAB_BACK -> { this.shapeKind = SHAPE_VSLAB; this.shapeAlt[SHAPE_VSLAB] = shape == VoxelShape.SLAB_BACK; }
-            default -> this.shapeKind = VoxelShape.isStair(shape) ? SHAPE_STAIR : SHAPE_FULL;
-        }
+        if (VoxelShape.isStair(shape)) shape = VoxelShape.STAIR_TR;
+        for (int i = 0; i < SHAPE_LIST.length; i++) if (SHAPE_LIST[i] == shape) this.shapeSel = i;
     }
 
     /**
@@ -179,9 +154,9 @@ public class CustomizationScreen extends Screen {
     // Left-column icon buttons: one 18x18 vanilla-item icon per action, each with a tooltip.
     // Reset view only exists in the 3D editor. The five tool buttons come first, one button per tool (identical in
     // both editors); the active one is outlined.
-    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 7, BTN_SHAPE = 7, BTN_FLIP_H = 8, BTN_FLIP_V = 9, BTN_ROT_CW = 10,
-            BTN_ROT_CCW = 11, BTN_VIEW = 12, BTN_UNDO = 13, BTN_REDO = 14, BTN_MIRROR = 15,
-            BTN_RESET = 16, BTN_CODEX = 17, BTN_COUNT = 18;
+    private static final int BTN_TOOL_FIRST = 0, BTN_TOOL_SLOTS = 7, BTN_FLIP_H = 7, BTN_FLIP_V = 8, BTN_ROT_CW = 9,
+            BTN_ROT_CCW = 10, BTN_VIEW = 11, BTN_UNDO = 12, BTN_REDO = 13, BTN_MIRROR = 14,
+            BTN_RESET = 15, BTN_CODEX = 16, BTN_COUNT = 17;
     private static final int ICON_BTN = 18, ICON_STEP = 20, EI_BTN_W = 44;
     // Vanilla items drawn at runtime as the button icons: nothing is shipped, so no asset or licence is involved.
     private static final ItemStack ICON_FLIP_H = new ItemStack(Items.PISTON);
@@ -192,8 +167,7 @@ public class CustomizationScreen extends Screen {
     private static final ItemStack ICON_VIEW_2D = new ItemStack(Items.MAP);
     private static final ItemStack[] ICON_TOOLS = {new ItemStack(Items.STICK), new ItemStack(Items.PAINTING), new ItemStack(Items.SPONGE), new ItemStack(Items.SPYGLASS), new ItemStack(Items.BUCKET), new ItemStack(Items.SHEARS), new ItemStack(Items.LEAD)};
     private static final ItemStack ICON_RESET = new ItemStack(Items.COMPASS);
-    private static final ItemStack[] ICON_SHAPES = {new ItemStack(Items.STONE), new ItemStack(Items.SMOOTH_STONE),
-            new ItemStack(Items.STONE_SLAB), new ItemStack(Items.COBBLESTONE_SLAB), new ItemStack(Items.STONE_STAIRS)};
+
     private static final ItemStack ICON_UNDO = new ItemStack(Items.CLOCK);
     private static final ItemStack ICON_MIRROR = new ItemStack(Items.GLASS_PANE);
     private static final ItemStack ICON_CODEX = new ItemStack(Items.ENCHANTED_BOOK);
@@ -369,14 +343,7 @@ public class CustomizationScreen extends Screen {
             handleButtonAction(BTN_MIRROR);
             return true;
         }
-        if (key == GLFW.GLFW_KEY_X) {
-            handleButtonAction(BTN_SHAPE);
-            return true;
-        }
-        if (key == GLFW.GLFW_KEY_Z) {
-            cycleShapeSide();
-            return true;
-        }
+
         if ((key >= GLFW.GLFW_KEY_1 && key <= GLFW.GLFW_KEY_5) || (key >= GLFW.GLFW_KEY_KP_1 && key <= GLFW.GLFW_KEY_KP_5)) {
             int shade = key >= GLFW.GLFW_KEY_KP_1 ? key - GLFW.GLFW_KEY_KP_1 : key - GLFW.GLFW_KEY_1;
             int[] palette = this.selectedMaterial == null ? null : this.selectedMaterial.getPalette();
@@ -872,7 +839,7 @@ public class CustomizationScreen extends Screen {
             if (overlay != null) {
                 guiGraphics.text(this.font, Component.literal(overlay), subBtnX + ICON_BTN - 6, rowY + ICON_BTN - 9, 0xFFFFFFFF, true);
             }
-            if ((row == BTN_MIRROR && this.mirrorMode != 0) || (row == BTN_SHAPE && this.shapeKind != SHAPE_FULL) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
+            if ((row == BTN_MIRROR && this.mirrorMode != 0) || (row < BTN_TOOL_SLOTS && toolActive(row))) {
                 int gc = 0xFF55FF55;
                 guiGraphics.fill(subBtnX - 1, rowY - 1, subBtnX + ICON_BTN + 1, rowY, gc);
                 guiGraphics.fill(subBtnX - 1, rowY + ICON_BTN, subBtnX + ICON_BTN + 1, rowY + ICON_BTN + 1, gc);
@@ -883,6 +850,7 @@ public class CustomizationScreen extends Screen {
 
         drawLayerPanel(guiGraphics, leftPos, topPos, mouseX, mouseY);
         drawRecentSwatches(guiGraphics, leftPos, topPos, mouseX, mouseY);
+        drawShapePanel(guiGraphics, leftPos, topPos, mouseX, mouseY);
 
         if (hoveredBtn >= 0) {
             List<ClientTooltipComponent> tip = new ArrayList<>();
@@ -1083,8 +1051,7 @@ public class CustomizationScreen extends Screen {
                 if (!buttonVisible(row)) continue;
                 int rowY = buttonY(topPos, row);
                 if (mouseY >= rowY && mouseY < rowY + ICON_BTN) {
-                    if (row == BTN_SHAPE && event.button() == 1) cycleShapeSide();
-                    else handleButtonAction(row);
+                    handleButtonAction(row);
                     return true;
                 }
             }
@@ -2098,6 +2065,77 @@ public class CustomizationScreen extends Screen {
         }
     }
 
+    private static final int SHAPE_THUMB = 18, SHAPE_PITCH_X = 22, SHAPE_PITCH_Y = 21, SHAPE_COLS = 4, SHAPE_X = STATS_X + 6, SHAPE_Y = 351;
+
+    private int shapeThumbX(int leftPos, int i) {
+        return leftPos + SHAPE_X + (i % SHAPE_COLS) * SHAPE_PITCH_X;
+    }
+
+    private int shapeThumbY(int topPos, int i) {
+        return topPos + SHAPE_Y + (i / SHAPE_COLS) * SHAPE_PITCH_Y;
+    }
+
+    private static int shade(int rgb, int pct) {
+        int r = Math.min(255, (rgb >> 16 & 0xFF) * pct / 100), gr = Math.min(255, (rgb >> 8 & 0xFF) * pct / 100), b = Math.min(255, (rgb & 0xFF) * pct / 100);
+        return 0xFF000000 | r << 16 | gr << 8 | b;
+    }
+
+    /** The list of voxel shapes with a small three-dimensional thumbnail each, drawn under the recent colours. */
+    private void drawShapePanel(GuiGraphicsExtractor g, int leftPos, int topPos, int mouseX, int mouseY) {
+        g.text(this.font, Component.literal("Shape"), leftPos + SHAPE_X, topPos + SHAPE_Y - 10, FONT_COLOR, false);
+        int base = this.selectedMaterial == null ? 0xFFB0B0B0 : this.selectedMaterial.getColorRgb(this.selectedShade) | 0xFF000000;
+        int hovered = -1;
+        for (int i = 0; i < SHAPE_LIST.length; i++) {
+            int bx = shapeThumbX(leftPos, i), by = shapeThumbY(topPos, i);
+            boolean hov = mouseX >= bx && mouseX < bx + SHAPE_THUMB && mouseY >= by && mouseY < by + SHAPE_THUMB;
+            if (hov) hovered = i;
+            g.fill(bx, by, bx + SHAPE_THUMB, by + SHAPE_THUMB, hov ? 0xFF6B6B6B : 0xFF555555);
+            drawShapeThumb(g, bx, by, SHAPE_LIST[i], base);
+            outline(g, bx - 1, by - 1, SHAPE_THUMB + 2, SHAPE_THUMB + 2, i == this.shapeSel ? 0xFFFFFFFF : 0xFF373737);
+        }
+        if (hovered >= 0) {
+            realTooltip(g, List.of(
+                    ClientTooltipComponent.create(Component.literal("§e" + SHAPE_NAMES[hovered]).getVisualOrderText()),
+                    ClientTooltipComponent.create(Component.literal("§7" + SHAPE_HINTS[hovered]).getVisualOrderText())),
+                    realMouseX, realMouseY);
+        }
+    }
+
+    /** Oblique drawing of a shape: its half-size octants, front faces, tops and right sides. */
+    private void drawShapeThumb(GuiGraphicsExtractor g, int bx, int by, int shape, int base) {
+        final int h = 6;
+        int mask = VoxelShape.octants(shape);
+        int top = shade(base, 125), side = shade(base, 70);
+        int x0 = bx, y0 = by + 5;
+        for (int z = 0; z < 2; z++) {
+            int s = z == 1 ? 0 : 3, d = z == 1 ? 3 : 2; // shift of the octant's front face and its depth in pixels
+            for (int y = 0; y < 2; y++) {
+                for (int x = 0; x < 2; x++) {
+                    if ((mask & (1 << (x + 2 * y + 4 * z))) == 0) continue;
+                    int l = x0 + x * h + s, t = y0 + (1 - y) * h - s;
+                    boolean frontOpen = z == 1 || (mask & (1 << (x + 2 * y + 4 * (z + 1)))) == 0;
+                    boolean topOpen = y == 1 || (mask & (1 << (x + 2 * (y + 1) + 4 * z))) == 0;
+                    boolean rightOpen = x == 1 || (mask & (1 << (x + 1 + 2 * y + 4 * z))) == 0;
+                    if (rightOpen) for (int k = 0; k < d; k++) g.fill(l + h + k, t - k - 1, l + h + k + 1, t - k - 1 + h, side);
+                    if (topOpen) for (int k = 0; k < d; k++) g.fill(l + 1 + k, t - 1 - k, l + h + 1 + k, t - k, top);
+                    if (frontOpen) g.fill(l, t, l + h, t + h, base);
+                }
+            }
+        }
+    }
+
+    private boolean handleShapeClick(int leftPos, int topPos, int mouseX, int mouseY) {
+        for (int i = 0; i < SHAPE_LIST.length; i++) {
+            int bx = shapeThumbX(leftPos, i), by = shapeThumbY(topPos, i);
+            if (mouseX >= bx && mouseX < bx + SHAPE_THUMB && mouseY >= by && mouseY < by + SHAPE_THUMB) {
+                this.shapeSel = i;
+                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void drawRecentSwatches(GuiGraphicsExtractor g, int leftPos, int topPos, int mouseX, int mouseY) {
         g.text(this.font, Component.literal("Recent"), leftPos + RECENT_X, topPos + RECENT_Y - 10, FONT_COLOR, false);
         Swatch hovered = null;
@@ -2156,6 +2194,8 @@ public class CustomizationScreen extends Screen {
                 return true;
             }
         }
+
+        if (handleShapeClick(leftPos, topPos, mouseX, mouseY)) return true;
 
         for (int i = 0; i < this.recentSwatches.size(); i++) {
             int x0 = leftPos + RECENT_X + i * RECENT_PITCH;
@@ -2694,7 +2734,6 @@ public class CustomizationScreen extends Screen {
     private ItemStack buttonIcon(int row) {
         if (row < BTN_TOOL_SLOTS) return ICON_TOOLS[row];
         return switch (row) {
-            case BTN_SHAPE -> ICON_SHAPES[this.shapeKind];
             case BTN_FLIP_H -> ICON_FLIP_H;
             case BTN_FLIP_V -> ICON_FLIP_V;
             case BTN_ROT_CW -> ICON_ROT_CW;
@@ -2712,7 +2751,6 @@ public class CustomizationScreen extends Screen {
         if (row < BTN_TOOL_SLOTS) return TOOL_KEYS[row];
         return switch (row) {
             case BTN_MIRROR -> "M";
-            case BTN_SHAPE -> "X";
             default -> null;
         };
     }
@@ -2722,7 +2760,6 @@ public class CustomizationScreen extends Screen {
             case BTN_UNDO -> "<";
             case BTN_REDO -> ">";
             case BTN_MIRROR -> this.mirrorMode == 0 ? null : MIRROR_TAGS[this.mirrorMode];
-            case BTN_SHAPE -> shapeHasSide() ? SHAPE_SIDE_TAGS[this.shapeKind][this.shapeAlt[this.shapeKind] ? 1 : 0] : null;
             default -> null;
         };
     }
@@ -2730,13 +2767,6 @@ public class CustomizationScreen extends Screen {
     private String[] buttonTooltip(int row) {
         if (row < BTN_TOOL_SLOTS) return toolTooltip(row);
         return switch (row) {
-            case BTN_SHAPE -> new String[]{"§eVoxel shape: §a" + shapeLabel() + " §7(click to change shape)",
-                    shapeHasSide() ? "§7Right-click or Z: other side (" + String.join(" / ", SHAPE_SIDES[this.shapeKind]) + ")"
-                            : (this.shapeKind == SHAPE_STAIR ? "§7Stairs turn towards the open side by themselves" : "§7This shape has no side to choose"),
-                    "§7Half block: left / right half. Horizontal slab: bottom / top half",
-                    "§7Vertical slab: front / back half of the layer (inner border in 2D)",
-                    "§7Used by Add and by the bucket on empty cells; Recolor keeps a voxel's shape",
-                    "§8Hotkeys: X shape, Z side"};
             case BTN_FLIP_H -> new String[]{"§eFlip horizontally"};
             case BTN_FLIP_V -> new String[]{"§eFlip vertically"};
             case BTN_ROT_CW -> new String[]{"§eRotate clockwise"};
@@ -2788,10 +2818,6 @@ public class CustomizationScreen extends Screen {
             return;
         }
         switch (row) {
-            case BTN_SHAPE -> {
-                this.shapeKind = (this.shapeKind + 1) % SHAPE_NAMES.length;
-                this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-            }
             case BTN_FLIP_H -> transformVoxels(v -> new WeaponVoxel(n - v.x(), v.y(), v.z(), v.materialId(), v.shade(), VoxelShape.flipX(v.shape())));
             case BTN_FLIP_V -> transformVoxels(v -> new WeaponVoxel(v.x(), n - v.y(), v.z(), v.materialId(), v.shade(), VoxelShape.flipY(v.shape())));
             case BTN_ROT_CW -> transformVoxels(v -> new WeaponVoxel(v.y(), n - v.x(), v.z(), v.materialId(), v.shade(), VoxelShape.rotateCw(v.shape())));
