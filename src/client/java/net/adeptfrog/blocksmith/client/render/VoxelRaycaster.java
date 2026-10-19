@@ -226,13 +226,26 @@ public final class VoxelRaycaster {
         if (len > limit) { double k = limit / len; targetX *= k; targetY *= k; targetZ *= k; }
     }
 
-    /** Pans the view by a screen-space drag in render pixels (the image follows the cursor). */
+    /**
+     * Moves the pivot within the model's base plane (world z = 0 through the grid centre) so that a screen shift of
+     * {@code (sr, su)} (right/up, in screen units) is produced. Keeping the pivot on that plane means it always stays
+     * on the weapon itself however the view is turned; a free screen-space pan would drift it off into the air in
+     * front of or behind the model, and the model would then swing around that empty point when orbiting.
+     */
+    private void movePivotOnPlane(double sr, double su) {
+        // Solve  a*rx + b*ry = sr,  a*ux + b*uy = su  for the in-plane move (a, b, 0).
+        double det = rx * uy - ry * ux;
+        // Edge-on views (plane parallel to the view direction) cannot be panned exactly: bound the gain instead
+        double d = Math.abs(det) < 0.2 ? Math.copySign(0.2, det == 0 ? 1 : det) : det;
+        targetX += (sr * uy - ry * su) / d;
+        targetY += (rx * su - ux * sr) / d;
+    }
+
+    /** Pans the view by a screen-space drag in render pixels (the model follows the cursor). */
     public void pan(double deltaPixelsX, double deltaPixelsY) {
         updateBasis();
-        double dr = deltaPixelsX / scale, du = deltaPixelsY / scale;
-        targetX += -rx * dr + ux * du;
-        targetY += -ry * dr + uy * du;
-        targetZ += -rz * dr + uz * du;
+        // The picture moves by (+dx, +dy) on screen, so the pivot moves by the opposite amount (screen y is down)
+        movePivotOnPlane(-deltaPixelsX / scale, deltaPixelsY / scale);
         clampTarget();
         syncPan();
     }
@@ -242,9 +255,8 @@ public final class VoxelRaycaster {
 
     public void setPan(double panRight, double panUp) {
         updateBasis();
-        targetX = -(panRight * rx + panUp * ux);
-        targetY = -(panRight * ry + panUp * uy);
-        targetZ = -(panRight * rz + panUp * uz);
+        targetX = targetY = targetZ = 0;
+        movePivotOnPlane(-panRight, -panUp);
         clampTarget();
         syncPan();
     }

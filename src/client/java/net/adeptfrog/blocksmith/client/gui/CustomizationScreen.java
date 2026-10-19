@@ -274,7 +274,7 @@ public class CustomizationScreen extends Screen {
         this.workingOffsetY = savedOffset.y();
 
         recalculateCachedStats();
-        revealActiveLayer();
+        centerActiveLayer();
     }
 
     @Override
@@ -1866,6 +1866,13 @@ public class CustomizationScreen extends Screen {
 
     private void clampLayerScroll() {
         this.layerScroll = Math.clamp(this.layerScroll, 0.0, (double) maxLayerScroll());
+    }
+
+    /** Scrolls the list so the layer being edited sits in the middle of it (used when the screen opens). */
+    private void centerActiveLayer() {
+        int rowTop = (MAX_LAYER - this.activeLayer) * LAYER_ROW_H;
+        this.layerScroll = rowTop + LAYER_ROW_H / 2.0 - LAYER_LIST_H / 2.0;
+        clampLayerScroll();
     }
 
     /** Scrolls the list just far enough that the layer being edited is fully visible. */
