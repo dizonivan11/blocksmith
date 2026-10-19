@@ -75,7 +75,7 @@ public class CustomizationScreen extends Screen {
     private double layerScroll = 0;           // pixels scrolled down in the layers list
     private boolean draggingScrollbar = false;
     private int scrollGrab = 0;               // where on the thumb the scroll bar was grabbed
-    private static final int RECENT_SIZE = 9, RECENT_PITCH = 11, RECENT_X = STATS_X + 6, RECENT_Y = 326, MAX_RECENT = 8;
+    private static final int RECENT_SIZE = 9, RECENT_PITCH = 11, RECENT_X = STATS_X + 6, RECENT_Y = 382, MAX_RECENT = 8;
     private final int[][] thumbPixels = new int[LAYER_COUNT][THUMB * THUMB];
     private boolean thumbsDirty = true;
 
@@ -192,6 +192,7 @@ public class CustomizationScreen extends Screen {
     private int[] fgBase;          // model layer (model + floor grid + outline) at native resolution, no hover highlight
     private int[] fgView;          // fgBase plus hover highlight
     private int[] bgBuffer;        // animated background, BG_DIM x BG_DIM (stretched over the workspace; it is a soft gradient)
+    private int[] strokeNormal = {0, 0, 1}; // normal of the face the current Add stroke started on
     private int[] sceneGrid;       // scratch grid for VoxelRaycaster.syncCells
     private byte[] sceneShapes;    // ... and the matching voxel shapes
     private int[] lastHlRect;      // area the previous hover highlight touched in fgView
@@ -1788,10 +1789,17 @@ public class CustomizationScreen extends Screen {
     }
 
     /** Places a voxel of the selected material, or recolors the one already there (3D editor). */
-    private boolean paintAt(int x, int y, int layer) {
-        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade, shapeFor(x, y, layer, false));
+    private boolean paintAt(int x, int y, int layer, int[] faceNormal) {
+        // Stairs rest their flat side on the face that was clicked and open towards the camera
+        int stair = -1;
+        if (VoxelShape.isStair(placedShape()) && faceNormal != null && this.raycaster != null) {
+            double[] cam = this.raycaster.towardsCamera();
+            stair = VoxelShape.stairFacing(faceNormal[0], faceNormal[1], faceNormal[2], cam[0], cam[1], cam[2]);
+        }
+        boolean changed = putVoxel(x, y, layer, this.selectedMaterial, this.selectedShade, stair >= 0 ? stair : shapeFor(x, y, layer, false));
         int[] m = mirror3(x, y, layer);
-        if (m != null) changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade, shapeFor(m[0], m[1], m[2], true));
+        if (m != null) changed |= putVoxel(m[0], m[1], m[2], this.selectedMaterial, this.selectedShade,
+                stair >= 0 ? VoxelShape.mirror(stair, this.mirrorMode) : shapeFor(m[0], m[1], m[2], true));
         if (!changed) return false;
         commitSnapshot();
         noteRecent(this.selectedMaterial, this.selectedShade);
@@ -2065,10 +2073,11 @@ public class CustomizationScreen extends Screen {
         }
     }
 
-    private static final int SHAPE_THUMB = 18, SHAPE_PITCH_X = 22, SHAPE_PITCH_Y = 21, SHAPE_COLS = 4, SHAPE_X = STATS_X + 6, SHAPE_Y = 351;
+    private static final int SHAPE_THUMB = 18, SHAPE_PITCH_Y = 21, SHAPE_COLS = 4, SHAPE_X = LAYER_LIST_X, SHAPE_Y = 326;
 
     private int shapeThumbX(int leftPos, int i) {
-        return leftPos + SHAPE_X + (i % SHAPE_COLS) * SHAPE_PITCH_X;
+        // The boxes spread over the full width of the layer list above, outer borders flush with the list's edges
+        return leftPos + SHAPE_X + 1 + Math.round((i % SHAPE_COLS) * (LAYER_LIST_W - 2 - SHAPE_THUMB) / (float) (SHAPE_COLS - 1));
     }
 
     private int shapeThumbY(int topPos, int i) {
@@ -2139,6 +2148,19 @@ public class CustomizationScreen extends Screen {
     private void drawRecentSwatches(GuiGraphicsExtractor g, int leftPos, int topPos, int mouseX, int mouseY) {
         g.text(this.font, Component.literal("Recent"), leftPos + RECENT_X, topPos + RECENT_Y - 10, FONT_COLOR, false);
         Swatch hovered = null;
+        for (int i = this.recentSwatches.size(); i < MAX_RECENT; i++) {
+            // Unused slot: a checkerboard with a red slash, the usual sign for "nothing here"
+            int x0 = leftPos + RECENT_X + i * RECENT_PITCH;
+            int y0 = topPos + RECENT_Y;
+            for (int cy = 0; cy < RECENT_SIZE; cy++) {
+                for (int cx = 0; cx < RECENT_SIZE; cx++) {
+                    boolean light = ((cx / 3) + (cy / 3)) % 2 == 0;
+                    g.fill(x0 + cx, y0 + cy, x0 + cx + 1, y0 + cy + 1, light ? 0xFFFFFFFF : 0xFFBDBDBD);
+                }
+            }
+            for (int d = 0; d < RECENT_SIZE; d++) g.fill(x0 + RECENT_SIZE - 1 - d, y0 + d, x0 + RECENT_SIZE - d, y0 + d + 1, 0xFFE02020);
+            outline(g, x0, y0, RECENT_SIZE, RECENT_SIZE, 0xFF373737);
+        }
         for (int i = 0; i < this.recentSwatches.size(); i++) {
             Swatch sw = this.recentSwatches.get(i);
             int x0 = leftPos + RECENT_X + i * RECENT_PITCH;
@@ -2471,9 +2493,10 @@ public class CustomizationScreen extends Screen {
             if (!this.raycaster.inBounds(target[0], target[1], target[2])) return false;
             this.strokeAxis = hit.normalAxis();
             this.strokeIndex = target[this.strokeAxis];
+            this.strokeNormal = new int[]{hit.nx(), hit.ny(), hit.nz()};
         }
         if (target == null) return false;
-        return paintAt(target[0], target[1], target[2] - MAX_LAYER);
+        return paintAt(target[0], target[1], target[2] - MAX_LAYER, this.strokeNormal);
     }
 
     @Override

@@ -11,7 +11,8 @@ package net.adeptfrog.blocksmith.data;
  *   <li>Half block ({@link #HALF_LEFT}, {@link #HALF_RIGHT}): half of the cell across x, full height and depth.</li>
  *   <li>Horizontal slab ({@link #SLAB_BOTTOM}, {@link #SLAB_TOP}): half of the cell across y.</li>
  *   <li>Vertical slab ({@link #SLAB_FRONT}, {@link #SLAB_BACK}): half of the cell through the layer (z).</li>
- *   <li>Stair ({@code STAIR_*}): an L profile in the face plane, full depth, named after the quarter that is cut away.</li>
+ *   <li>Stair: an L profile extruded along one axis, i.e. a block with one quarter cut away. {@code STAIR_TR..BR} run
+ *       through the layer and are named after the quarter of the face that is cut away.</li>
  * </ul>
  * Ids 5 and 6 belonged to a shape that no longer exists; they are invalid and load as {@link #FULL}.
  */
@@ -20,7 +21,9 @@ public final class VoxelShape {
 
     public static final int FULL = 0, SLAB_BOTTOM = 1, SLAB_TOP = 2, HALF_LEFT = 3, HALF_RIGHT = 4,
             SLAB_FRONT = 7, SLAB_BACK = 8, STAIR_TR = 9, STAIR_TL = 10, STAIR_BL = 11, STAIR_BR = 12;
-    public static final int COUNT = 13;
+    /** Stairs come in twelve orientations: 9-12 run along z (L profile in the face plane), 13-16 along x, 17-20 along y. */
+    public static final int STAIR_FIRST = 9, STAIR_LAST = 20;
+    public static final int COUNT = 21;
 
     /** Bits of the "hide" mask: faces that touch a neighbour which covers them and need not be drawn. */
     public static final int HIDE_BACK = 1, HIDE_FRONT = 2;
@@ -51,6 +54,14 @@ public final class VoxelShape {
     }
 
     private static boolean contains(int shape, int x, int y, int z) {
+        if (isStair(shape)) {
+            int idx = shape - STAIR_FIRST, a = idx / 4, k = idx % 4;
+            int extrude = a == 0 ? 2 : a == 1 ? 0 : 1;
+            int[] c = {x, y, z};
+            int pu = extrude == 0 ? 1 : 0, pv = extrude == 2 ? 1 : 2;
+            int u = (k == 0 || k == 3) ? 1 : 0, v = k < 2 ? 1 : 0;
+            return !(c[pu] == u && c[pv] == v);
+        }
         return switch (shape) {
             case SLAB_BOTTOM -> y == 0;
             case SLAB_TOP -> y == 1;
@@ -58,10 +69,6 @@ public final class VoxelShape {
             case HALF_RIGHT -> x == 1;
             case SLAB_BACK -> z == 0;
             case SLAB_FRONT -> z == 1;
-            case STAIR_TR -> !(x == 1 && y == 1);
-            case STAIR_TL -> !(x == 0 && y == 1);
-            case STAIR_BL -> !(x == 0 && y == 0);
-            case STAIR_BR -> !(x == 1 && y == 0);
             default -> shape == FULL;
         };
     }
@@ -70,8 +77,31 @@ public final class VoxelShape {
         return shape >= 0 && shape < COUNT && shape != 5 && shape != 6;
     }
 
+    /**
+     * Stair placed against a clicked face: the flat side rests on the face with normal {@code (nx, ny, nz)} (the
+     * stair sits on the outer side of it) and the cut-away corner opens towards the camera, whose direction away
+     * from the scene is {@code (px, py, pz)}.
+     */
+    public static int stairFacing(int nx, int ny, int nz, double px, double py, double pz) {
+        int na = nx != 0 ? 0 : ny != 0 ? 1 : 2;
+        int ns = (na == 0 ? nx : na == 1 ? ny : nz) > 0 ? 1 : 0;
+        double[] p = {px, py, pz};
+        int a1 = (na + 1) % 3, a2 = (na + 2) % 3;
+        int cam = Math.abs(p[a1]) >= Math.abs(p[a2]) ? a1 : a2; // the in-plane axis the camera looks along most
+        int camSide = p[cam] > 0 ? 1 : 0;
+        int extrude = 3 - na - cam;
+        int[] c = new int[3];
+        c[na] = ns;
+        c[cam] = camSide;
+        int pu = Math.min(na, cam), pv = Math.max(na, cam);
+        int u = c[pu], v = c[pv];
+        int k = (u == 1 && v == 1) ? 0 : (u == 0 && v == 1) ? 1 : (u == 0 && v == 0) ? 2 : 3;
+        int a = extrude == 2 ? 0 : extrude == 0 ? 1 : 2;
+        return STAIR_FIRST + a * 4 + k;
+    }
+
     public static boolean isStair(int shape) {
-        return shape >= STAIR_TR && shape <= STAIR_BR;
+        return shape >= STAIR_FIRST && shape <= STAIR_LAST;
     }
 
     /** Whether the shape leaves part of the face outline empty (so the 2D editor must draw it piece by piece). */

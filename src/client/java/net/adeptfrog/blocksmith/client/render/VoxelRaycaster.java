@@ -298,6 +298,12 @@ public final class VoxelRaycaster {
         syncPan();
     }
 
+    /** Unit vector from the scene towards the camera, in grid axes (x right, y up, z towards the front layers). */
+    public double[] towardsCamera() {
+        double cp = Math.cos(pitch);
+        return new double[]{Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp};
+    }
+
     public double yaw() { return yaw; }
     public double pitch() { return pitch; }
     /** Zoom relative to the default view (1.0 = default), independent of render resolution. */
