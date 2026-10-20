@@ -227,7 +227,7 @@ public class DesignLibraryScreen extends Screen {
         guiGraphics.enableScissor(4, listTopY, sidebarX - 6, listBottomY);
 
         if (entries.isEmpty()) {
-            guiGraphics.text(this.font, Component.literal("§7No files found in .minecraft/blocksmith_blueprints/"), 20, listTopY + 20, 0xFFFFFFFF, true);
+            guiGraphics.text(this.font, Component.literal("§7No files found in .minecraft/blocksmith_blueprints/ (sub-folders work too)"), 20, listTopY + 20, 0xFFFFFFFF, true);
         }
 
         int maxGrid = Math.max(16, this.parent.gridSize);
@@ -311,13 +311,26 @@ public class DesignLibraryScreen extends Screen {
             // Voxel Count section
             guiGraphics.text(this.font, Component.literal("§7Voxels: §a" + detail.voxels().size()), sidebarX + 6, infoY + 11, 0xFFFFFFFF, false);
 
+            // Folder section: only for designs that live in a sub-folder of the library
+            int folderShift = 0;
+            if (!detail.folder().isEmpty()) {
+                String folderText = detail.folder();
+                int maxW = SIDEBAR_W - 12 - this.font.width("Folder: ");
+                if (this.font.width(folderText) > maxW) {
+                    while (folderText.length() > 1 && this.font.width(folderText + "…") > maxW) folderText = folderText.substring(1);
+                    folderText = "…" + folderText;
+                }
+                guiGraphics.text(this.font, Component.literal("§7Folder: §f" + folderText), sidebarX + 6, infoY + 22, 0xFFFFFFFF, false);
+                folderShift = 11;
+            }
+
             // Crafter section
             String crf = detail.crafter().isEmpty() ? "§8None" : "§f" + detail.crafter();
-            guiGraphics.text(this.font, Component.literal("§bCrafter:"), sidebarX + 6, infoY + 24, 0xFFFFFFFF, false);
-            guiGraphics.text(this.font, Component.literal(crf), sidebarX + 6, infoY + 34, 0xFFFFFFFF, false);
+            guiGraphics.text(this.font, Component.literal("§bCrafter:"), sidebarX + 6, infoY + 24 + folderShift, 0xFFFFFFFF, false);
+            guiGraphics.text(this.font, Component.literal(crf), sidebarX + 6, infoY + 34 + folderShift, 0xFFFFFFFF, false);
 
             // Attribution section
-            int attrY = infoY + 47;
+            int attrY = infoY + 47 + folderShift;
             guiGraphics.text(this.font, Component.literal("§6Attribution:"), sidebarX + 6, attrY, 0xFFFFFFFF, false);
 
             activeLinks.clear();
