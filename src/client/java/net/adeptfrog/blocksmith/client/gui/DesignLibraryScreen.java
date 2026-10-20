@@ -628,61 +628,69 @@ public class DesignLibraryScreen extends Screen {
         this.atlasTexture.upload();
     }
 
+    /** Lays out chunks of attribution text left to right, wrapping at the edge and spacing only where the source text has spaces. */
+    private final class AttributionFlow {
+        final GuiGraphicsExtractor g;
+        final int startX, maxW;
+        int x, y;
+        boolean space; // whitespace seen since the last chunk
+
+        AttributionFlow(GuiGraphicsExtractor g, int startX, int startY, int maxW) {
+            this.g = g;
+            this.startX = startX;
+            this.x = startX;
+            this.y = startY;
+            this.maxW = maxW;
+        }
+
+        private void newLine() {
+            x = startX;
+            y += 10;
+            space = false;
+        }
+
+        /** Moves to where the next chunk of the given width goes, wrapping when it would not fit. */
+        private int place(int width) {
+            int gap = space && x > startX ? font.width(" ") : 0;
+            if (x > startX && x + gap + width > startX + maxW) {
+                newLine();
+                gap = 0;
+            }
+            x += gap;
+            space = false;
+            int at = x;
+            x += width;
+            return at;
+        }
+
+        void plain(String text) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\n|[^\\S\\n]+|\\S+").matcher(text);
+            while (m.find()) {
+                String chunk = m.group();
+                if (chunk.equals("\n")) newLine();
+                else if (chunk.isBlank()) space = true;
+                else g.text(font, Component.literal(chunk), place(font.width(chunk)), y, 0xFFAAAAAA, false);
+            }
+        }
+
+        void link(String label, String url) {
+            int w = font.width(label);
+            int at = place(w);
+            g.text(font, Component.literal("§9§n" + label), at, y, 0xFF55AAFF, false);
+            activeLinks.add(new LinkBox(at, y, at + w, y + 9, url));
+        }
+    }
+
     private void renderMarkdownAttribution(GuiGraphicsExtractor g, String text, int startX, int startY, int maxW) {
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\[([^]]+)]\\(([^)]+)\\)");
-        java.util.regex.Matcher matcher = pattern.matcher(text);
-
-        int currentX = startX;
-        int currentY = startY;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\[([^]]+)]\\(([^)]+)\\)").matcher(text);
+        AttributionFlow flow = new AttributionFlow(g, startX, startY, maxW);
         int lastEnd = 0;
-
         while (matcher.find()) {
-            // Text before the link
-            String plain = text.substring(lastEnd, matcher.start());
-            if (!plain.isEmpty()) {
-                for (String word : plain.split(" ")) {
-                    if (word.isEmpty()) continue;
-                    int wordW = this.font.width(word + " ");
-                    if (currentX + wordW > startX + maxW) {
-                        currentX = startX;
-                        currentY += 10;
-                    }
-                    g.text(this.font, Component.literal(word + " "), currentX, currentY, 0xFFAAAAAA, false);
-                    currentX += wordW;
-                }
-            }
-
-            // Clickable Link: [text 1](text 2)
-            String label = matcher.group(1);
-            String url = matcher.group(2);
-            int linkW = this.font.width(label + " ");
-
-            if (currentX + linkW > startX + maxW) {
-                currentX = startX;
-                currentY += 10;
-            }
-
-            g.text(this.font, Component.literal("§9§n" + label + "§r "), currentX, currentY, 0xFF55AAFF, false);
-            activeLinks.add(new LinkBox(currentX, currentY, currentX + linkW, currentY + 9, url));
-            currentX += linkW;
-
+            flow.plain(text.substring(lastEnd, matcher.start()));
+            flow.link(matcher.group(1), matcher.group(2));
             lastEnd = matcher.end();
         }
-
-        // Remaining text after last link
-        if (lastEnd < text.length()) {
-            String remaining = text.substring(lastEnd);
-            for (String word : remaining.split(" ")) {
-                if (word.isEmpty()) continue;
-                int wordW = this.font.width(word + " ");
-                if (currentX + wordW > startX + maxW) {
-                    currentX = startX;
-                    currentY += 10;
-                }
-                g.text(this.font, Component.literal(word + " "), currentX, currentY, 0xFFAAAAAA, false);
-                currentX += wordW;
-            }
-        }
+        flow.plain(text.substring(lastEnd));
     }
 
     private void drawActionButton(GuiGraphicsExtractor g, int x, int y, int w, int h, String text, boolean hovered) {
