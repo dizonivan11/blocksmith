@@ -629,6 +629,8 @@ public class DesignLibraryScreen extends Screen {
     }
 
     /** Lays out chunks of attribution text left to right, wrapping at the edge and spacing only where the source text has spaces. */
+    private static final int LINK_COLOR = 0xFF8EC4FF; // light blue: readable on the dark sidebar
+
     private final class AttributionFlow {
         final GuiGraphicsExtractor g;
         final int startX, maxW;
@@ -663,21 +665,46 @@ public class DesignLibraryScreen extends Screen {
             return at;
         }
 
+        /** Draws one unbroken chunk; a chunk wider than the whole line is cut into pieces that each fit. */
+        private void emit(String chunk, int color, boolean link, String url) {
+            while (!chunk.isEmpty()) {
+                String piece = chunk;
+                if (font.width(piece) > maxW) {
+                    int n = piece.length();
+                    while (n > 1 && font.width(piece.substring(0, n)) > maxW) n--;
+                    piece = piece.substring(0, n);
+                    if (x > startX) newLine();
+                }
+                int w = font.width(piece);
+                int at = place(w);
+                g.text(font, Component.literal(link ? "§n" + piece : piece), at, y, color, false);
+                if (link) activeLinks.add(new LinkBox(at, y, at + w, y + 9, url));
+                chunk = chunk.substring(piece.length());
+                if (!chunk.isEmpty()) newLine();
+            }
+        }
+
         void plain(String text) {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\n|[^\\S\\n]+|\\S+").matcher(text);
             while (m.find()) {
                 String chunk = m.group();
                 if (chunk.equals("\n")) newLine();
                 else if (chunk.isBlank()) space = true;
-                else g.text(font, Component.literal(chunk), place(font.width(chunk)), y, 0xFFAAAAAA, false);
+                else emit(chunk, 0xFFAAAAAA, false, null);
             }
         }
 
+        /** A link wraps word by word like the text around it, and every word is clickable. */
         void link(String label, String url) {
-            int w = font.width(label);
-            int at = place(w);
-            g.text(font, Component.literal("§9§n" + label), at, y, 0xFF55AAFF, false);
-            activeLinks.add(new LinkBox(at, y, at + w, y + 9, url));
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\S+").matcher(label);
+            int last = 0;
+            boolean first = true;
+            while (m.find()) {
+                if (!first && m.start() > last) space = true;
+                emit(m.group(), LINK_COLOR, true, url);
+                last = m.end();
+                first = false;
+            }
         }
     }
 
