@@ -20,7 +20,10 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class DesignLibraryScreen extends Screen {
     private final CustomizationScreen parent;
@@ -42,7 +45,15 @@ public class DesignLibraryScreen extends Screen {
     private NativeImage atlasImage;
     private Identifier atlasTextureId;
 
-    private List<DesignFileManager.DesignEntry> entries = new ArrayList<>();
+    private List<DesignFileManager.DesignEntry> allEntries = new ArrayList<>(); // everything in the library
+    private List<DesignFileManager.DesignEntry> entries = new ArrayList<>();    // what the folder filter lets through
+
+    // Folder filter: tick any number of folders to show only those; nothing ticked shows everything
+    private static final Set<String> FOLDER_FILTER = new LinkedHashSet<>();
+    private static final int FP_X = 8, FP_Y = 27, FP_W = 190, FP_ROW = 12, FP_MAX_ROWS = 12;
+    private boolean folderPanelOpen = false;
+    private int folderScroll = 0;
+    private Button folderButton;
 
     // Picture import options, shown in the sidebar while a picture is selected
     private final List<Button> optionButtons = new ArrayList<>();
@@ -59,7 +70,8 @@ public class DesignLibraryScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        this.entries = DesignFileManager.loadAllDesigns(this.parent.gridSize, false);
+        this.allEntries = DesignFileManager.loadAllDesigns(this.parent.gridSize, false);
+        filterEntries();
 
         int sidebarX = this.width - SIDEBAR_W - 8;
         int galleryAreaW = sidebarX - 16;
@@ -95,7 +107,8 @@ public class DesignLibraryScreen extends Screen {
 
         // Refresh
         this.addRenderableWidget(Button.builder(Component.literal("Refresh"), _ -> {
-            this.entries = DesignFileManager.loadAllDesigns(this.parent.gridSize, true);
+            this.allEntries = DesignFileManager.loadAllDesigns(this.parent.gridSize, true);
+            filterEntries();
             this.maxPages = Math.max(1, (int) Math.ceil((double) entries.size() / cardsPerPage));
             this.currentPage = Math.clamp(this.currentPage, 0, maxPages - 1);
             bakeThumbnailAtlas();
@@ -120,6 +133,14 @@ public class DesignLibraryScreen extends Screen {
         // Cancel
         this.addRenderableWidget(Button.builder(Component.literal("Cancel"), _ -> this.onClose())
                 .bounds(centerX + 60, bottomY, 60, 20).build());
+
+        // Folder filter (top left, opens a list of folders with check boxes)
+        this.folderButton = Button.builder(Component.empty(), _ -> {
+            this.folderPanelOpen = !this.folderPanelOpen;
+            this.folderScroll = 0;
+        }).bounds(FP_X, 5, 100, 20).build();
+        this.addRenderableWidget(this.folderButton);
+        refreshFolderButton();
 
         // Picture import options (bottom of the sidebar, above the Load button)
         this.optionButtons.clear();
@@ -149,6 +170,121 @@ public class DesignLibraryScreen extends Screen {
         refreshOptionLabels();
     }
 
+    /** Distinct folders of the library, the top level ("") first. */
+    private List<String> folderNames() {
+        TreeSet<String> names = new TreeSet<>();
+        for (DesignFileManager.DesignEntry e : this.allEntries) names.add(e.folder());
+        return new ArrayList<>(names); // "" sorts first
+    }
+
+    private int countIn(String folder) {
+        int n = 0;
+        for (DesignFileManager.DesignEntry e : this.allEntries) if (e.folder().equals(folder)) n++;
+        return n;
+    }
+
+    /** Rebuilds the visible list from the library and the ticked folders. */
+    private void filterEntries() {
+        FOLDER_FILTER.retainAll(folderNames()); // a folder that no longer exists cannot stay ticked
+        if (FOLDER_FILTER.isEmpty()) {
+            this.entries = new ArrayList<>(this.allEntries);
+        } else {
+            List<DesignFileManager.DesignEntry> kept = new ArrayList<>();
+            for (DesignFileManager.DesignEntry e : this.allEntries) if (FOLDER_FILTER.contains(e.folder())) kept.add(e);
+            this.entries = kept;
+        }
+        if (this.selectedEntry != null && !this.entries.contains(this.selectedEntry)) this.selectedEntry = null;
+        if (this.folderButton != null) refreshFolderButton();
+    }
+
+    private void onFilterChanged() {
+        filterEntries();
+        this.currentPage = 0;
+        this.maxPages = Math.max(1, (int) Math.ceil((double) entries.size() / cardsPerPage));
+        bakeThumbnailAtlas();
+        this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+    }
+
+    private void refreshFolderButton() {
+        boolean hasFolders = folderNames().stream().anyMatch(f -> !f.isEmpty());
+        this.folderButton.active = hasFolders;
+        this.folderButton.setMessage(Component.literal(FOLDER_FILTER.isEmpty() ? "Folders: All" : "Folders (" + FOLDER_FILTER.size() + ")"));
+        if (!hasFolders) this.folderPanelOpen = false;
+    }
+
+    private static String folderLabel(String folder) {
+        return folder.isEmpty() ? "Library root" : folder;
+    }
+
+    private int folderPanelRows() {
+        return Math.min(FP_MAX_ROWS, folderNames().size() + 1);
+    }
+
+    private boolean inFolderPanel(int mouseX, int mouseY) {
+        int h = folderPanelRows() * FP_ROW + 4;
+        return mouseX >= FP_X && mouseX < FP_X + FP_W && mouseY >= FP_Y && mouseY < FP_Y + h;
+    }
+
+    private void drawFolderPanel(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        List<String> names = folderNames();
+        int total = names.size() + 1;
+        int visible = folderPanelRows();
+        this.folderScroll = Math.clamp(this.folderScroll, 0, Math.max(0, total - visible));
+        int h = visible * FP_ROW + 4;
+        g.fill(FP_X - 1, FP_Y - 1, FP_X + FP_W + 1, FP_Y + h + 1, 0xFF000000);
+        g.fill(FP_X, FP_Y, FP_X + FP_W, FP_Y + h, 0xF0202020);
+        for (int r = 0; r < visible; r++) {
+            int idx = r + this.folderScroll; // 0 is the "show everything" row
+            int y = FP_Y + 2 + r * FP_ROW;
+            boolean hov = mouseX >= FP_X && mouseX < FP_X + FP_W && mouseY >= y && mouseY < y + FP_ROW;
+            if (hov) g.fill(FP_X + 1, y, FP_X + FP_W - 1, y + FP_ROW, 0x44FFFFFF);
+            boolean checked;
+            String label;
+            if (idx == 0) {
+                checked = FOLDER_FILTER.isEmpty();
+                label = "All folders (" + this.allEntries.size() + ")";
+            } else {
+                String folder = names.get(idx - 1);
+                checked = FOLDER_FILTER.contains(folder);
+                label = folderLabel(folder) + " (" + countIn(folder) + ")";
+            }
+            int bx = FP_X + 4, by = y + 2;
+            g.fill(bx, by, bx + 8, by + 8, 0xFF8B8B8B);
+            g.fill(bx + 1, by + 1, bx + 7, by + 7, 0xFF101010);
+            if (checked) g.fill(bx + 2, by + 2, bx + 6, by + 6, 0xFF55FF55);
+            String shown = label;
+            int maxW = FP_W - 22;
+            if (this.font.width(shown) > maxW) {
+                while (shown.length() > 1 && this.font.width("…" + shown) > maxW) shown = shown.substring(1);
+                shown = "…" + shown;
+            }
+            g.text(this.font, Component.literal((idx == 0 ? "§e" : "§f") + shown), FP_X + 16, y + 2, 0xFFFFFFFF, false);
+        }
+        if (total > visible) {
+            int trackH = h - 4;
+            int thumbH = Math.max(8, trackH * visible / total);
+            int thumbY = FP_Y + 2 + (trackH - thumbH) * this.folderScroll / (total - visible);
+            g.fill(FP_X + FP_W - 4, thumbY, FP_X + FP_W - 2, thumbY + thumbH, 0xFFAAAAAA);
+        }
+    }
+
+    /** Handles a click while the folder list is open; true when it was used. */
+    private boolean clickFolderPanel(int mouseX, int mouseY) {
+        if (!inFolderPanel(mouseX, mouseY)) return false;
+        int r = (mouseY - FP_Y - 2) / FP_ROW;
+        int idx = r + this.folderScroll;
+        List<String> names = folderNames();
+        if (r < 0 || idx > names.size()) return true;
+        if (idx == 0) {
+            FOLDER_FILTER.clear();
+        } else {
+            String folder = names.get(idx - 1);
+            if (!FOLDER_FILTER.remove(folder)) FOLDER_FILTER.add(folder);
+        }
+        onFilterChanged();
+        return true;
+    }
+
     private void refreshOptionLabels() {
         ImageVoxelizer.Options o = DesignFileManager.getImageOptions();
         this.thicknessButton.setMessage(Component.literal("Layers: " + o.thickness()));
@@ -163,7 +299,8 @@ public class DesignLibraryScreen extends Screen {
         DesignFileManager.setImageOptions(options);
         refreshOptionLabels();
         String selectedName = this.selectedEntry != null ? this.selectedEntry.fileName() : null;
-        this.entries = DesignFileManager.loadAllDesigns(this.parent.gridSize, true);
+        this.allEntries = DesignFileManager.loadAllDesigns(this.parent.gridSize, true);
+        filterEntries();
         this.maxPages = Math.max(1, (int) Math.ceil((double) entries.size() / cardsPerPage));
         this.currentPage = Math.clamp(this.currentPage, 0, maxPages - 1);
         this.selectedEntry = null;
@@ -195,6 +332,10 @@ public class DesignLibraryScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (this.folderPanelOpen && inFolderPanel((int) mouseX, (int) mouseY)) {
+            this.folderScroll -= (int) Math.signum(verticalAmount);
+            return true;
+        }
         if (verticalAmount != 0 && this.maxPages > 1) {
             if (verticalAmount < 0 && this.currentPage < this.maxPages - 1) {
                 this.currentPage++;
@@ -226,7 +367,9 @@ public class DesignLibraryScreen extends Screen {
         // Render gallery grid
         guiGraphics.enableScissor(4, listTopY, sidebarX - 6, listBottomY);
 
-        if (entries.isEmpty()) {
+        if (entries.isEmpty() && !this.allEntries.isEmpty()) {
+            guiGraphics.text(this.font, Component.literal("§7No designs in the ticked folders"), 20, listTopY + 20, 0xFFFFFFFF, true);
+        } else if (entries.isEmpty()) {
             guiGraphics.text(this.font, Component.literal("§7No files found in .minecraft/blocksmith_blueprints/ (sub-folders work too)"), 20, listTopY + 20, 0xFFFFFFFF, true);
         }
 
@@ -370,12 +513,22 @@ public class DesignLibraryScreen extends Screen {
         guiGraphics.text(this.font, Component.literal(pageStr), pageTextX, this.height - 18, 0xFFFFFFFF, true);
 
         super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
+        if (this.folderPanelOpen) drawFolderPanel(guiGraphics, mouseX, mouseY);
     }
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
+
+        if (this.folderPanelOpen) {
+            boolean onButton = mouseX >= FP_X && mouseX < FP_X + 100 && mouseY >= 5 && mouseY < 25;
+            if (clickFolderPanel(mouseX, mouseY)) return true;
+            if (!onButton) { // a click anywhere else closes the list
+                this.folderPanelOpen = false;
+                return true;
+            }
+        }
 
         int listTopY = 34;
         int listBottomY = this.height - 30;
