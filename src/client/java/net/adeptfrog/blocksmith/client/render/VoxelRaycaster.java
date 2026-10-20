@@ -972,15 +972,50 @@ public final class VoxelRaycaster {
         return inBounds(x, y, zi) && cells[index(x, y, zi)] != 0;
     }
 
+    /** Whether the half-size block at (sx, sy, sz) (cell coordinates doubled) is solid, honouring voxel shapes. */
+    private boolean occupiedHalf(int sx, int sy, int sz) {
+        int cx = sx >> 1, cy = sy >> 1, cz = sz >> 1;
+        if (!inBounds(cx, cy, cz)) return false;
+        int ci = index(cx, cy, cz);
+        if (cells[ci] == 0) return false;
+        int sh = shapes[ci];
+        if (sh == VoxelShape.FULL) return true;
+        return ((VoxelShape.octants(sh) >> ((sx & 1) + 2 * (sy & 1) + 4 * (sz & 1))) & 1) != 0;
+    }
+
     /**
-     * Whether the border of the face just hit, on the side of {@code axis} given by {@code sign}, is a real edge of the
-     * model: false when a neighbouring voxel continues the same flat surface.
+     * Distance (in cells) from the hit point to the nearest real edge of the surface it is on, or MAX_VALUE if no edge is
+     * within {@code limit}. Works on half-size blocks, so slabs and stairs get edges along their own outline and a
+     * neighbouring slab does not hide the edge of a full block. An edge is skipped when the next half-block along the
+     * surface continues the same flat plane.
      */
-    private boolean isRealEdge(int axis, int sign) {
-        int[] c = {hx, hy, hz};
-        c[axis] += sign;
-        if (!solidAt(c[0], c[1], c[2])) return true;     // the surface ends here (convex edge)
-        return solidAt(c[0] + hnx, c[1] + hny, c[2] + hnz); // a voxel in front of the neighbour: concave corner
+    private double rimDistance(double px, double py, double pz, double limit) {
+        double[] pt = {px, py, pz};
+        int[] n = {hnx, hny, hnz};
+        int a = hnx != 0 ? 0 : hny != 0 ? 1 : 2;
+        int s = n[a];
+        int[] sub = new int[3];
+        for (int k = 0; k < 3; k++) sub[k] = (int) Math.floor(pt[k] * 2);
+        sub[a] = s > 0 ? (int) Math.round(pt[a] * 2) - 1 : (int) Math.round(pt[a] * 2);
+        if (!occupiedHalf(sub[0], sub[1], sub[2])) return Double.MAX_VALUE;
+        double best = Double.MAX_VALUE;
+        for (int i = 1; i <= 2; i++) {
+            int b = (a + i) % 3;
+            double t = pt[b] * 2 - sub[b]; // 0..1 across the half-block
+            double dist = Math.min(t, 1 - t) / 2;
+            if (dist >= limit || dist >= best) continue;
+            int side = t < 0.5 ? -1 : 1;
+            int[] nb = sub.clone();
+            nb[b] += side;
+            boolean real;
+            if (!occupiedHalf(nb[0], nb[1], nb[2])) real = true;                  // the surface ends here (convex edge)
+            else {
+                nb[a] += s;
+                real = occupiedHalf(nb[0], nb[1], nb[2]);                         // a block in front of the neighbour: concave corner
+            }
+            if (real) best = dist;
+        }
+        return best;
     }
 
     private void shadeHit(Hit highlight) {
@@ -999,18 +1034,8 @@ public final class VoxelRaycaster {
         // Borders are drawn only along the model's real edges. The line between two neighbouring voxels on the same
         // flat surface is skipped, so same-coloured voxels merge into one clean surface instead of a grid.
         double px = ox + dx * hitT, py = oy + dy * hitT, pz = oz + dz * hitT;
-        double u, v;
-        int uAxis, vAxis;
-        if (hnx != 0) { u = frac(py); v = frac(pz); uAxis = 1; vAxis = 2; }
-        else if (hny != 0) { u = frac(px); v = frac(pz); uAxis = 0; vAxis = 2; }
-        else { u = frac(px); v = frac(py); uAxis = 0; vAxis = 1; }
         double edge = Math.max(0.08, 0.6 * pixelScale / scale);
-        double du = Math.min(u, 1 - u), dv = Math.min(v, 1 - v);
-        double rim = Double.MAX_VALUE;
-        if (!hShaped) {
-            if (du < edge && isRealEdge(uAxis, u < 0.5 ? -1 : 1)) rim = du;
-            if (dv < edge && dv < rim && isRealEdge(vAxis, v < 0.5 ? -1 : 1)) rim = dv;
-        }
+        double rim = rimDistance(px, py, pz, edge);
         if (rim < edge) {
             light *= 1.0 - 0.5 * smooth(1.0 - rim / edge);
         }
