@@ -27,9 +27,10 @@ public class VoxelMaterialRegistry {
 
     // Shade ramps of the two materials whose palettes were reworked: the old ramps spent several shades on pure black
     // (netherite) or pure white (quartz). Saved configs that still hold the old ramp are upgraded when they load.
-    private static final int[] NETHERITE_PALETTE = {0xFF262626, 0xFF4c4c4c, 0xFF666666, 0xFF808080, 0xFF9a9a9a};
+    private static final int[] NETHERITE_PALETTE = {0xFF000000, 0xFF262626, 0xFF4c4c4c, 0xFF727272, 0xFF989898};
     private static final int[] QUARTZ_PALETTE = {0xFF1a1a1a, 0xFF404040, 0xFF666666, 0xFFb3b3b3, 0xFFFFFFFF};
     private static final int[] OLD_NETHERITE_PALETTE = {0xFF000000, 0xFF000000, 0xFF000000, 0xFF262626, 0xFF4c4c4c};
+    private static final int[] INTERIM_NETHERITE_PALETTE = {0xFF262626, 0xFF4c4c4c, 0xFF666666, 0xFF808080, 0xFF9a9a9a};
     private static final int[] OLD_QUARTZ_PALETTE = {0xFF666666, 0xFFb3b3b3, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
 
     private static int gridSize = Blocksmith.BASE_GRID_SIZE; // Default resolution
@@ -63,7 +64,7 @@ public class VoxelMaterialRegistry {
                     if (entries != null) {
                         boolean upgraded = false;
                         for (MaterialConfigEntry e : entries) {
-                            if ("netherite".equalsIgnoreCase(e.id) && Arrays.equals(e.palette, OLD_NETHERITE_PALETTE)) {
+                            if ("netherite".equalsIgnoreCase(e.id) && (Arrays.equals(e.palette, OLD_NETHERITE_PALETTE) || Arrays.equals(e.palette, INTERIM_NETHERITE_PALETTE))) {
                                 e.palette = NETHERITE_PALETTE.clone();
                                 upgraded = true;
                             } else if ("quartz".equalsIgnoreCase(e.id) && Arrays.equals(e.palette, OLD_QUARTZ_PALETTE)) {
