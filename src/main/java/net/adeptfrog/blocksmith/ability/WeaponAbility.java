@@ -11,7 +11,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
-import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
@@ -32,6 +31,11 @@ public interface WeaponAbility {
     WeaponType weaponType();
     Map<MaterialGroup, Double> requiredThresholds();
 
+    /** Minimum number of voxels a weapon needs for abilities to unlock (flat count). */
+    static int minVoxelCount() {
+        return (MAX_VOXELS() * ABILITY_MIN_VOXELS) / 100;
+    }
+
     default boolean isUnlocked(ItemStack stack) {
         boolean isBow = stack.getItem() instanceof ModularBowItem;
         boolean isSword = stack.getItem() instanceof ModularSwordItem;
@@ -39,7 +43,14 @@ public interface WeaponAbility {
         if (weaponType() == WeaponType.BOW && !isBow) return false;
 
         List<WeaponVoxel> voxels = isBow ? ModularBowItem.getVoxels(stack) : ModularSwordItem.getVoxels(stack);
-        if (voxels.size() < (MAX_VOXELS() * ABILITY_MIN_VOXELS) / 100) return false;
+        return isUnlockedFor(isBow, voxels);
+    }
+
+    /** Evaluates unlock conditions for an arbitrary voxel layout (used by the forging UI for live preview). */
+    default boolean isUnlockedFor(boolean isBow, List<WeaponVoxel> voxels) {
+        if (weaponType() == WeaponType.SWORD && isBow) return false;
+        if (weaponType() == WeaponType.BOW && !isBow) return false;
+        if (voxels.isEmpty() || voxels.size() < WeaponAbility.minVoxelCount()) return false;
 
         Map<String, Integer> counts = new HashMap<>();
         for (WeaponVoxel v : voxels) {
@@ -68,9 +79,9 @@ public interface WeaponAbility {
     // Ability Events
     default void onMeleeHit(ItemStack sword, Player player, LivingEntity target) {}
     default void onArrowFired(LivingEntity shooter, Projectile projectile, int index, float velocity, float inaccuracy, float angle, LivingEntity target) {}
-    default void onArrowHit(AbstractArrow arrow, HitResult hitResult, ServerLevel level) {}
-    default void onArrowHitEntity(AbstractArrow arrow, EntityHitResult hitResult, ServerLevel level) {}
-    default void onArrowHitBlock(AbstractArrow arrow, BlockHitResult hitResult, ServerLevel level) {}
-    default void afterArrowHitEntity(AbstractArrow arrow, LivingEntity mob, ServerLevel level) {}
+    default void onArrowHit(Projectile arrow, HitResult hitResult, ServerLevel level) {}
+    default void onArrowHitEntity(Projectile arrow, EntityHitResult hitResult, ServerLevel level) {}
+    default void onArrowHitBlock(Projectile arrow, BlockHitResult hitResult, ServerLevel level) {}
+    default void afterArrowHitEntity(Projectile arrow, LivingEntity mob, ServerLevel level) {}
     default boolean onDamagedByProjectile(ItemStack weapon, Player player, DamageSource source, Entity projectile, Entity attacker) { return true; /* Return false to negate the damage */ }
 }

@@ -1,9 +1,12 @@
 package net.adeptfrog.blocksmith.item;
 
+import net.adeptfrog.blocksmith.compat.EntityCompat;
+import net.adeptfrog.blocksmith.compat.McCompat;
 import net.adeptfrog.blocksmith.ability.BurstFireScheduler;
 import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
+import net.adeptfrog.blocksmith.data.StatScaling;
 import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
@@ -14,23 +17,18 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.stats.Stats;
 import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
-import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import org.jetbrains.annotations.Nullable;
-import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static net.adeptfrog.blocksmith.Blocksmith.BASE_DURABILITY;
 
-public class ModularBowItem extends BowItem {
+public class ModularBowItem extends BowItemBase {
     public static final double BONUS_BASE_DAMAGE = 4.0F;
 
     public ModularBowItem(Properties properties) {
@@ -57,7 +55,7 @@ public class ModularBowItem extends BowItem {
         for (WeaponVoxel voxel : defaults) {
             rawDurability += voxel.material().getBonusDurability();
         }
-        return BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        return BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, defaults.size()) / gridArea);
     }
 
     public static void recalculateStats(ItemStack stack) {
@@ -70,12 +68,12 @@ public class ModularBowItem extends BowItem {
             rawDurability += voxel.material().getBonusDurability();
         }
 
-        int bonusDurability = BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        int bonusDurability = BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, voxels.size()) / gridArea);
         stack.set(DataComponents.MAX_DAMAGE, bonusDurability);
     }
 
     @Override
-    public void onUseTick(@NonNull Level level, @NonNull LivingEntity entity, @NonNull ItemStack stack, int remainingUseDuration) {
+    public void onUseTick(Level level, LivingEntity entity, ItemStack stack, int remainingUseDuration) {
         if (entity instanceof Player player && !level.isClientSide()) {
             int useTicks = this.getUseDuration(stack, entity) - remainingUseDuration;
             int requiredTicks = getRequiredDrawTicks(stack);
@@ -85,14 +83,14 @@ public class ModularBowItem extends BowItem {
                 if (WeaponAbilityRegistry.hasUnlockedAbilities(stack, "auto")) {
                     player.releaseUsingItem();
                     // Re-arm delay: arm lowers and reaches for the next arrow
-                    player.getCooldowns().addCooldown(stack.getItem().getDefaultInstance(), 5);
+                    EntityCompat.addCooldown(player, stack, 5);
                     return;
                 }
             }
 
             // Immobilize user when charging an arrow with Sniper ability
             if (WeaponAbilityRegistry.hasUnlockedAbilities(stack, "sniper")) {
-                player.addEffect(new MobEffectInstance(MobEffects.SLOWNESS, 40, 255, false, false, false));
+                player.addEffect(new MobEffectInstance(McCompat.slowness(), 40, 255, false, false, false));
                 player.setDeltaMovement(0.0, Math.min(0.0, player.getDeltaMovement().y), 0.0);
             }
         }
@@ -100,7 +98,7 @@ public class ModularBowItem extends BowItem {
     }
 
     @Override
-    public boolean releaseUsing(@NonNull ItemStack stack, @NonNull Level level, @NonNull LivingEntity entity, int timeLeft) {
+    protected boolean release(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
         if (!(entity instanceof Player player)) return false;
 
         ItemStack projectileStack = player.getProjectile(stack);
@@ -144,11 +142,11 @@ public class ModularBowItem extends BowItem {
     }
 
     @Override
-    protected void shootProjectile(@NonNull LivingEntity shooter, @NonNull Projectile projectile, int index, float velocity, float inaccuracy, float angle, @Nullable LivingEntity target) {
+    protected void shootProjectile(LivingEntity shooter, Projectile projectile, int index, float velocity, float inaccuracy, float angle, LivingEntity target) {
         super.shootProjectile(shooter, projectile, index, velocity, inaccuracy, angle, target);
 
         // Apply bonus voxel damage to fired arrows
-        if (projectile instanceof AbstractArrow arrow) {
+        if (EntityCompat.isArrow(projectile)) {
             ItemStack bow = shooter.getMainHandItem().getItem() instanceof ModularBowItem
                     ? shooter.getMainHandItem()
                     : shooter.getOffhandItem();
@@ -160,7 +158,7 @@ public class ModularBowItem extends BowItem {
                     for (WeaponAbility ability : WeaponAbilityRegistry.getUnlockedAbilities(bow)) {
                         if (ability.weaponType() == WeaponAbility.WeaponType.BOW || ability.weaponType() == WeaponAbility.WeaponType.ANY) {
                             ability.onArrowFired(shooter, projectile, index, velocity, inaccuracy, angle, target);
-                            arrow.addTag("blocksmith_ability:" + ability.id());
+                            projectile.addTag("blocksmith_ability:" + ability.id());
                         }
                     }
                 }
@@ -182,7 +180,15 @@ public class ModularBowItem extends BowItem {
     }
 
     // Calculates draw speed from voxel materials and abilities
+    private static final net.adeptfrog.blocksmith.data.DesignCache<Float> DRAW_SPEED_CACHE = new net.adeptfrog.blocksmith.data.DesignCache<>(32);
+
+    /** Cached per design: it is needed every tick while drawing and every frame for the charge bar. */
     public static float getDrawSpeedMultiplier(ItemStack stack) {
+        if (VoxelMaterialRegistry.areAbilitiesDisabled()) return computeDrawSpeedMultiplier(stack);
+        return DRAW_SPEED_CACHE.get(getVoxels(stack), v -> computeDrawSpeedMultiplier(stack));
+    }
+
+    private static float computeDrawSpeedMultiplier(ItemStack stack) {
         List<WeaponVoxel> voxels = getVoxels(stack);
         int gridSize = VoxelMaterialRegistry.getGridSize();
         double gridArea = gridSize * gridSize;
@@ -192,7 +198,7 @@ public class ModularBowItem extends BowItem {
         for (WeaponVoxel voxel : voxels) {
             rawSpeed += voxel.material().getBonusSpeed();
         }
-        double bonusSpeed = rawSpeed / gridArea;
+        double bonusSpeed = StatScaling.scale(rawSpeed, voxels.size()) / gridArea;
         float speedMultiplier = 1.0F + (float) bonusSpeed;
 
         // Apply ability modifiers

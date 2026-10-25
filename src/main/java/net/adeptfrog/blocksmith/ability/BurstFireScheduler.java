@@ -4,7 +4,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.entity.projectile.arrow.Arrow;
+import net.minecraft.world.entity.projectile.Projectile;
+import net.adeptfrog.blocksmith.compat.EntityCompat;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
@@ -62,10 +63,9 @@ public class BurstFireScheduler {
             Player player = level.getPlayerByUUID(playerUuid);
             if (player == null || !player.isAlive()) return;
 
-            Arrow arrow = new Arrow(level, player, new ItemStack(Items.ARROW), bow);
+            Projectile arrow = EntityCompat.createArrow(level, player, bow, power >= 1.0F);
             arrow.addTag("blocksmith_ability:burst");
             arrow.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, power * 3.0F, 1.0F);
-            arrow.setCritArrow(power >= 1.0F);
 
             level.addFreshEntity(arrow);
             level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ARROW_SHOOT, SoundSource.PLAYERS, 1.0F, 1.2F);

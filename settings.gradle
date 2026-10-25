@@ -11,3 +11,11 @@ pluginManagement {
 
 // Should match your modid
 rootProject.name = 'blocksmith'
+
+// One Gradle project per supported Minecraft version. Each builds its own jar from the shared code in src/,
+// plus its source group (versions/common-26 for the 26.x versions) and its own versions/<minecraft>/src.
+// Version numbers live in versions/<minecraft>/gradle.properties.
+['1.21.1', '26.1.2', '26.3'].each { mc ->
+	include(mc)
+	project(":${mc}").projectDir = file("versions/${mc}")
+}

@@ -33,12 +33,16 @@
 		{
 			"config": "blocksmith.client.mixins.json",
 			"environment": "client"
+		},
+		{
+			"config": "blocksmith.client.version.mixins.json",
+			"environment": "client"
 		}
 	],
 	"depends": {
 		"fabricloader": ">=0.19.3",
-		"minecraft": "~26.1.2",
-		"java": ">=25",
+		"minecraft": "~${minecraft_version}",
+		"java": ">=${java_version}",
 		"fabric-api": "*"
 	}
 }

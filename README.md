@@ -1,15 +1,10 @@
 # Blocksmith
 
 [![License](https://img.shields.io/github/license/dizonivan11/blocksmith?style=for-the-badge&color=4169E1&labelColor=555555)](https://github.com/dizonivan11/blocksmith/blob/master/LICENSE)&nbsp;
-[![Minecraft Version](https://img.shields.io/badge/Minecraft-26.1.2-117D33?style=for-the-badge&logo=minecraft&logoColor=white)](https://modrinth.com/mod/blocksmith)&nbsp;
 [![Fabric](https://img.shields.io/badge/Modloader-Fabric-C1A173?style=for-the-badge&logo=fabric&logoColor=white)](https://fabricmc.net/)&nbsp;
 [![Modrinth](https://img.shields.io/modrinth/dt/blocksmith?style=for-the-badge&logo=modrinth&color=1BD96A&labelColor=555555&label=MODRINTH)](https://modrinth.com/mod/blocksmith)
-[![CurseForge](https://img.shields.io/badge/CurseForge-Blocksmith-orange?style=for-the-badge&logo=curseforge)](https://www.curseforge.com/minecraft/mc-mods/blocksmith-voxel-weapons)
-
-> [!WARNING]
-> This mod is currently in **very early development**. Things might change, bugs will appear, and unintended interactions with other mods are expected.
-> 
-> Development might be slow sometimes as I am only working on this in my free time. Kindly report any bugs, errors, and exploits you find on the **[Issue Tracker](https://github.com/dizonivan11/blocksmith/issues)** so I can improve this mod. Thank you!
+[![CurseForge](https://img.shields.io/curseforge/dt/1707321?style=for-the-badge&logo=curseforge&label=CurseForge&color=orange
+)](https://www.curseforge.com/minecraft/mc-mods/blocksmith-voxel-weapons)
 
 A voxel-based weapon customization mod for Minecraft. Customize each voxels to shape your own weapon to your preference and show your own personalized weapons to your friends. Currently, each voxels will give bonus stats such as Attack Damage/Arrow Damage, Attack Speed/Draw Speed, and Durability.
 
@@ -61,3 +56,6 @@ A voxel-based weapon customization mod for Minecraft. Customize each voxels to s
 ## Recommended With
 - [Better Combat](https://modrinth.com/mod/better-combat)
 - [Punchy](https://modrinth.com/mod/punchy-fpa)
+
+> [!NOTE]
+> Development might be slow sometimes as I am only working on this in my free time. Kindly report any bugs, errors, and exploits you find on the **[Issue Tracker](https://github.com/dizonivan11/blocksmith/issues)** so I can improve this mod. Thank you!

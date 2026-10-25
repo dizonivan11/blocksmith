@@ -1,16 +1,17 @@
 package net.adeptfrog.blocksmith.client.gui;
 
+import net.adeptfrog.blocksmith.compat.McCompat;
+import net.adeptfrog.blocksmith.client.compat.Gfx;
+import net.adeptfrog.blocksmith.client.compat.CompatScreen;
+import net.adeptfrog.blocksmith.client.utils.InputCompat;
 import net.adeptfrog.blocksmith.data.VoxelMaterial;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
-import org.jspecify.annotations.NonNull;
 
-public class EditMaterialScreen extends Screen {
+public class EditMaterialScreen extends CompatScreen {
     private final Screen parent;
     private final VoxelMaterial original;
     private final boolean isNew;
@@ -46,7 +47,7 @@ public class EditMaterialScreen extends Screen {
         this.addRenderableWidget(idBox);
 
         this.itemBox = createStyledEditBox(formLeft + 103, row1Y, 137, "Item ID", true);
-        this.itemBox.setValue(original.iconItem().toString());
+        this.itemBox.setValue(original.iconItem());
         this.addRenderableWidget(itemBox);
 
         int row2Y = 74;
@@ -84,27 +85,27 @@ public class EditMaterialScreen extends Screen {
 
         if (isNew) {
             this.addRenderableWidget(
-                    Button.builder(Component.literal("Create"), _ -> saveAndClose())
+                    Button.builder(Component.literal("Create"), unused6 -> saveAndClose())
                             .bounds(centerX - 80, btnY, 75, 20).build()
             );
             this.addRenderableWidget(
-                    Button.builder(Component.literal("Cancel"), _ ->
-                            this.minecraft.setScreen(this.parent)).bounds(centerX + 5, btnY, 75, 20).build()
+                    Button.builder(Component.literal("Cancel"), unused7 ->
+                            InputCompat.openScreen(this.minecraft, this.parent)).bounds(centerX + 5, btnY, 75, 20).build()
             );
         } else {
             this.addRenderableWidget(
-                    Button.builder(Component.literal("Save"), _ -> saveAndClose())
+                    Button.builder(Component.literal("Save"), unused8 -> saveAndClose())
                             .bounds(centerX - 110, btnY, 68, 20).build()
             );
             this.addRenderableWidget(
-                    Button.builder(Component.literal("§cDelete"), _ -> {
+                    Button.builder(Component.literal("§cDelete"), unused9 -> {
                         VoxelMaterialRegistry.remove(original.id());
-                        this.minecraft.setScreen(this.parent);
+                        InputCompat.openScreen(this.minecraft, this.parent);
                     }).bounds(centerX - 34, btnY, 68, 20).build()
             );
             this.addRenderableWidget(
-                    Button.builder(Component.literal("Cancel"), _ ->
-                            this.minecraft.setScreen(this.parent)).bounds(centerX + 42, btnY, 68, 20).build()
+                    Button.builder(Component.literal("Cancel"), unused10 ->
+                            InputCompat.openScreen(this.minecraft, this.parent)).bounds(centerX + 42, btnY, 68, 20).build()
             );
         }
     }
@@ -128,7 +129,7 @@ public class EditMaterialScreen extends Screen {
 
             String itemStr = itemBox.getValue().trim();
             if (!itemStr.contains(":")) itemStr = "minecraft:" + itemStr;
-            Identifier iconItem = Identifier.parse(itemStr);
+            String iconItem = McCompat.checkId(itemStr);
 
             float dmg = Float.parseFloat(damageBox.getValue().trim());
             float spd = Float.parseFloat(speedBox.getValue().trim());
@@ -144,15 +145,15 @@ public class EditMaterialScreen extends Screen {
             VoxelMaterialRegistry.register(updated);
             VoxelMaterialRegistry.save();
 
-            this.minecraft.setScreen(this.parent);
+            InputCompat.openScreen(this.minecraft, this.parent);
         } catch (Exception e) {
             this.errorMessage = "§cError: " + e.getMessage();
         }
     }
 
     @Override
-    public void extractRenderState(@NonNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
-        super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
+    protected void renderScreen(Gfx guiGraphics, int mouseX, int mouseY, float delta) {
+        renderVanilla(guiGraphics, mouseX, mouseY, delta);
 
         int centerX = this.width / 2;
         int formLeft = centerX - (FORM_WIDTH / 2);

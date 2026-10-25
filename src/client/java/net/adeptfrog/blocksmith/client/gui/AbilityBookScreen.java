@@ -1,5 +1,6 @@
 package net.adeptfrog.blocksmith.client.gui;
 
+import net.adeptfrog.blocksmith.client.utils.InputCompat;
 import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.client.utils.StringUtils;
@@ -14,8 +15,6 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 
 import java.util.*;
-
-import static net.adeptfrog.blocksmith.Blocksmith.ABILITY_MIN_VOXELS;
 
 public class AbilityBookScreen extends BookViewScreen {
     private final Screen parent;
@@ -32,7 +31,7 @@ public class AbilityBookScreen extends BookViewScreen {
 
     @Override
     public void onClose() {
-        this.minecraft.setScreen(this.parent);
+        InputCompat.openScreen(this.minecraft, this.parent);
     }
 
     private static BookAccess createBookAccess() {
@@ -43,7 +42,7 @@ public class AbilityBookScreen extends BookViewScreen {
                 "§1§lBlocksmith\n"+
                 "§0§lAbility Codex\n\n"+
                 
-                "§0Forged weapons unlock powerful abilities when built to §4"+ABILITY_MIN_VOXELS+"% voxel capacity§0 and meeting material thresholds.\n\n"+
+                "§0Forged weapons unlock powerful abilities when built with at least §4"+WeaponAbility.minVoxelCount()+" voxels§0 and meeting material thresholds.\n\n"+
                 
                 "§8Turn pages to browse all active abilities §0➡"));
 

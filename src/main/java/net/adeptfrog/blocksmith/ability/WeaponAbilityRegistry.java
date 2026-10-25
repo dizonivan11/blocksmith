@@ -1,10 +1,11 @@
 package net.adeptfrog.blocksmith.ability;
 
+import net.adeptfrog.blocksmith.compat.EntityCompat;
+import net.adeptfrog.blocksmith.compat.HurtCompat;
 import net.adeptfrog.blocksmith.data.MaterialGroup;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -16,7 +17,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
-import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.*;
@@ -46,27 +46,27 @@ public class WeaponAbilityRegistry {
                 "neutral",
                 "netherite/flint/lazuli/quartz/iron/clay/gunpowder/coal",
                 0xffdddddd,
-                Identifier.fromNamespaceAndPath("minecraft", "iron_ingot")));
+                "minecraft:iron_ingot"));
         registerGroup(new MaterialGroup(
                 "earth",
-                "moss/emerald/prismarine/slime/kelp/leaf/litter",
+                "moss/emerald/prismarine/slime/kelp/leaf/cocoa",
                 0xff88cc00,
-                Identifier.fromNamespaceAndPath("minecraft", "moss_block")));
+                "minecraft:moss_block"));
         registerGroup(new MaterialGroup(
                 "nether",
                 "charge/copper/glowstone/blaze/bone/gold/redstone",
                 0xffff8844,
-                Identifier.fromNamespaceAndPath("minecraft", "blaze_rod")));
+                "minecraft:blaze_rod"));
         registerGroup(new MaterialGroup(
                 "tundra",
                 "obsidian/glow/glacier/ice/diamond/snow",
                 0xff4488ff,
-                Identifier.fromNamespaceAndPath("minecraft", "ice")));
+                "minecraft:ice"));
         registerGroup(new MaterialGroup(
                 "end",
                 "chorus/ender/mushroom/amethyst",
                 0xffff55ff,
-                Identifier.fromNamespaceAndPath("minecraft", "ender_pearl")));
+                "minecraft:ender_pearl"));
 
         // ╔═════════════════════════╗
         // ║     SWORD ABILITIES     ║
@@ -95,8 +95,8 @@ public class WeaponAbilityRegistry {
 
                     // Inflict +2.0 bonus damage per nearby enemy
                     if (enemyCount > 0) {
-                        target.invulnerableTime = 0; // Reset i-frames so bonus damage registers
-                        target.hurtServer(serverLevel, player.damageSources().playerAttack(player), enemyCount * 2.0F);
+                        HurtCompat.resetHurtCooldown(target); // Reset i-frames so bonus damage registers
+                        EntityCompat.hurt(serverLevel, target, player.damageSources().playerAttack(player), enemyCount * 2.0F);
                     }
                 }
             }
@@ -143,7 +143,7 @@ public class WeaponAbilityRegistry {
             public boolean onDamagedByProjectile(ItemStack sword, Player player, DamageSource source, Entity projectile, Entity attacker) {
                 if (player.level() instanceof ServerLevel serverLevel) {
                     // Disabled if on cooldown
-                    if (player.getCooldowns().isOnCooldown(sword)) return true;
+                    if (EntityCompat.isOnCooldown(player, sword)) return true;
 
                     RandomSource random = player.getRandom();
                     Vec3 oldPos = player.position();
@@ -158,7 +158,7 @@ public class WeaponAbilityRegistry {
                         BlockPos groundPos = targetPos.below();
 
                         // Validate solid non-water ground below + 2 air blocks above
-                        if (serverLevel.getBlockState(groundPos).blocksMotion()
+                        if (serverLevel.getBlockState(groundPos).isCollisionShapeFullBlock(serverLevel, groundPos)
                                 && !serverLevel.getBlockState(groundPos).getFluidState().is(FluidTags.WATER)
                                 && serverLevel.getBlockState(targetPos).isAir()
                                 && serverLevel.getBlockState(targetPos.above()).isAir()) {
@@ -174,7 +174,7 @@ public class WeaponAbilityRegistry {
                             // Destination Particles & Sound
                             serverLevel.sendParticles(ParticleTypes.PORTAL, targetX, targetY + 0.5, targetZ, 30, 0.3, 0.5, 0.3, 0.1);
                             serverLevel.playSound(null, targetX, targetY, targetZ, SoundEvents.ENDERMAN_TELEPORT, SoundSource.PLAYERS, 1.0F, 1.0F);
-                            player.getCooldowns().addCooldown(sword.getItem().getDefaultInstance(), 100);
+                            EntityCompat.addCooldown(player, sword, 100);
                             return false;
                         }
                     }
@@ -206,10 +206,10 @@ public class WeaponAbilityRegistry {
                     // Ice Shatter on already-frozen enemies
                     if (wasFullyFrozen) {
                         // Reset i-frames so the bonus shatter damage registers immediately
-                        target.invulnerableTime = 0;
+                        HurtCompat.resetHurtCooldown(target);
 
                         // Deals +10.0 shatter damage then unfreeze the target
-                        target.hurtServer(serverLevel, player.damageSources().playerAttack(player), 10.0F);
+                        EntityCompat.hurt(serverLevel, target, player.damageSources().playerAttack(player), 10.0F);
                         target.setTicksFrozen(0);
 
                         serverLevel.sendParticles(ParticleTypes.ITEM_SNOWBALL, target.getX(), target.getY() + (target.getBbHeight() / 2.0), target.getZ(), 25, 0.3, 0.3, 0.3, 0.1);
@@ -291,11 +291,11 @@ public class WeaponAbilityRegistry {
                 return Map.of(GROUPS.get("end"), 50.0);
             }
             @Override
-            public void onArrowHit(AbstractArrow arrow, HitResult hitResult, ServerLevel level) {
+            public void onArrowHit(Projectile arrow, HitResult hitResult, ServerLevel level) {
                 Vec3 center = hitResult.getLocation();
                 AABB area = AABB.ofSize(center, 16, 16, 16);
                 List<Entity> targets = level.getEntities((Entity) null, area, e ->
-                        !(e instanceof AbstractArrow) &&
+                        !EntityCompat.isArrow(e) &&
                                 e.isAlive() &&
                                 !e.isSpectator() &&
                                 !(e instanceof Player player && player.isCreative())
@@ -304,7 +304,7 @@ public class WeaponAbilityRegistry {
                 for (Entity target : targets) {
                     Vec3 pull = center.subtract(target.position()).normalize().scale(0.5);
                     target.setDeltaMovement(target.getDeltaMovement().add(pull.x, pull.y, pull.z));
-                    target.hurtMarked = true;
+                    HurtCompat.syncVelocity(target);
                 }
 
                 level.sendParticles(ParticleTypes.SQUID_INK, center.x, center.y + 0.5, center.z, 20, 0.2, 0.2, 0.2, 0.05);
@@ -334,9 +334,9 @@ public class WeaponAbilityRegistry {
                 projectile.setDeltaMovement(projectile.getDeltaMovement().scale(0.5));
             }
             @Override
-            public void afterArrowHitEntity(AbstractArrow arrow, LivingEntity mob, ServerLevel level) {
+            public void afterArrowHitEntity(Projectile arrow, LivingEntity mob, ServerLevel level) {
                 // Clears i-frames first so explosion deals damage immediately
-                mob.invulnerableTime = 0;
+                HurtCompat.resetHurtCooldown(mob);
                 level.explode(arrow, arrow.getX(), arrow.getY(), arrow.getZ(), 2.5F, false, Level.ExplosionInteraction.NONE);
             }
         });
@@ -356,14 +356,14 @@ public class WeaponAbilityRegistry {
                 BlocksmithCombatHooks.CANCEL_KNOCKBACK.set(false);
             }
             @Override
-            public void onArrowHitEntity(AbstractArrow arrow, EntityHitResult hitResult, ServerLevel level) {
+            public void onArrowHitEntity(Projectile arrow, EntityHitResult hitResult, ServerLevel level) {
                 if (hitResult instanceof EntityHitResult)
                     BlocksmithCombatHooks.CANCEL_KNOCKBACK.set(true);
             }
             @Override
-            public void afterArrowHitEntity(AbstractArrow arrow, LivingEntity mob, ServerLevel level) {
+            public void afterArrowHitEntity(Projectile arrow, LivingEntity mob, ServerLevel level) {
                 // Clears i-frames so consecutive arrows deal damage immediately
-                mob.invulnerableTime = 0;
+                HurtCompat.resetHurtCooldown(mob);
                 BlocksmithCombatHooks.CANCEL_KNOCKBACK.set(false);
             }
         });
@@ -383,14 +383,29 @@ public class WeaponAbilityRegistry {
         return ABILITIES.get(id);
     }
 
+    private static final net.adeptfrog.blocksmith.data.DesignCache<List<WeaponAbility>> SWORD_CACHE = new net.adeptfrog.blocksmith.data.DesignCache<>(32);
+    private static final net.adeptfrog.blocksmith.data.DesignCache<List<WeaponAbility>> BOW_CACHE = new net.adeptfrog.blocksmith.data.DesignCache<>(32);
+
+    /**
+     * The abilities the weapon's design unlocks. Cached per design: checking every ability walks all voxels, and this
+     * is asked every tick while a bow is drawn and every frame for the charge bar.
+     */
     public static List<WeaponAbility> getUnlockedAbilities(ItemStack stack) {
-        List<WeaponAbility> unlocked = new ArrayList<>();
-        for (WeaponAbility ability : ABILITIES.values()) {
-            if (ability.isUnlocked(stack)) {
-                unlocked.add(ability);
+        if (net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled()) return new ArrayList<>();
+        boolean isBow = stack.getItem() instanceof net.adeptfrog.blocksmith.item.ModularBowItem;
+        boolean isSword = stack.getItem() instanceof net.adeptfrog.blocksmith.item.ModularSwordItem;
+        if (!isBow && !isSword) return new ArrayList<>();
+        List<net.adeptfrog.blocksmith.data.WeaponVoxel> voxels = isBow
+                ? net.adeptfrog.blocksmith.item.ModularBowItem.getVoxels(stack)
+                : net.adeptfrog.blocksmith.item.ModularSwordItem.getVoxels(stack);
+        List<WeaponAbility> cached = (isBow ? BOW_CACHE : SWORD_CACHE).get(voxels, v -> {
+            List<WeaponAbility> unlocked = new ArrayList<>();
+            for (WeaponAbility ability : ABILITIES.values()) {
+                if (ability.isUnlockedFor(isBow, v)) unlocked.add(ability);
             }
-        }
-        return unlocked;
+            return List.copyOf(unlocked);
+        });
+        return new ArrayList<>(cached);
     }
 
     public static boolean hasUnlockedAbilities(ItemStack stack, String ability) {
@@ -398,7 +413,8 @@ public class WeaponAbilityRegistry {
                 .stream().anyMatch(a -> ability.equalsIgnoreCase(a.id()));
     }
 
-    public static boolean arrowHasAbility(AbstractArrow arrow, String ability) {
-        return arrow.entityTags().contains("blocksmith_ability:"+ability);
+    public static boolean arrowHasAbility(Projectile arrow, String ability) {
+        if (net.adeptfrog.blocksmith.data.VoxelMaterialRegistry.areAbilitiesDisabled()) return false;
+        return EntityCompat.tags(arrow).contains("blocksmith_ability:"+ability);
     }
 }

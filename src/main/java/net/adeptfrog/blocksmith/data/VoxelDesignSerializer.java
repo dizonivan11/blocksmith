@@ -2,6 +2,8 @@ package net.adeptfrog.blocksmith.data;
 
 import com.google.gson.*;
 
+import net.adeptfrog.blocksmith.Blocksmith;
+
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -10,203 +12,27 @@ import java.util.Collections;
 import java.util.List;
 
 import static net.adeptfrog.blocksmith.Blocksmith.BASE_GRID_SIZE;
+import static net.adeptfrog.blocksmith.Blocksmith.MAX_TOTAL_VOXELS;
 
 public class VoxelDesignSerializer {
     private static final Gson GSON = new GsonBuilder().create();
 
-    private static final String DEFAULT_SWORD_BLUEPRINT_JSON = """
-    {
-      "format": "blocksmith_blueprint",
-      "version": 1,
-      "gridSize": 16,
-      "offsetX": -1,
-      "offsetY": -1,
-      "attribution": "\\"Forged Sword\\" by adeptfrog.",
-      "crafter": "adeptfrog",
-      "voxels": [
-        { "x": 8, "y": 2, "m": "flint", "s": 0 },
-        { "x": 9, "y": 2, "m": "flint", "s": 0 },
-        { "x": 9, "y": 3, "m": "flint", "s": 0 },
-        { "x": 7, "y": 3, "m": "flint", "s": 0 },
-        { "x": 6, "y": 3, "m": "flint", "s": 0 },
-        { "x": 5, "y": 4, "m": "flint", "s": 0 },
-        { "x": 4, "y": 3, "m": "flint", "s": 0 },
-        { "x": 3, "y": 2, "m": "flint", "s": 0 },
-        { "x": 2, "y": 1, "m": "flint", "s": 0 },
-        { "x": 2, "y": 0, "m": "flint", "s": 0 },
-        { "x": 1, "y": 0, "m": "flint", "s": 0 },
-        { "x": 0, "y": 0, "m": "flint", "s": 0 },
-        { "x": 0, "y": 1, "m": "flint", "s": 1 },
-        { "x": 0, "y": 2, "m": "flint", "s": 1 },
-        { "x": 1, "y": 2, "m": "flint", "s": 1 },
-        { "x": 2, "y": 3, "m": "flint", "s": 1 },
-        { "x": 3, "y": 4, "m": "flint", "s": 1 },
-        { "x": 4, "y": 5, "m": "flint", "s": 1 },
-        { "x": 3, "y": 6, "m": "flint", "s": 1 },
-        { "x": 3, "y": 7, "m": "flint", "s": 1 },
-        { "x": 2, "y": 8, "m": "flint", "s": 1 },
-        { "x": 2, "y": 9, "m": "flint", "s": 1 },
-        { "x": 3, "y": 9, "m": "flint", "s": 1 },
-        { "x": 4, "y": 8, "m": "flint", "s": 1 },
-        { "x": 8, "y": 4, "m": "flint", "s": 0 },
-        { "x": 8, "y": 3, "m": "flint", "s": 1 },
-        { "x": 3, "y": 8, "m": "flint", "s": 2 },
-        { "x": 1, "y": 1, "m": "flint", "s": 3 },
-        { "x": 2, "y": 2, "m": "flint", "s": 2 },
-        { "x": 4, "y": 4, "m": "flint", "s": 2 },
-        { "x": 3, "y": 3, "m": "flint", "s": 3 },
-        { "x": 6, "y": 4, "m": "flint", "s": 1 },
-        { "x": 7, "y": 4, "m": "flint", "s": 1 },
-        { "x": 6, "y": 5, "m": "flint", "s": 1 },
-        { "x": 6, "y": 6, "m": "flint", "s": 2 },
-        { "x": 4, "y": 7, "m": "flint", "s": 3 },
-        { "x": 4, "y": 6, "m": "flint", "s": 3 },
-        { "x": 5, "y": 6, "m": "flint", "s": 3 },
-        { "x": 5, "y": 5, "m": "flint", "s": 2 },
-        { "x": 6, "y": 7, "m": "coal", "s": 0 },
-        { "x": 7, "y": 7, "m": "coal", "s": 0 },
-        { "x": 7, "y": 6, "m": "coal", "s": 0 },
-        { "x": 7, "y": 8, "m": "coal", "s": 1 },
-        { "x": 8, "y": 8, "m": "coal", "s": 1 },
-        { "x": 8, "y": 7, "m": "coal", "s": 1 },
-        { "x": 8, "y": 9, "m": "coal", "s": 1 },
-        { "x": 9, "y": 9, "m": "coal", "s": 1 },
-        { "x": 9, "y": 8, "m": "coal", "s": 1 },
-        { "x": 10, "y": 11, "m": "coal", "s": 2 },
-        { "x": 11, "y": 11, "m": "coal", "s": 2 },
-        { "x": 11, "y": 10, "m": "coal", "s": 2 },
-        { "x": 13, "y": 12, "m": "coal", "s": 3 },
-        { "x": 13, "y": 13, "m": "coal", "s": 3 },
-        { "x": 12, "y": 13, "m": "coal", "s": 3 },
-        { "x": 5, "y": 7, "m": "coal", "s": 0 },
-        { "x": 7, "y": 5, "m": "coal", "s": 0 },
-        { "x": 8, "y": 6, "m": "coal", "s": 0 },
-        { "x": 6, "y": 8, "m": "coal", "s": 0 },
-        { "x": 7, "y": 9, "m": "coal", "s": 0 },
-        { "x": 8, "y": 10, "m": "coal", "s": 0 },
-        { "x": 9, "y": 11, "m": "coal", "s": 0 },
-        { "x": 10, "y": 12, "m": "coal", "s": 0 },
-        { "x": 11, "y": 13, "m": "coal", "s": 0 },
-        { "x": 12, "y": 14, "m": "coal", "s": 0 },
-        { "x": 13, "y": 15, "m": "coal", "s": 0 },
-        { "x": 14, "y": 15, "m": "coal", "s": 0 },
-        { "x": 15, "y": 15, "m": "coal", "s": 0 },
-        { "x": 15, "y": 14, "m": "coal", "s": 0 },
-        { "x": 15, "y": 13, "m": "coal", "s": 0 },
-        { "x": 14, "y": 12, "m": "coal", "s": 0 },
-        { "x": 13, "y": 11, "m": "coal", "s": 0 },
-        { "x": 12, "y": 10, "m": "coal", "s": 0 },
-        { "x": 11, "y": 9, "m": "coal", "s": 0 },
-        { "x": 10, "y": 8, "m": "coal", "s": 0 },
-        { "x": 9, "y": 7, "m": "coal", "s": 0 },
-        { "x": 9, "y": 10, "m": "coal", "s": 2 },
-        { "x": 10, "y": 10, "m": "coal", "s": 2 },
-        { "x": 10, "y": 9, "m": "coal", "s": 2 },
-        { "x": 11, "y": 12, "m": "coal", "s": 3 },
-        { "x": 12, "y": 12, "m": "coal", "s": 3 },
-        { "x": 12, "y": 11, "m": "coal", "s": 3 },
-        { "x": 13, "y": 14, "m": "coal", "s": 4 },
-        { "x": 14, "y": 14, "m": "coal", "s": 4 },
-        { "x": 14, "y": 13, "m": "coal", "s": 4 }
-      ]
-    }
-    """;
+    private static final String SWORD_BLUEPRINT_PATH = "/assets/blocksmith/blueprints/forged_sword.json";
+    private static final String BOW_BLUEPRINT_PATH = "/assets/blocksmith/blueprints/forged_bow.json";
 
-    private static final String DEFAULT_BOW_BLUEPRINT_JSON = """
-    {
-      "format": "blocksmith_blueprint",
-      "version": 1,
-      "gridSize": 16,
-      "offsetX": 0,
-      "offsetY": 0,
-      "attribution": "\\"Forged Bow\\" by adeptfrog.",
-      "crafter": "adeptfrog",
-      "voxels": [
-        { "x": 1, "y": 0, "m": "flint", "s": 1 },
-        { "x": 2, "y": 0, "m": "flint", "s": 0 },
-        { "x": 0, "y": 0, "m": "flint", "s": 1 },
-        { "x": 0, "y": 1, "m": "flint", "s": 2 },
-        { "x": 1, "y": 1, "m": "flint", "s": 4 },
-        { "x": 2, "y": 1, "m": "flint", "s": 3 },
-        { "x": 2, "y": 2, "m": "flint", "s": 3 },
-        { "x": 2, "y": 3, "m": "flint", "s": 2 },
-        { "x": 2, "y": 4, "m": "flint", "s": 3 },
-        { "x": 1, "y": 2, "m": "flint", "s": 0 },
-        { "x": 1, "y": 3, "m": "flint", "s": 0 },
-        { "x": 1, "y": 4, "m": "flint", "s": 0 },
-        { "x": 2, "y": 5, "m": "flint", "s": 0 },
-        { "x": 2, "y": 6, "m": "flint", "s": 0 },
-        { "x": 2, "y": 7, "m": "flint", "s": 0 },
-        { "x": 3, "y": 1, "m": "flint", "s": 0 },
-        { "x": 3, "y": 2, "m": "flint", "s": 0 },
-        { "x": 3, "y": 3, "m": "flint", "s": 0 },
-        { "x": 3, "y": 4, "m": "flint", "s": 0 },
-        { "x": 3, "y": 6, "m": "flint", "s": 1 },
-        { "x": 3, "y": 5, "m": "flint", "s": 2 },
-        { "x": 3, "y": 7, "m": "flint", "s": 3 },
-        { "x": 4, "y": 6, "m": "flint", "s": 0 },
-        { "x": 5, "y": 7, "m": "flint", "s": 0 },
-        { "x": 5, "y": 8, "m": "flint", "s": 0 },
-        { "x": 4, "y": 8, "m": "flint", "s": 0 },
-        { "x": 6, "y": 9, "m": "flint", "s": 0 },
-        { "x": 7, "y": 10, "m": "flint", "s": 0 },
-        { "x": 7, "y": 11, "m": "flint", "s": 0 },
-        { "x": 8, "y": 10, "m": "flint", "s": 0 },
-        { "x": 9, "y": 11, "m": "flint", "s": 0 },
-        { "x": 11, "y": 12, "m": "flint", "s": 0 },
-        { "x": 12, "y": 12, "m": "flint", "s": 0 },
-        { "x": 13, "y": 12, "m": "flint", "s": 0 },
-        { "x": 14, "y": 12, "m": "flint", "s": 0 },
-        { "x": 15, "y": 13, "m": "flint", "s": 0 },
-        { "x": 15, "y": 14, "m": "flint", "s": 1 },
-        { "x": 15, "y": 15, "m": "flint", "s": 1 },
-        { "x": 14, "y": 15, "m": "flint", "s": 2 },
-        { "x": 13, "y": 14, "m": "flint", "s": 0 },
-        { "x": 12, "y": 14, "m": "flint", "s": 0 },
-        { "x": 11, "y": 14, "m": "flint", "s": 0 },
-        { "x": 10, "y": 13, "m": "flint", "s": 0 },
-        { "x": 9, "y": 13, "m": "flint", "s": 0 },
-        { "x": 8, "y": 13, "m": "flint", "s": 0 },
-        { "x": 8, "y": 12, "m": "flint", "s": 3 },
-        { "x": 10, "y": 12, "m": "flint", "s": 2 },
-        { "x": 9, "y": 12, "m": "flint", "s": 1 },
-        { "x": 14, "y": 14, "m": "flint", "s": 4 },
-        { "x": 14, "y": 13, "m": "flint", "s": 3 },
-        { "x": 13, "y": 13, "m": "flint", "s": 3 },
-        { "x": 11, "y": 13, "m": "flint", "s": 3 },
-        { "x": 12, "y": 13, "m": "flint", "s": 2 },
-        { "x": 4, "y": 7, "m": "flint", "s": 1 },
-        { "x": 8, "y": 11, "m": "flint", "s": 1 },
-        { "x": 1, "y": 8, "m": "flint", "s": 4 },
-        { "x": 7, "y": 14, "m": "flint", "s": 4 },
-        { "x": 2, "y": 8, "m": "flint", "s": 3 },
-        { "x": 7, "y": 13, "m": "flint", "s": 3 },
-        { "x": 3, "y": 9, "m": "flint", "s": 0 },
-        { "x": 6, "y": 12, "m": "flint", "s": 0 },
-        { "x": 4, "y": 2, "m": "flint", "s": 0 },
-        { "x": 5, "y": 3, "m": "flint", "s": 0 },
-        { "x": 13, "y": 11, "m": "flint", "s": 0 },
-        { "x": 12, "y": 10, "m": "flint", "s": 0 },
-        { "x": 6, "y": 4, "m": "flint", "s": 1 },
-        { "x": 7, "y": 5, "m": "flint", "s": 1 },
-        { "x": 11, "y": 9, "m": "flint", "s": 1 },
-        { "x": 10, "y": 8, "m": "flint", "s": 1 },
-        { "x": 8, "y": 6, "m": "flint", "s": 2 },
-        { "x": 9, "y": 7, "m": "flint", "s": 2 },
-        { "x": 5, "y": 10, "m": "coal", "s": 4 },
-        { "x": 4, "y": 9, "m": "coal", "s": 4 },
-        { "x": 6, "y": 11, "m": "coal", "s": 4 },
-        { "x": 6, "y": 10, "m": "coal", "s": 3 },
-        { "x": 5, "y": 9, "m": "coal", "s": 3 },
-        { "x": 5, "y": 11, "m": "coal", "s": 2 },
-        { "x": 4, "y": 10, "m": "coal", "s": 2 },
-        { "x": 2, "y": 9, "m": "coal", "s": 2 },
-        { "x": 3, "y": 8, "m": "coal", "s": 2 },
-        { "x": 6, "y": 13, "m": "coal", "s": 2 },
-        { "x": 7, "y": 12, "m": "coal", "s": 2 }
-      ]
+    /** Reads a bundled default blueprint from the mod's resources; returns an empty blueprint if it is missing. */
+    private static String readBlueprintResource(String path) {
+        try (java.io.InputStream in = VoxelDesignSerializer.class.getResourceAsStream(path)) {
+            if (in == null) throw new java.io.FileNotFoundException(path);
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            System.err.println("[Blocksmith] Failed to read default blueprint " + path + ": " + e.getMessage());
+            return "{\"format\":\"blocksmith_blueprint\",\"version\":1,\"gridSize\":" + BASE_GRID_SIZE + ",\"voxels\":[]}";
+        }
     }
-    """;
+
+    private static final String DEFAULT_SWORD_BLUEPRINT_JSON = readBlueprintResource(SWORD_BLUEPRINT_PATH);
+    private static final String DEFAULT_BOW_BLUEPRINT_JSON = readBlueprintResource(BOW_BLUEPRINT_PATH);
 
     private static final List<WeaponVoxel> COMPILED_DEFAULT_SWORD_VOXELS;
     private static final List<WeaponVoxel> COMPILED_DEFAULT_BOW_VOXELS;
@@ -283,8 +109,10 @@ public class VoxelDesignSerializer {
             JsonObject obj = new JsonObject();
             obj.addProperty("x", v.x());
             obj.addProperty("y", v.y());
+            if (v.z() != 0) obj.addProperty("z", v.z()); // Layer index; omitted for the base layer (z = 0)
             obj.addProperty("m", v.materialId());
             obj.addProperty("s", v.shade());
+            if (v.shape() != VoxelShape.FULL) obj.addProperty("sh", v.shape()); // voxel shape; omitted for full cubes
             array.add(obj);
         }
         root.add("voxels", array);
@@ -317,6 +145,11 @@ public class VoxelDesignSerializer {
         return importBlueprint(jsonStr, targetGridSize).voxels();
     }
 
+    /** Unique map key per grid cell AND layer, so voxels on different layers never overwrite each other. */
+    private static long voxelKey(int x, int y, int z) {
+        return ((long) (z - Blocksmith.MIN_LAYER) << 48) | ((long) (x & 0xFFFFFF) << 24) | (y & 0xFFFFFFL);
+    }
+
     private static List<WeaponVoxel> scaleAndConvertVoxels(JsonArray array, int sourceGrid, int targetGrid) {
         double scale = (double) targetGrid / sourceGrid;
         java.util.Map<Long, WeaponVoxel> scaledMap = new java.util.LinkedHashMap<>();
@@ -325,14 +158,16 @@ public class VoxelDesignSerializer {
             JsonObject obj = el.getAsJsonObject();
             int srcX = obj.get("x").getAsInt();
             int srcY = obj.get("y").getAsInt();
+            int z = obj.has("z") ? obj.get("z").getAsInt() : 0;
+            if (!WeaponVoxel.isValidLayer(z)) continue; // Outside the supported layer range
             String mat = obj.has("m") ? obj.get("m").getAsString() : "iron";
             int s = obj.has("s") ? obj.get("s").getAsInt() : 2;
+            int sh = obj.has("sh") ? obj.get("sh").getAsInt() : VoxelShape.FULL;
 
             if (targetGrid == sourceGrid) {
                 // Exact match: 1-to-1 mapping
                 if (srcX >= 0 && srcX < targetGrid && srcY >= 0 && srcY < targetGrid) {
-                    long key = ((long) srcX << 32) | (srcY & 0xFFFFFFFFL);
-                    scaledMap.put(key, new WeaponVoxel(srcX, srcY, 0, mat, s));
+                    scaledMap.put(voxelKey(srcX, srcY, z), new WeaponVoxel(srcX, srcY, z, mat, s, sh));
                 }
             } else if (targetGrid > sourceGrid) {
                 // Upscaling (e.g. 16 -> 64): Fills target sub-grid area to prevent hollow gaps
@@ -343,16 +178,14 @@ public class VoxelDesignSerializer {
 
                 for (int tx = minX; tx < maxX && tx < targetGrid; tx++) {
                     for (int ty = minY; ty < maxY && ty < targetGrid; ty++) {
-                        long key = ((long) tx << 32) | (ty & 0xFFFFFFFFL);
-                        scaledMap.put(key, new WeaponVoxel(tx, ty, 0, mat, s));
+                        scaledMap.put(voxelKey(tx, ty, z), new WeaponVoxel(tx, ty, z, mat, s, sh));
                     }
                 }
             } else {
                 // Downscaling (e.g. 64 -> 16): Deduplicates points to fit smaller resolution
                 int tx = Math.clamp((int) Math.round(srcX * scale), 0, targetGrid - 1);
                 int ty = Math.clamp((int) Math.round(srcY * scale), 0, targetGrid - 1);
-                long key = ((long) tx << 32) | (ty & 0xFFFFFFFFL);
-                scaledMap.put(key, new WeaponVoxel(tx, ty, 0, mat, s));
+                scaledMap.put(voxelKey(tx, ty, z), new WeaponVoxel(tx, ty, z, mat, s, sh));
             }
         }
 
@@ -360,56 +193,43 @@ public class VoxelDesignSerializer {
     }
 
     public static List<WeaponVoxel> convertImageToVoxels(Image rawImage, int targetGridSize) {
-        BufferedImage img = new BufferedImage(targetGridSize, targetGridSize, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.drawImage(rawImage, 0, 0, targetGridSize, targetGridSize, null);
-        g.dispose();
+        return convertImageToVoxels(rawImage, targetGridSize, ImageVoxelizer.Options.DEFAULT);
+    }
 
-        List<WeaponVoxel> list = new ArrayList<>();
-        Collection<VoxelMaterial> materials = VoxelMaterialRegistry.getAll();
+    /** Converts a picture to voxels matched to the material palette; see {@link ImageVoxelizer}. */
+    public static List<WeaponVoxel> convertImageToVoxels(Image rawImage, int targetGridSize, ImageVoxelizer.Options options) {
+        BufferedImage img;
+        if (rawImage instanceof BufferedImage bi) {
+            img = bi;
+        } else {
+            img = new BufferedImage(Math.max(1, rawImage.getWidth(null)), Math.max(1, rawImage.getHeight(null)), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            g.drawImage(rawImage, 0, 0, null);
+            g.dispose();
+        }
 
-        for (int ix = 0; ix < targetGridSize; ix++) {
-            for (int iy = 0; iy < targetGridSize; iy++) {
-                int argb = img.getRGB(ix, iy);
-                int a = (argb >> 24) & 0xFF;
-                if (a < 15) continue; // Skip transparent pixels
-
-                int r = (argb >> 16) & 0xFF;
-                int gCol = (argb >> 8) & 0xFF;
-                int b = argb & 0xFF;
-
-                VoxelMaterial bestMat = VoxelMaterialRegistry.FALLBACK;
-                int bestShade = 2;
-                double minDistance = Double.MAX_VALUE;
-
-                for (VoxelMaterial mat : materials) {
-                    int[] palette = mat.getPalette();
-                    if (palette == null) continue;
-
-                    for (int s = 0; s < palette.length; s++) {
-                        int c = palette[s];
-                        int cr = (c >> 16) & 0xFF;
-                        int cg = (c >> 8) & 0xFF;
-                        int cb = c & 0xFF;
-
-                        double dist = 2 * Math.pow(r - cr, 2) + 4 * Math.pow(gCol - cg, 2) + 3 * Math.pow(b - cb, 2);
-                        if (dist < minDistance) {
-                            minDistance = dist;
-                            bestMat = mat;
-                            bestShade = s;
-                        }
-                    }
-                }
-
-                int voxelY = (targetGridSize - 1) - iy;
-                list.add(new WeaponVoxel(ix, voxelY, 0, bestMat.id(), bestShade));
+        // Every shade of every material is a colour the picture may be matched to
+        List<VoxelMaterial> owners = new ArrayList<>();
+        List<Integer> shades = new ArrayList<>();
+        List<Integer> colors = new ArrayList<>();
+        for (VoxelMaterial mat : VoxelMaterialRegistry.getAll()) {
+            int[] palette = mat.getPalette();
+            if (palette == null) continue;
+            for (int s = 0; s < palette.length; s++) {
+                owners.add(mat);
+                shades.add(s);
+                colors.add(palette[s] & 0xFFFFFF);
             }
         }
+        if (colors.isEmpty()) throw new IllegalStateException("No materials to match the image against!");
 
-        if (list.isEmpty()) {
-            throw new IllegalArgumentException("No visible pixels found in image!");
+        int[] rgb = colors.stream().mapToInt(Integer::intValue).toArray();
+        List<ImageVoxelizer.Cell> cells = ImageVoxelizer.convert(img, targetGridSize, options, rgb, MAX_TOTAL_VOXELS());
+
+        List<WeaponVoxel> list = new ArrayList<>(cells.size());
+        for (ImageVoxelizer.Cell c : cells) {
+            list.add(new WeaponVoxel(c.x(), c.y(), c.z(), owners.get(c.paletteIndex()).id(), shades.get(c.paletteIndex())));
         }
-
         return list;
     }
 }

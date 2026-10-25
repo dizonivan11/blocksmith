@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    " N ",
+    " X ",
+    " B "
+  ],
+  "key": {
+    "B": {
+      "item": "minecraft:bow"
+    },
+    "X": {
+      "item": "minecraft:heavy_core"
+    },
+    "N": {
+      "item": "minecraft:nether_star"
+    }
+  },
+  "result": {
+    "id": "blocksmith:modular_bow",
+    "count": 1
+  }
+}

@@ -1,87 +1,141 @@
+// Root project: holds the shared sources (src/) and configures one subproject per Minecraft version.
+//   ./gradlew :1.21.1:build   ./gradlew :26.1.2:build   ./gradlew :26.3:build
+//   ./gradlew :26.3:runClient    ./gradlew build  (all versions)
+// Jars end up in versions/<minecraft>/build/libs/.
+//
+// Source layout, merged per version (a class may live in only one of these for a given version):
+//   src/                          shared by every version (Java 21 syntax, no version-specific Minecraft API)
+//   versions/common-26/src/       shared by the 26.x versions (source_group=common-26)
+//   versions/<minecraft>/src/     that version only
 plugins {
-	id 'net.fabricmc.fabric-loom' version "${loom_version}"
-	id 'maven-publish'
+	// 26.x is unobfuscated (no remapping); 1.21.1 is obfuscated and uses the remapping plugin with Mojang mappings.
+	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
+	id 'fabric-loom' version "${loom_version}" apply false
 }
 
-repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
-}
+subprojects {
+	def obfuscated = project.obfuscated.toBoolean()
+	apply plugin: obfuscated ? 'fabric-loom' : 'net.fabricmc.fabric-loom'
+	apply plugin: 'maven-publish'
 
-loom {
-	splitEnvironmentSourceSets()
+	def shared = rootProject.file('src')
+	def group = project.source_group?.trim()
+	def groupDir = group ? rootProject.file("versions/${group}/src") : null
+	def javaVersion = project.java_version.toInteger()
 
-	mods {
-		"blocksmith" {
-			sourceSet sourceSets.main
-			sourceSet sourceSets.client
-		}
+	base {
+		archivesName = rootProject.name
 	}
-}
+	version = "${rootProject.version}+${project.minecraft_version}"
+	project.group = rootProject.group
 
-fabricApi {
-	configureDataGeneration {
-		client = true
-	}
-}
-
-dependencies {
-	// To change the versions see the gradle.properties file
-	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-
-	// Fabric API. This is technically optional, but you probably want it anyway.
-	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
-}
-
-processResources {
-	def version = project.version
-	inputs.property "version", version
-
-	filesMatching("fabric.mod.json") {
-		expand "version": version
-	}
-}
-
-tasks.withType(JavaCompile).configureEach {
-	it.options.release = 25
-}
-
-java {
-	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-	// if it is present.
-	// If you remove this line, sources will not be generated.
-	withSourcesJar()
-
-	sourceCompatibility = JavaVersion.VERSION_25
-	targetCompatibility = JavaVersion.VERSION_25
-}
-
-jar {
-	def projectName = project.name
-	inputs.property "projectName", projectName
-
-	from("LICENSE") {
-		rename { "${it}_$projectName"}
-	}
-}
-
-// configure the maven publication
-publishing {
-	publications {
-		create("mavenJava", MavenPublication) {
-			from components.java
-		}
-	}
-
-	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
 	repositories {
-		// Add repositories to publish to here.
-		// Notice: This block does NOT have the same function as the block in the top level.
-		// The repositories here will be used for publishing your artifact, not for
-		// retrieving dependencies.
+		// Add repositories to retrieve artifacts from in here.
+		// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
+	}
+
+	loom {
+		splitEnvironmentSourceSets()
+
+		mods {
+			"blocksmith" {
+				sourceSet sourceSets.main
+				sourceSet sourceSets.client
+			}
+		}
+
+		// Dev runs on a newer JDK print warnings about JNA's native access and Guava's sun.misc.Unsafe use.
+		// They come from Minecraft's own libraries and cost nothing; these flags only silence them.
+		runConfigs.configureEach {
+			vmArgs "--enable-native-access=ALL-UNNAMED", "--sun-misc-unsafe-memory-access=allow"
+		}
+	}
+
+	def dirs = { String set, String kind ->
+		def list = ["${shared}/${set}/${kind}"]
+		if (groupDir != null) list << "${groupDir}/${set}/${kind}"
+		list << "src/${set}/${kind}"
+		return list
+	}
+	sourceSets {
+		main {
+			java.srcDirs = dirs('main', 'java')
+			resources.srcDirs = dirs('main', 'resources')
+		}
+		client {
+			java.srcDirs = dirs('client', 'java')
+			resources.srcDirs = dirs('client', 'resources')
+		}
+	}
+
+	// Mod Menu's API, compile-time only. These stand-ins are never packaged, so at runtime the
+	// player's real Mod Menu provides the classes (bundling them shadowed newer Mod Menu versions).
+	sourceSets {
+		modmenuApi {
+			java.srcDirs = ["${shared}/modmenu-api/java"]
+			compileClasspath += sourceSets.client.compileClasspath
+		}
+		client {
+			compileClasspath += sourceSets.modmenuApi.output
+		}
+	}
+
+	fabricApi {
+		configureDataGeneration {
+			client = true
+		}
+	}
+
+	dependencies {
+		minecraft "com.mojang:minecraft:${project.minecraft_version}"
+		if (obfuscated) {
+			mappings loom.officialMojangMappings()
+			modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+			modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+		} else {
+			implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+			implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+		}
+	}
+
+	processResources {
+		def version = project.version
+		def minecraftVersion = project.minecraft_version
+		def javaVer = project.java_version
+		inputs.property "version", version
+		inputs.property "minecraftVersion", minecraftVersion
+		inputs.property "javaVersion", javaVer
+
+		filesMatching("fabric.mod.json") {
+			expand "version": version, "minecraft_version": minecraftVersion, "java_version": javaVer
+		}
+	}
+
+	tasks.withType(JavaCompile).configureEach {
+		it.options.release = javaVersion
+	}
+
+	java {
+		withSourcesJar()
+
+		sourceCompatibility = JavaVersion.toVersion(javaVersion)
+		targetCompatibility = JavaVersion.toVersion(javaVersion)
+	}
+
+	jar {
+		def projectName = rootProject.name
+		inputs.property "projectName", projectName
+
+		from(rootProject.file("LICENSE")) {
+			rename { "${it}_$projectName" }
+		}
+	}
+
+	publishing {
+		publications {
+			create("mavenJava", MavenPublication) {
+				from components.java
+			}
+		}
 	}
 }

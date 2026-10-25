@@ -1,17 +1,19 @@
 package net.adeptfrog.blocksmith.client.gui;
 
+import net.adeptfrog.blocksmith.client.compat.ClientCompat;
+import net.adeptfrog.blocksmith.client.compat.Gfx;
+import net.adeptfrog.blocksmith.client.compat.CompatScreen;
+import net.adeptfrog.blocksmith.client.utils.InputCompat;
 import net.adeptfrog.blocksmith.client.utils.StringUtils;
 import net.adeptfrog.blocksmith.data.VoxelDesignSerializer;
 import net.adeptfrog.blocksmith.data.DesignFileManager;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import org.jspecify.annotations.NonNull;
 import net.adeptfrog.blocksmith.data.DesignFileManager.DesignEntry;
 
 import java.io.File;
@@ -19,7 +21,7 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.Objects;
 
-public class ExportDesignScreen extends Screen {
+public class ExportDesignScreen extends CompatScreen {
     private final CustomizationScreen parent;
     private final List<WeaponVoxel> voxels;
     private final WeaponOffset offset;
@@ -58,7 +60,7 @@ public class ExportDesignScreen extends Screen {
         this.addRenderableWidget(this.nameBox);
 
         // Crafter
-        String playerName = this.minecraft.player != null ? this.minecraft.player.getGameProfile().name() : "";
+        String playerName = this.minecraft.player != null ? ClientCompat.playerName(this.minecraft.player) : "";
         this.crafterBox = new EditBox(this.font, centerX - 100, centerY - 20, 200, 16, Component.literal("Crafter"));
         this.crafterBox.setValue(Objects.equals(this.crafter, "") ? playerName : this.crafter);
         this.crafterBox.setTextColor(0xFFFFFFFF);
@@ -67,15 +69,15 @@ public class ExportDesignScreen extends Screen {
         // Attribution
         String cc4Template = "\"Work Title\" by Author [Source](https://minecraft.net), "+
                 "licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en).";
-        this.attributionBox = new MultiLineEditBox.Builder().build(this.font, 200, 64, Component.literal("Attribution"));
+        this.attributionBox = ClientCompat.multiLineEditBox(this.font, 0, 0, 200, 64, Component.literal("Attribution"));
         this.attributionBox.setPosition(centerX - 100, centerY + 14);
         this.attributionBox.setValue(Objects.equals(this.attribution, "") ? cc4Template :  this.attribution);
         this.addRenderableWidget(this.attributionBox);
 
         // Action buttons
         int btnY = centerY + 86;
-        this.addRenderableWidget(Button.builder(Component.literal("Export"), _ -> exportBlueprint()).bounds(centerX - 100, btnY, 96, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Cancel"), _ -> this.onClose()).bounds(centerX + 4, btnY, 96, 20).build());
+        this.addRenderableWidget(Button.builder(Component.literal("Export"), unused27 -> exportBlueprint()).bounds(centerX - 100, btnY, 96, 20).build());
+        this.addRenderableWidget(Button.builder(Component.literal("Cancel"), unused28 -> this.onClose()).bounds(centerX + 4, btnY, 96, 20).build());
     }
 
     private void exportBlueprint() {
@@ -118,12 +120,12 @@ public class ExportDesignScreen extends Screen {
 
     @Override
     public void onClose() {
-        this.minecraft.setScreen(this.parent);
+        InputCompat.openScreen(this.minecraft, this.parent);
     }
 
     @Override
-    public void extractRenderState(@NonNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
-        super.extractRenderState(guiGraphics, mouseX, mouseY, delta);
+    protected void renderScreen(Gfx guiGraphics, int mouseX, int mouseY, float delta) {
+        renderVanilla(guiGraphics, mouseX, mouseY, delta);
 
         int centerX = this.width / 2;
         int centerY = this.height / 2;

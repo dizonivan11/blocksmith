@@ -1,5 +1,7 @@
 package net.adeptfrog.blocksmith.network;
 
+import net.adeptfrog.blocksmith.compat.EntityCompat;
+import net.adeptfrog.blocksmith.compat.McCompat;
 import net.adeptfrog.blocksmith.Blocksmith;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
@@ -7,18 +9,15 @@ import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,24 +25,24 @@ import java.util.List;
 import java.util.Map;
 
 import static net.adeptfrog.blocksmith.Blocksmith.MIN_VOXELS;
-import static net.adeptfrog.blocksmith.Blocksmith.MAX_VOXELS;
+import static net.adeptfrog.blocksmith.Blocksmith.MAX_TOTAL_VOXELS;
 
 public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset offset) implements CustomPacketPayload {
-    public static final Type<SaveWeaponVoxelsPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(Blocksmith.MOD_ID, "save_weapon_voxels"));
+    public static final Type<SaveWeaponVoxelsPayload> TYPE = McCompat.payloadType("save_weapon_voxels");
 
     public static final StreamCodec<RegistryFriendlyByteBuf, SaveWeaponVoxelsPayload> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.collection(ArrayList::new, WeaponVoxel.STREAM_CODEC), SaveWeaponVoxelsPayload::voxels,
+            WeaponVoxel.LIST_STREAM_CODEC, SaveWeaponVoxelsPayload::voxels,
             WeaponOffset.STREAM_CODEC, SaveWeaponVoxelsPayload::offset,
             SaveWeaponVoxelsPayload::new
     );
 
     @Override
-    public @NonNull Type<? extends CustomPacketPayload> type() {
+    public Type<? extends CustomPacketPayload> type() {
         return TYPE;
     }
 
     public static void register() {
-        PayloadTypeRegistry.serverboundPlay().register(TYPE, STREAM_CODEC);
+        McCompat.registerServerbound(TYPE, STREAM_CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(TYPE, (payload, context) -> context.server().execute(() -> {
             Player player = context.player();
@@ -60,16 +59,25 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
             List<WeaponVoxel> newVoxels = payload.voxels();
             WeaponOffset newOffset = payload.offset();
 
-            // Voxel count limit check
-            if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_VOXELS()) {
-                player.sendOverlayMessage(Component.literal("§cInvalid voxel count!"));
+            // Voxel count limit check (across all layers)
+            if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_TOTAL_VOXELS()) {
+                EntityCompat.actionBar(player, Component.literal("§cInvalid voxel count!"));
                 player.inventoryMenu.broadcastChanges();
                 return;
             }
 
+            // Layer range check
+            for (WeaponVoxel v : newVoxels) {
+                if (!WeaponVoxel.isValidLayer(v.z())) {
+                    EntityCompat.actionBar(player, Component.literal("§cInvalid voxel layer!"));
+                    player.inventoryMenu.broadcastChanges();
+                    return;
+                }
+            }
+
             // Grip offset limit check
             if (Math.abs(newOffset.x()) > gridSize || Math.abs(newOffset.y()) > gridSize) {
-                player.sendOverlayMessage(Component.literal("§cInvalid grip offset!"));
+                EntityCompat.actionBar(player, Component.literal("§cInvalid grip offset!"));
                 player.inventoryMenu.broadcastChanges();
                 return;
             }
@@ -101,7 +109,7 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
                         int has = countItem(player, item);
                         if (has < needed) {
                             int missing = needed - has;
-                            player.sendOverlayMessage(
+                            EntityCompat.actionBar(player, 
                                     Component.literal("§cCannot save: Missing " + missing + "x " + item.getName(new ItemStack(item)).getString() + "!")
                             );
                             player.inventoryMenu.broadcastChanges();
@@ -132,7 +140,7 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
     private static int countItem(Player player, Item item) {
         int count = 0;
 
-        for (ItemStack s : player.getInventory().getNonEquipmentItems()) {
+        for (ItemStack s : EntityCompat.mainInventory(player)) {
             if (s.is(item)) {
                 count += s.getCount();
             }
@@ -149,14 +157,14 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
     private static void consumeItem(Player player, Item item, int amount) {
         int needed = amount;
 
-        for (int i = 0; i < player.getInventory().getNonEquipmentItems().size(); i++) {
-            ItemStack s = player.getInventory().getNonEquipmentItems().get(i);
+        for (int i = 0; i < EntityCompat.mainInventory(player).size(); i++) {
+            ItemStack s = EntityCompat.mainInventory(player).get(i);
             if (s.is(item)) {
                 int take = Math.min(needed, s.getCount());
                 s.shrink(take);
                 needed -= take;
                 if (s.isEmpty()) {
-                    player.getInventory().getNonEquipmentItems().set(i, ItemStack.EMPTY);
+                    EntityCompat.mainInventory(player).set(i, ItemStack.EMPTY);
                 }
                 if (needed <= 0) return;
             }

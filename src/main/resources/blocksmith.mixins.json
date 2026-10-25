@@ -1,9 +1,10 @@
 {
 	"required": true,
 	"package": "net.adeptfrog.blocksmith.mixin",
-	"compatibilityLevel": "JAVA_25",
+	"compatibilityLevel": "JAVA_21",
 	"mixins": [
       "LivingEntityMixin",
+      "LivingEntityKnockbackMixin",
       "ProjectileMixin"
 	],
 	"injectors": {

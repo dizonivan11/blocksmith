@@ -1,5 +1,7 @@
 package net.adeptfrog.blocksmith.ability;
 
+import net.adeptfrog.blocksmith.compat.EntityCompat;
+import net.adeptfrog.blocksmith.compat.HurtCompat;
 import net.adeptfrog.blocksmith.network.StartVortexPayload;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.level.ServerLevel;
@@ -10,14 +12,12 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
-import net.minecraft.world.entity.decoration.Mannequin;
 import net.minecraft.world.entity.monster.ElderGuardian;
 import net.minecraft.world.entity.monster.warden.Warden;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -27,7 +27,7 @@ import java.util.UUID;
 public class SingularityVortexScheduler {
     private static final List<VortexTask> TASKS = new ArrayList<>();
 
-    public static void startVortex(ServerLevel level, Vec3 center, @Nullable Entity owner, int durationTicks) {
+    public static void startVortex(ServerLevel level, Vec3 center, Entity owner, int durationTicks) {
         TASKS.add(new VortexTask(level, center, owner != null ? owner.getUUID() : null, durationTicks));
 
         // Send single packet to nearby clients to trigger local particle rendering
@@ -76,7 +76,7 @@ public class SingularityVortexScheduler {
                             && !e.isSpectator()
                             && !(e instanceof Projectile)
                             && !(e instanceof Player)
-                            && !(e instanceof Mannequin)
+                            && !EntityCompat.isMannequin(e)
                             && !(e instanceof WitherBoss)
                             && !(e instanceof EnderDragon)
                             && !(e instanceof Warden)
@@ -86,7 +86,7 @@ public class SingularityVortexScheduler {
             for (Entity target : targets) {
                 Vec3 pull = center.subtract(target.position()).normalize().scale(0.15);
                 target.setDeltaMovement(target.getDeltaMovement().add(pull.x, pull.y, pull.z));
-                target.hurtMarked = true;
+                HurtCompat.syncVelocity(target);
             }
 
             // Continuous 5x5 Center Area Damage (2 damage every 1 second / 20 ticks)
@@ -97,8 +97,8 @@ public class SingularityVortexScheduler {
                 );
 
                 for (LivingEntity target : damageTargets) {
-                    target.invulnerableTime = 0; // Reset i-frames so damage registers
-                    target.hurtServer(level, level.damageSources().magic(), 2.0F); // 2.0 Damage (1 Heart)
+                    HurtCompat.resetHurtCooldown(target); // Reset i-frames so damage registers
+                    EntityCompat.hurt(level, target, level.damageSources().magic(), 2.0F); // 2.0 Damage (1 Heart)
                 }
                 // Ambient sound
                 level.playSound(null, center.x, center.y, center.z, SoundEvents.BEACON_DEACTIVATE, SoundSource.PLAYERS, 0.5F, 0.25F);

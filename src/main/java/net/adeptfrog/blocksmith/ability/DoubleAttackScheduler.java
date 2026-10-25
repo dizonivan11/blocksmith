@@ -1,5 +1,7 @@
 package net.adeptfrog.blocksmith.ability;
 
+import net.adeptfrog.blocksmith.compat.EntityCompat;
+import net.adeptfrog.blocksmith.compat.HurtCompat;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
@@ -63,11 +65,11 @@ public class DoubleAttackScheduler {
             if (player.distanceToSqr(target) > 25.0) return;
 
             // Reset i-frames so the second strike deals full damage
-            target.invulnerableTime = 0;
+            HurtCompat.resetHurtCooldown(target);
 
             // Calculate sword damage and inflict second attack
             float damage = (float) player.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
-            target.hurtServer(level, player.damageSources().playerAttack(player), damage);
+            EntityCompat.hurt(level, target, player.damageSources().playerAttack(player), damage);
 
             // Visual and Audio effects
             level.sendParticles(ParticleTypes.SWEEP_ATTACK, target.getX(), target.getY() + 0.5, target.getZ(), 1, 0, 0, 0, 0);

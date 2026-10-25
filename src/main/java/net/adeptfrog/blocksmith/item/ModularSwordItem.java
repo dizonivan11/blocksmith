@@ -1,29 +1,25 @@
 package net.adeptfrog.blocksmith.item;
 
+import net.adeptfrog.blocksmith.compat.EntityCompat;
+import net.adeptfrog.blocksmith.compat.McCompat;
 import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.*;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
-import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static net.adeptfrog.blocksmith.Blocksmith.BASE_DURABILITY;
 
-public class ModularSwordItem extends Item {
-    public static final Identifier BASE_ATTACK_DAMAGE_ID = Identifier.withDefaultNamespace("base_attack_damage");
-    public static final Identifier BASE_ATTACK_SPEED_ID = Identifier.withDefaultNamespace("base_attack_speed");
+public class ModularSwordItem extends SwordItemBase {
 
     public ModularSwordItem(Properties properties) {
         super(properties);
@@ -49,7 +45,7 @@ public class ModularSwordItem extends Item {
         for (WeaponVoxel voxel : defaults) {
             rawDurability += voxel.material().getBonusDurability();
         }
-        return BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        return BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, defaults.size()) / gridArea);
     }
 
     public static void recalculateAttributes(ItemStack stack) {
@@ -68,29 +64,22 @@ public class ModularSwordItem extends Item {
             rawDurability += mat.getBonusDurability();
         }
 
-        double bonusDamage = rawDamage / gridArea;
-        double bonusSpeed = rawSpeed / gridArea;
-        int bonusDurability = BASE_DURABILITY + (int) Math.round(rawDurability / gridArea);
+        int count = voxels.size();
+        double bonusDamage = StatScaling.scale(rawDamage, count) / gridArea;
+        double bonusSpeed = StatScaling.scale(rawSpeed, count) / gridArea;
+        int bonusDurability = BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, count) / gridArea);
 
         stack.set(DataComponents.MAX_DAMAGE, bonusDurability);
 
         ItemAttributeModifiers modifiers = ItemAttributeModifiers.builder()
                 .add(
                         Attributes.ATTACK_DAMAGE,
-                        new AttributeModifier(
-                                BASE_ATTACK_DAMAGE_ID,
-                                6.0 + bonusDamage,
-                                AttributeModifier.Operation.ADD_VALUE
-                        ),
+                        McCompat.vanillaModifier("base_attack_damage", 6.0 + bonusDamage),
                         EquipmentSlotGroup.MAINHAND
                 )
                 .add(
                         Attributes.ATTACK_SPEED,
-                        new AttributeModifier(
-                                BASE_ATTACK_SPEED_ID,
-                                -2.4 + bonusSpeed,
-                                AttributeModifier.Operation.ADD_VALUE
-                        ),
+                        McCompat.vanillaModifier("base_attack_speed", -2.4 + bonusSpeed),
                         EquipmentSlotGroup.MAINHAND
                 )
                 .build();
@@ -112,36 +101,28 @@ public class ModularSwordItem extends Item {
             rawSpeed += mat.getBonusSpeed();
         }
 
-        double bonusDamage = rawDamage / gridArea;
-        double bonusSpeed = rawSpeed / gridArea;
+        double bonusDamage = StatScaling.scale(rawDamage, defaults.size()) / gridArea;
+        double bonusSpeed = StatScaling.scale(rawSpeed, defaults.size()) / gridArea;
 
         return ItemAttributeModifiers.builder()
                 .add(
                         Attributes.ATTACK_DAMAGE,
-                        new AttributeModifier(
-                                BASE_ATTACK_DAMAGE_ID,
-                                6.0 + bonusDamage,
-                                AttributeModifier.Operation.ADD_VALUE
-                        ),
+                        McCompat.vanillaModifier("base_attack_damage", 6.0 + bonusDamage),
                         EquipmentSlotGroup.MAINHAND
                 )
                 .add(
                         Attributes.ATTACK_SPEED,
-                        new AttributeModifier(
-                                BASE_ATTACK_SPEED_ID,
-                                -2.4 + bonusSpeed,
-                                AttributeModifier.Operation.ADD_VALUE
-                        ),
+                        McCompat.vanillaModifier("base_attack_speed", -2.4 + bonusSpeed),
                         EquipmentSlotGroup.MAINHAND
                 )
                 .build();
     }
 
     @Override
-    public void postHurtEnemy(@NonNull ItemStack stack, @NonNull LivingEntity target, @NonNull LivingEntity attacker) {
+    public void postHurtEnemy(ItemStack stack, LivingEntity target, LivingEntity attacker) {
         // Fire all unlocked WeaponAbility's onMeleeHit method
         if (attacker instanceof Player player && !player.level().isClientSide()) {
-            if (!player.getCooldowns().isOnCooldown(stack)) {
+            if (!EntityCompat.isOnCooldown(player, stack)) {
                 for (WeaponAbility ability : WeaponAbilityRegistry.getUnlockedAbilities(stack)) {
                     if (ability.weaponType() == WeaponAbility.WeaponType.SWORD || ability.weaponType() == WeaponAbility.WeaponType.ANY) {
                         ability.onMeleeHit(stack, player, target);

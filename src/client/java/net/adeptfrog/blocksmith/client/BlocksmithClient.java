@@ -1,12 +1,12 @@
 package net.adeptfrog.blocksmith.client;
 
-import com.mojang.blaze3d.platform.InputConstants;
-import com.mojang.blaze3d.platform.Window;
+import net.adeptfrog.blocksmith.client.utils.InputCompat;
 import net.adeptfrog.blocksmith.Blocksmith;
+import net.adeptfrog.blocksmith.client.compat.ClientCompat;
+import net.adeptfrog.blocksmith.compat.EntityCompat;
 import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.client.render.ClientVortexHandler;
-import net.adeptfrog.blocksmith.client.render.ModularWeaponSpecialRenderer;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.network.StartVortexPayload;
 import net.fabricmc.api.ClientModInitializer;
@@ -19,16 +19,13 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.renderer.special.SpecialModelRenderers;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FormattedText;
 import net.minecraft.network.chat.Style;
-import net.minecraft.resources.Identifier;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 
@@ -37,11 +34,8 @@ public class BlocksmithClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		// This entrypoint is suitable for setting up client-specific logic, such as rendering.
 
-		// Register the special renderer type for JSON models
-		SpecialModelRenderers.ID_MAPPER.put(
-				Identifier.fromNamespaceAndPath(Blocksmith.MOD_ID, "modular_weapon"),
-				ModularWeaponSpecialRenderer.Unbaked.MAP_CODEC
-		);
+		// Voxel renderer for the forged weapons (registration differs per Minecraft version)
+		ClientCompat.registerWeaponRenderer();
 
 		// Listen for server vortex start packet & tick client particles
 		ClientPlayNetworking.registerGlobalReceiver(StartVortexPayload.TYPE, (payload, context) ->
@@ -57,10 +51,10 @@ public class BlocksmithClient implements ClientModInitializer {
 				if (state.is(Blocksmith.WEAPON_TABLE)) {
 					ItemStack held = player.getItemInHand(hand);
 					if (held.getItem() instanceof ModularSwordItem || held.getItem() instanceof ModularBowItem) {
-						Minecraft.getInstance().setScreen(new CustomizationScreen(held));
+						InputCompat.openScreen(new CustomizationScreen(held));
 						return InteractionResult.SUCCESS;
 					} else {
-						player.sendOverlayMessage(Component.literal("§eHold a forged weapon in your hand to customize it!"));
+						EntityCompat.actionBar(player, Component.literal("§eHold a forged weapon in your hand to customize it!"));
 						return InteractionResult.CONSUME;
 					}
 				}
@@ -69,7 +63,7 @@ public class BlocksmithClient implements ClientModInitializer {
 		});
 
 		// Register custom tooltip for Forged weapons
-		ItemTooltipCallback.EVENT.register((stack, _, _, lines) -> {
+		ItemTooltipCallback.EVENT.register((stack, unused4, unused5, lines) -> {
 			boolean isSword = stack.getItem() instanceof ModularSwordItem;
 			boolean isBow = stack.getItem() instanceof ModularBowItem;
 			boolean isModular = isSword || isBow;
@@ -77,9 +71,7 @@ public class BlocksmithClient implements ClientModInitializer {
 				List<WeaponAbility> abilities = WeaponAbilityRegistry.getUnlockedAbilities(stack);
 
 				if (!abilities.isEmpty()) {
-					Window window = Minecraft.getInstance().getWindow();
-					boolean holdingAlt = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_ALT)
-							|| InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_ALT);
+					boolean holdingAlt = InputCompat.altDown();
 
 					// Header prompt
 					lines.add(Component.literal(holdingAlt ? "§6✦ Abilities:" : "§6✦ Abilities: §8(Hold Alt for Info)"));

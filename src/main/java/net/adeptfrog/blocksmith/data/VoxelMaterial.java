@@ -1,9 +1,7 @@
 package net.adeptfrog.blocksmith.data;
 
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
+import net.adeptfrog.blocksmith.compat.McCompat;
 import net.minecraft.world.item.Item;
-import org.jspecify.annotations.NonNull;
 
 public record VoxelMaterial(
         String id,
@@ -11,10 +9,10 @@ public record VoxelMaterial(
         float bonusSpeed,
         int bonusDurability,
         int[] palette,
-        Identifier iconItem
+        String iconItem
 ) {
     public Item getIconItem() {
-        return BuiltInRegistries.ITEM.getValue(iconItem);
+        return McCompat.item(iconItem);
     }
 
     public int getColorRgb(int shade) {
@@ -29,7 +27,7 @@ public record VoxelMaterial(
     public int[] getPalette() { return palette; }
 
     @Override
-    public @NonNull String toString() {
+    public String toString() {
         return this.id;
     }
 }

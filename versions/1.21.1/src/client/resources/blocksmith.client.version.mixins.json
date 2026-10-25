@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "net.adeptfrog.blocksmith.client.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"GuiGraphicsAccessor"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
