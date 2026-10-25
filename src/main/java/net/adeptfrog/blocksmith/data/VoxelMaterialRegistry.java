@@ -25,9 +25,6 @@ public class VoxelMaterialRegistry {
             "minecraft:iron_ingot"
     );
 
-    private static final int[] NETHERITE_PALETTE = {0xFF000000, 0xFF131313, 0xFF262626, 0xFF393939, 0xFF4c4c4c};
-    private static final int[] QUARTZ_PALETTE = {0xFF666666, 0xFF8c8c8c, 0xFFb3b3b3, 0xFFd9d9d9, 0xFFFFFFFF};
-
     private static int gridSize = Blocksmith.BASE_GRID_SIZE; // Default resolution
     private static boolean abilitiesDisabled = false;
 
@@ -112,7 +109,7 @@ public class VoxelMaterialRegistry {
 
     private static void loadDefaults() {
         register(new VoxelMaterial("netherite", 4.1f, -0.2f, 4098,
-                NETHERITE_PALETTE.clone(),
+                new int[]{0xFF000000, 0xFF131313, 0xFF262626, 0xFF393939, 0xFF4c4c4c},
                 "minecraft:netherite_ingot"));
 
         register(new VoxelMaterial("obsidian", 3.4f, -0.11f, 2048,
@@ -196,7 +193,7 @@ public class VoxelMaterialRegistry {
                 "minecraft:snowball"));
 
         register(new VoxelMaterial("quartz", 2.5f, 0.25f, 8,
-                QUARTZ_PALETTE.clone(),
+                new int[]{0xFF666666, 0xFF8c8c8c, 0xFFb3b3b3, 0xFFd9d9d9, 0xFFFFFFFF},
                 "minecraft:quartz"));
 
         register(new VoxelMaterial("iron", 2.0f, 0.2f, 1024,
