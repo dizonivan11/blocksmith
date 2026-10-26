@@ -101,13 +101,17 @@ subprojects {
 	processResources {
 		def version = project.version
 		def minecraftVersion = project.minecraft_version
+		// Versions this jar claims to support (fabric.mod.json, and what Modrinth/CurseForge detect). Defaults to any
+		// patch release of the same minor version; a version folder can narrow it with minecraft_dependency.
+		def minecraftDependency = project.findProperty("minecraft_dependency") ?: "~${minecraftVersion}"
 		def javaVer = project.java_version
 		inputs.property "version", version
 		inputs.property "minecraftVersion", minecraftVersion
+		inputs.property "minecraftDependency", minecraftDependency
 		inputs.property "javaVersion", javaVer
 
 		filesMatching("fabric.mod.json") {
-			expand "version": version, "minecraft_version": minecraftVersion, "java_version": javaVer
+			expand "version": version, "minecraft_version": minecraftVersion, "minecraft_dependency": minecraftDependency, "java_version": javaVer
 		}
 	}
 
