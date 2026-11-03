@@ -10,6 +10,7 @@ import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -21,14 +22,21 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static net.adeptfrog.blocksmith.Blocksmith.MIN_VOXELS;
 import static net.adeptfrog.blocksmith.Blocksmith.MAX_TOTAL_VOXELS;
 
 public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset offset) implements CustomPacketPayload {
     public static final Type<SaveWeaponVoxelsPayload> TYPE = McCompat.payloadType("save_weapon_voxels");
+
+    private static final int SAVE_INTERVAL_TICKS = 10;
+    // Blocks from the player within which a Forging Table must be (reach, plus room to step back while editing)
+    private static final int TABLE_RANGE = 8;
+    private static final Map<UUID, Integer> LAST_SAVE = new HashMap<>();
 
     public static final StreamCodec<RegistryFriendlyByteBuf, SaveWeaponVoxelsPayload> STREAM_CODEC = StreamCodec.composite(
             WeaponVoxel.LIST_STREAM_CODEC, SaveWeaponVoxelsPayload::voxels,
@@ -55,8 +63,20 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
                 if (!isModular) return;
             }
 
+            // Each save walks the whole design: at most one per SAVE_INTERVAL_TICKS per player
+            int now = context.server().getTickCount();
+            Integer last = LAST_SAVE.put(player.getUUID(), now);
+            if (last != null && now >= last && now - last < SAVE_INTERVAL_TICKS) return;
+
+            // The editor only opens from a Forging Table, so saving needs one nearby
+            if (!isNearWeaponTable(player)) {
+                EntityCompat.actionBar(player, Component.literal("§cYou must be near a Forging Table to save!"));
+                player.inventoryMenu.broadcastChanges();
+                return;
+            }
+
             int gridSize = VoxelMaterialRegistry.getGridSize();
-            List<WeaponVoxel> newVoxels = payload.voxels();
+            List<WeaponVoxel> newVoxels = validVoxels(payload.voxels(), gridSize);
             WeaponOffset newOffset = payload.offset();
 
             // Voxel count limit check (across all layers)
@@ -64,15 +84,6 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
                 EntityCompat.actionBar(player, Component.literal("§cInvalid voxel count!"));
                 player.inventoryMenu.broadcastChanges();
                 return;
-            }
-
-            // Layer range check
-            for (WeaponVoxel v : newVoxels) {
-                if (!WeaponVoxel.isValidLayer(v.z())) {
-                    EntityCompat.actionBar(player, Component.literal("§cInvalid voxel layer!"));
-                    player.inventoryMenu.broadcastChanges();
-                    return;
-                }
             }
 
             // Grip offset limit check
@@ -98,9 +109,7 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
                 itemDiffs.merge(item, -1, Integer::sum);
             }
 
-            boolean isCreative = player.getAbilities().instabuild;
-
-            if (!isCreative) {
+            if (!VoxelMaterialRegistry.areMaterialsFree(player)) {
                 for (Map.Entry<Item, Integer> entry : itemDiffs.entrySet()) {
                     Item item = entry.getKey();
                     int needed = entry.getValue();
@@ -135,6 +144,32 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
 
             player.inventoryMenu.broadcastChanges();
         }));
+    }
+
+    /**
+     * The voxels a design can really have: on a valid layer, inside the grid, of a known material, one per cell.
+     * Others come from a modified client, or from a design made on a larger grid (cropped in the editor), and are
+     * dropped. A material id is written once per voxel when the item is saved, so unknown ids must never be stored.
+     */
+    private static List<WeaponVoxel> validVoxels(List<WeaponVoxel> voxels, int gridSize) {
+        Map<Long, WeaponVoxel> cells = new LinkedHashMap<>();
+        for (WeaponVoxel v : voxels) {
+            if (!WeaponVoxel.isValidLayer(v.z())) continue;
+            if (v.x() < 0 || v.x() >= gridSize || v.y() < 0 || v.y() >= gridSize) continue;
+            if (!VoxelMaterialRegistry.contains(v.materialId())) continue;
+            long cell = ((long) (v.z() - Blocksmith.MIN_LAYER) << 32) | ((long) v.x() << 16) | v.y();
+            cells.put(cell, v); // a later duplicate replaces an earlier one, as when the design was packed
+        }
+        return new ArrayList<>(cells.values());
+    }
+
+    private static boolean isNearWeaponTable(Player player) {
+        BlockPos center = player.blockPosition();
+        for (BlockPos pos : BlockPos.betweenClosed(center.offset(-TABLE_RANGE, -TABLE_RANGE, -TABLE_RANGE),
+                center.offset(TABLE_RANGE, TABLE_RANGE, TABLE_RANGE))) {
+            if (player.level().getBlockState(pos).is(Blocksmith.WEAPON_TABLE)) return true;
+        }
+        return false;
     }
 
     private static int countItem(Player player, Item item) {

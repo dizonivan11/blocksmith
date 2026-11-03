@@ -1,7 +1,6 @@
 package net.adeptfrog.blocksmith.component;
 
 import net.adeptfrog.blocksmith.compat.McCompat;
-import com.mojang.serialization.Codec;
 import net.adeptfrog.blocksmith.Blocksmith;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
@@ -16,7 +15,7 @@ public class ModDataComponents {
             BuiltInRegistries.DATA_COMPONENT_TYPE,
             "weapon_voxels",
             DataComponentType.<List<WeaponVoxel>>builder()
-                    .persistent(Codec.list(WeaponVoxel.CODEC))
+                    .persistent(WeaponVoxel.LIST_CODEC)
                     .networkSynchronized(WeaponVoxel.LIST_STREAM_CODEC)
                     .build()
     );

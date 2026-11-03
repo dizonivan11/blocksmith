@@ -15,6 +15,8 @@ import java.util.stream.Stream;
 public class DesignFileManager {
     public static final File BLUEPRINTS_DIR = FabricLoader.getInstance().getGameDir().resolve("blocksmith_blueprints").toFile();
     private static List<DesignEntry> CACHED_ENTRIES = null;
+    // Entries are scaled to a grid size when read: a cache made for another grid size is read again
+    private static int cachedGridSize = 0;
     /** How pictures are turned into voxels; kept for the session so the library remembers the player's choice. */
     private static ImageVoxelizer.Options imageOptions = ImageVoxelizer.Options.DEFAULT;
 
@@ -48,7 +50,7 @@ public class DesignFileManager {
     private static final String BUNDLED_PATH = "assets/blocksmith/blueprints";
 
     public static List<DesignEntry> loadAllDesigns(int targetGridSize, boolean forceReload) {
-        if (CACHED_ENTRIES != null && !forceReload) {
+        if (CACHED_ENTRIES != null && !forceReload && cachedGridSize == targetGridSize) {
             return CACHED_ENTRIES;
         }
 
@@ -73,6 +75,7 @@ public class DesignFileManager {
         }
 
         CACHED_ENTRIES = list;
+        cachedGridSize = targetGridSize;
         return list;
     }
 

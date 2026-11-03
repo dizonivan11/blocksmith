@@ -1,7 +1,6 @@
 package net.adeptfrog.blocksmith.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
@@ -36,7 +35,7 @@ public class ModularWeaponSpecialRenderer implements BuiltinItemRendererRegistry
         }
         if (voxels == null || voxels.isEmpty()) return;
 
-        WeaponOffset offset = stack.getOrDefault(ModDataComponents.WEAPON_OFFSET, WeaponOffset.ZERO);
+        WeaponOffset offset = stack.getItem() instanceof ModularBowItem ? ModularBowItem.getOffset(stack) : ModularSwordItem.getOffset(stack);
         // Apply grip offset ONLY in-hand / world, keep 0 in inventory slots
         boolean isGui = mode == ItemDisplayContext.GUI;
         VoxelMesh.emit(poseStack.last().pose(), buffers.getBuffer(VOXEL_RENDER_TYPE), voxels,

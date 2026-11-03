@@ -333,7 +333,7 @@ public class CustomizationScreen extends CompatScreen {
     public CustomizationScreen(ItemStack weaponStack) {
         super(Component.literal("Weapon Forging"));
         this.weaponStack = weaponStack;
-        this.workingVoxels = new ArrayList<>(ModularSwordItem.getVoxels(weaponStack));
+        this.workingVoxels = new ArrayList<>(savedVoxels());
 
         this.gridSize = VoxelMaterialRegistry.getGridSize();
         this.cellSize = Math.max(1, WORKSPACE_DIM / this.gridSize);
@@ -346,9 +346,7 @@ public class CustomizationScreen extends CompatScreen {
 
         cachedMaterialGroups = WeaponAbilityRegistry.getAllGroups();
 
-        WeaponOffset savedOffset = (weaponStack.getItem() instanceof ModularBowItem)
-                ? ModularBowItem.getOffset(weaponStack)
-                : ModularSwordItem.getOffset(weaponStack);
+        WeaponOffset savedOffset = savedOffset();
 
         this.workingOffsetX = savedOffset.x();
         this.workingOffsetY = savedOffset.y();
@@ -784,7 +782,7 @@ public class CustomizationScreen extends CompatScreen {
 
         // Materials and Shades
         int slotsY = topPos + SLOTS_Y;
-        boolean isCreative = this.minecraft.player != null && this.minecraft.player.getAbilities().instabuild;
+        boolean isCreative = VoxelMaterialRegistry.areMaterialsFree(this.minecraft.player);
 
         List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
         if (selectedMaterial == null && !mats.isEmpty()) {
@@ -871,7 +869,10 @@ public class CustomizationScreen extends CompatScreen {
             String spdSign = hoveredMaterial.getBonusSpeed() > 0 ? "+" : "";
             String durSign = hoveredMaterial.getBonusDurability() > 0 ? "+" : "";
 
-            List<ClientTooltipComponent> tooltipLines = List.of(
+            List<ClientTooltipComponent> tooltipLines = !VoxelMaterialRegistry.isDynamicStats() ? List.of(
+                    ClientTooltipComponent.create(Component.literal("§e" + name).getVisualOrderText()),
+                    ClientTooltipComponent.create(Component.literal("§7No stat bonus (Dynamic Stats off)").getVisualOrderText())
+            ) : List.of(
                     ClientTooltipComponent.create(Component.literal("§e" + name).getVisualOrderText()),
                     ClientTooltipComponent.create(Component.literal(dmgSign + hoveredMaterial.getBonusDamage() + (isBowMaterial ? " Arrow Damage" : " Attack Damage")).getVisualOrderText()),
                     ClientTooltipComponent.create(Component.literal(spdSign + hoveredMaterial.getBonusSpeed() + (isBowMaterial ? " Draw Speed" : " Attack Speed")).getVisualOrderText()),
@@ -1705,7 +1706,7 @@ public class CustomizationScreen extends CompatScreen {
         if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize || !WeaponVoxel.isValidLayer(layer)) return false;
         if (isLayerLocked(layer)) return false;
         WeaponVoxel existing = findVoxel(x, y, layer);
-        boolean isCreative = this.minecraft.player != null && this.minecraft.player.getAbilities().instabuild;
+        boolean isCreative = VoxelMaterialRegistry.areMaterialsFree(this.minecraft.player);
 
         if (existing == null) {
             if (!isCreative && getAvailableCount(mat) <= 0) return false;
@@ -2991,7 +2992,7 @@ public class CustomizationScreen extends CompatScreen {
 
     private int getAvailableCount(VoxelMaterial mat) {
         if (this.minecraft.player == null) return 0;
-        if (this.minecraft.player.getAbilities().instabuild) return 999;
+        if (VoxelMaterialRegistry.areMaterialsFree(this.minecraft.player)) return 999;
 
         int inInventory = 0;
         for (ItemStack s : EntityCompat.mainInventory(this.minecraft.player)) {
@@ -3027,7 +3028,7 @@ public class CustomizationScreen extends CompatScreen {
 
     private boolean computeMissingMaterials() {
         if (this.minecraft.player == null) return false;
-        if (this.minecraft.player.getAbilities().instabuild) return false;
+        if (VoxelMaterialRegistry.areMaterialsFree(this.minecraft.player)) return false;
 
         for (VoxelMaterial mat : VoxelMaterialRegistry.getAll()) {
             if (getAvailableCount(mat) < 0) {
@@ -3047,12 +3048,26 @@ public class CustomizationScreen extends CompatScreen {
         return this.cachedMissing;
     }
 
+    /** The weapon's saved design, or its type's default design if it has never been forged. */
+    private List<WeaponVoxel> savedVoxels() {
+        return weaponStack.getItem() instanceof ModularBowItem
+                ? ModularBowItem.getVoxels(weaponStack)
+                : ModularSwordItem.getVoxels(weaponStack);
+    }
+
+    /** The weapon's saved grip offset, or its type's default offset if it has never been forged. */
+    private WeaponOffset savedOffset() {
+        return weaponStack.getItem() instanceof ModularBowItem
+                ? ModularBowItem.getOffset(weaponStack)
+                : ModularSwordItem.getOffset(weaponStack);
+    }
+
     private boolean hasUnsavedChanges() {
-        List<WeaponVoxel> saved = ModularSwordItem.getVoxels(weaponStack);
+        List<WeaponVoxel> saved = savedVoxels();
         if (saved.size() != workingVoxels.size()) {
             return true;
         }
-        WeaponOffset savedOffset = weaponStack.getOrDefault(ModDataComponents.WEAPON_OFFSET, WeaponOffset.ZERO);
+        WeaponOffset savedOffset = savedOffset();
         if (savedOffset.x() != workingOffsetX || savedOffset.y() != workingOffsetY) {
             return true;
         }
@@ -3066,7 +3081,7 @@ public class CustomizationScreen extends CompatScreen {
         this.thumbsDirty = true;
         double gridArea = this.gridSize * this.gridSize;
 
-        List<WeaponVoxel> savedVoxels = ModularSwordItem.getVoxels(weaponStack);
+        List<WeaponVoxel> savedVoxels = savedVoxels();
         this.savedVoxelCount = savedVoxels.size();
         this.originalCounts.clear();
         this.workingCounts.clear();
@@ -3074,18 +3089,18 @@ public class CustomizationScreen extends CompatScreen {
         for (WeaponVoxel v : savedVoxels) {
             this.originalCounts.merge(v.materialId().toLowerCase(), 1, Integer::sum);
             VoxelMaterial m = v.material();
-            savedRawDmg += m.getBonusDamage();
-            savedRawSpd += m.getBonusSpeed();
-            savedRawDur += m.getBonusDurability();
+            savedRawDmg += m.statDamage();
+            savedRawSpd += m.statSpeed();
+            savedRawDur += m.statDurability();
         }
 
         double workingRawDmg = 0, workingRawSpd = 0, workingRawDur = 0;
         for (WeaponVoxel v : workingVoxels) {
             this.workingCounts.merge(v.materialId().toLowerCase(), 1, Integer::sum);
             VoxelMaterial m = v.material();
-            workingRawDmg += m.getBonusDamage();
-            workingRawSpd += m.getBonusSpeed();
-            workingRawDur += m.getBonusDurability();
+            workingRawDmg += m.statDamage();
+            workingRawSpd += m.statSpeed();
+            workingRawDur += m.statDurability();
         }
 
         int savedCount = savedVoxels.size();

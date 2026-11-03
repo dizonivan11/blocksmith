@@ -55,6 +55,8 @@ public final class EntityCompat {
     public static Projectile createArrow(ServerLevel level, Player player, ItemStack bow, boolean crit) {
         Arrow arrow = new Arrow(level, player, new ItemStack(Items.ARROW), bow);
         arrow.setCritArrow(crit);
+        // Extra arrows (Burst Fire) use none of the player's arrows, so they must not be picked up as real ones
+        arrow.pickup = AbstractArrow.Pickup.CREATIVE_ONLY;
         return arrow;
     }
 

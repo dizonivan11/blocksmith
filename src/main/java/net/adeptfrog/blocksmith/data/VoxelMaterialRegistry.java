@@ -6,6 +6,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import net.adeptfrog.blocksmith.Blocksmith;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.world.entity.player.Player;
 
 import java.io.File;
 import java.io.FileReader;
@@ -27,6 +28,10 @@ public class VoxelMaterialRegistry {
 
     private static int gridSize = Blocksmith.BASE_GRID_SIZE; // Default resolution
     private static boolean abilitiesDisabled = false;
+    private static boolean dynamicStats = true;
+    // True while the connected server's config is in use: nothing is saved, and the local file is reloaded after
+    private static boolean serverControlled = false;
+    private static Runnable settingsListener = () -> {};
 
     static {
         load();
@@ -39,27 +44,7 @@ public class VoxelMaterialRegistry {
 
         if (CONFIG_FILE.exists()) {
             try (FileReader reader = new FileReader(CONFIG_FILE)) {
-                com.google.gson.JsonElement element = com.google.gson.JsonParser.parseReader(reader);
-                com.google.gson.JsonObject root = element.getAsJsonObject();
-
-                if (root.has("gridSize")) {
-                    gridSize = Math.clamp(root.get("gridSize").getAsInt(), 16, 64);
-                }
-
-                if (root.has("abilitiesDisabled")) {
-                    abilitiesDisabled = root.get("abilitiesDisabled").getAsBoolean();
-                }
-
-                if (root.has("materials")) {
-                    Type type = new TypeToken<List<MaterialConfigEntry>>() {}.getType();
-                    List<MaterialConfigEntry> entries = GSON.fromJson(root.get("materials"), type);
-                    if (entries != null) {
-                        for (MaterialConfigEntry e : entries) {
-                            MATERIALS.put(e.id.toLowerCase(), e.toMaterial());
-                        }
-                        return;
-                    }
-                }
+                if (readJson(com.google.gson.JsonParser.parseReader(reader).getAsJsonObject())) return;
             } catch (Exception e) {
                 System.err.println("[Blocksmith] Failed to load config, falling back to defaults: " + e.getMessage());
             }
@@ -67,6 +52,52 @@ public class VoxelMaterialRegistry {
 
         loadDefaults();
         save();
+    }
+
+    /** Reads the settings and materials of a config; returns false if it has no material list. */
+    private static boolean readJson(com.google.gson.JsonObject root) {
+        if (root.has("gridSize")) {
+            gridSize = Math.clamp(root.get("gridSize").getAsInt(), 16, 64);
+        }
+
+        if (root.has("abilitiesDisabled")) {
+            abilitiesDisabled = root.get("abilitiesDisabled").getAsBoolean();
+        }
+
+        if (root.has("dynamicStats")) {
+            dynamicStats = root.get("dynamicStats").getAsBoolean();
+        }
+
+        if (root.has("materials")) {
+            Type type = new TypeToken<List<MaterialConfigEntry>>() {}.getType();
+            List<MaterialConfigEntry> entries = GSON.fromJson(root.get("materials"), type);
+            if (entries != null) {
+                for (MaterialConfigEntry e : entries) {
+                    MATERIALS.put(e.id.toLowerCase(), e.toMaterial());
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The whole config (settings and materials) as written to the file and sent to clients. */
+    public static String toJson() {
+        com.google.gson.JsonObject root = new com.google.gson.JsonObject();
+
+        // Grid Size
+        root.addProperty("gridSize", gridSize);
+        root.addProperty("abilitiesDisabled", abilitiesDisabled);
+        root.addProperty("dynamicStats", dynamicStats);
+
+        // Materials
+        List<MaterialConfigEntry> entries = new ArrayList<>();
+        for (VoxelMaterial mat : MATERIALS.values()) {
+            entries.add(MaterialConfigEntry.fromMaterial(mat));
+        }
+        root.add("materials", GSON.toJsonTree(entries));
+
+        return GSON.toJson(root);
     }
 
     private static volatile int version;
@@ -78,27 +109,16 @@ public class VoxelMaterialRegistry {
 
     public static void save() {
         version++;
+        if (serverControlled) return; // the server's config is never written over the local one
         try {
             CONFIG_FILE.getParentFile().mkdirs();
             try (FileWriter writer = new FileWriter(CONFIG_FILE)) {
-                com.google.gson.JsonObject root = new com.google.gson.JsonObject();
-
-                // Grid Size
-                root.addProperty("gridSize", gridSize);
-                root.addProperty("abilitiesDisabled", abilitiesDisabled);
-
-                // Materials
-                List<MaterialConfigEntry> entries = new ArrayList<>();
-                for (VoxelMaterial mat : MATERIALS.values()) {
-                    entries.add(MaterialConfigEntry.fromMaterial(mat));
-                }
-                root.add("materials", GSON.toJsonTree(entries));
-
-                GSON.toJson(root, writer);
+                writer.write(toJson());
             }
         } catch (Exception e) {
             System.err.println("[Blocksmith] Failed to save config: " + e.getMessage());
         }
+        settingsListener.run();
     }
 
     public static void resetToDefaults() {
@@ -248,6 +268,10 @@ public class VoxelMaterialRegistry {
         }
     }
 
+    public static boolean contains(String id) {
+        return id != null && MATERIALS.containsKey(id.toLowerCase());
+    }
+
     public static VoxelMaterial getOrDefault(String id) {
         return MATERIALS.getOrDefault(id != null ? id.toLowerCase() : "", FALLBACK);
     }
@@ -266,6 +290,52 @@ public class VoxelMaterialRegistry {
     public static void setAbilitiesDisabled(boolean disabled) {
         abilitiesDisabled = disabled;
         save();
+    }
+
+    /** When off, materials add no stats and cost nothing to place (as in creative mode). */
+    public static boolean isDynamicStats() {
+        return dynamicStats;
+    }
+    public static void setDynamicStats(boolean enabled) {
+        dynamicStats = enabled;
+        save();
+    }
+
+    /** True while connected to a dedicated server, whose whole config is used in place of the local one. */
+    public static boolean isServerControlled() {
+        return serverControlled;
+    }
+
+    /** Uses the server's config (from {@link #toJson()}) until {@link #clearServerConfig()}; the local file is untouched. */
+    public static void applyServerConfig(String json) {
+        serverControlled = true;
+        MATERIALS.clear();
+        try {
+            if (!readJson(com.google.gson.JsonParser.parseString(json).getAsJsonObject())) loadDefaults();
+        } catch (Exception e) {
+            System.err.println("[Blocksmith] Failed to read the server's config, using defaults: " + e.getMessage());
+            MATERIALS.clear();
+            loadDefaults();
+        }
+        version++;
+    }
+
+    /** Back to the local config file after leaving a server. */
+    public static void clearServerConfig() {
+        if (!serverControlled) return;
+        serverControlled = false;
+        load();
+        version++;
+    }
+
+    /** Runs after this side's config is saved (a setting toggled or a material edited in game). */
+    public static void onSettingsChanged(Runnable listener) {
+        settingsListener = listener;
+    }
+
+    /** Whether placing voxels is free for this player: in creative mode, or when Dynamic Stats is off. */
+    public static boolean areMaterialsFree(Player player) {
+        return !dynamicStats || (player != null && player.getAbilities().instabuild);
     }
 
     public static Collection<VoxelMaterial> getAll() {

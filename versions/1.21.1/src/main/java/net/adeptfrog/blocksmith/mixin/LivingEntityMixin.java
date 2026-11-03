@@ -14,7 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class LivingEntityMixin {
 	@Inject(method = "hurt", at = @At("HEAD"), cancellable = true)
 	private void blocksmith$onDamaged(DamageSource source, float damage, CallbackInfoReturnable<Boolean> cir) {
-		if (BlocksmithCombatHooks.onDamaged((LivingEntity) (Object) this, source)) {
+		if (BlocksmithCombatHooks.onDamaged((LivingEntity) (Object) this, source, damage)) {
 			cir.setReturnValue(false);
 		}
 	}

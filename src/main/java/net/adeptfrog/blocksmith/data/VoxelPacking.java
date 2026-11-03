@@ -23,7 +23,11 @@ public final class VoxelPacking {
 
     private static final int MAX_TABLE = 1 << 12;
     private static final int MAX_ROWS = 1 << 16;
-    private static final int MAX_VOXELS = 1 << 18;
+    // The most a design can hold: the largest grid (64x64) on every layer (17). A run is a few bytes however long,
+    // so without this cap a tiny packet could make the server build hundreds of thousands of voxels
+    private static final int MAX_VOXELS = 64 * 64 * 17;
+    // Material ids are short; a long one could only come from a modified client
+    private static final int MAX_NAME_BYTES = 256;
 
     public static byte[] pack(List<Raw> voxels) {
         // One voxel per cell; a later duplicate replaces an earlier one
@@ -90,7 +94,7 @@ public final class VoxelPacking {
         int[] shapes = new int[tableSize];
         for (int i = 0; i < tableSize; i++) {
             int len = readVar(data, p);
-            if (len < 0 || p[0] + len > data.length) throw new IllegalArgumentException("Bad material name length");
+            if (len < 0 || len > MAX_NAME_BYTES || p[0] + len > data.length) throw new IllegalArgumentException("Bad material name length");
             names[i] = new String(data, p[0], len, StandardCharsets.UTF_8);
             p[0] += len;
             shades[i] = unzigzag(readVar(data, p));

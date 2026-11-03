@@ -1,11 +1,13 @@
 package net.adeptfrog.blocksmith.data;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -38,18 +40,39 @@ public record WeaponVoxel(int x, int y, int z, String materialId, int shade, int
 
     /** Compact encoding of a whole voxel list (see {@link VoxelPacking}); used for packets and item syncing. */
     public static final StreamCodec<ByteBuf, List<WeaponVoxel>> LIST_STREAM_CODEC = ByteBufCodecs.BYTE_ARRAY.map(
-            bytes -> {
-                List<WeaponVoxel> out = new ArrayList<>();
-                for (VoxelPacking.Raw r : VoxelPacking.unpack(bytes)) {
-                    out.add(new WeaponVoxel(r.x(), r.y(), r.z(), r.material(), r.shade(), r.shape()));
-                }
-                return out;
-            },
-            voxels -> {
-                List<VoxelPacking.Raw> raw = new ArrayList<>(voxels.size());
-                for (WeaponVoxel v : voxels) raw.add(new VoxelPacking.Raw(v.x(), v.y(), v.z(), v.materialId(), v.shade(), v.shape()));
-                return VoxelPacking.pack(raw);
-            });
+            WeaponVoxel::unpackList, WeaponVoxel::packList);
+
+    /**
+     * How a voxel list is saved with the item: packed like {@link #LIST_STREAM_CODEC}, a small fraction of the size
+     * of one entry per voxel (which repeats the material id every time). Items saved in that older form still load.
+     */
+    public static final Codec<List<WeaponVoxel>> LIST_CODEC = Codec.withAlternative(
+            Codec.BYTE_BUFFER.comapFlatMap(
+                    buffer -> {
+                        byte[] bytes = new byte[buffer.remaining()];
+                        buffer.duplicate().get(bytes);
+                        try {
+                            return DataResult.success(unpackList(bytes));
+                        } catch (RuntimeException e) {
+                            return DataResult.error(() -> "Bad voxel data: " + e.getMessage());
+                        }
+                    },
+                    voxels -> ByteBuffer.wrap(packList(voxels))),
+            Codec.list(CODEC));
+
+    private static List<WeaponVoxel> unpackList(byte[] bytes) {
+        List<WeaponVoxel> out = new ArrayList<>();
+        for (VoxelPacking.Raw r : VoxelPacking.unpack(bytes)) {
+            out.add(new WeaponVoxel(r.x(), r.y(), r.z(), r.material(), r.shade(), r.shape()));
+        }
+        return out;
+    }
+
+    private static byte[] packList(List<WeaponVoxel> voxels) {
+        List<VoxelPacking.Raw> raw = new ArrayList<>(voxels.size());
+        for (WeaponVoxel v : voxels) raw.add(new VoxelPacking.Raw(v.x(), v.y(), v.z(), v.materialId(), v.shade(), v.shape()));
+        return VoxelPacking.pack(raw);
+    }
 
     public WeaponVoxel {
         if (!VoxelShape.isValid(shape)) shape = VoxelShape.FULL;

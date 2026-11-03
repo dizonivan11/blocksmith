@@ -45,31 +45,38 @@ public class ModularBowItem extends BowItemBase {
         recalculateStats(stack);
     }
 
-    public static int calculateDefaultMaxDurability() {
-        VoxelMaterialRegistry.initialize();
-        List<WeaponVoxel> defaults = getDefaultBowVoxels();
-        int gridSize = VoxelMaterialRegistry.getGridSize();
-        double gridArea = gridSize * gridSize;
+    private static final net.adeptfrog.blocksmith.data.DesignCache<Integer> MAX_DAMAGE_CACHE = new net.adeptfrog.blocksmith.data.DesignCache<>(32);
 
-        double rawDurability = 0;
-        for (WeaponVoxel voxel : defaults) {
-            rawDurability += voxel.material().getBonusDurability();
-        }
-        return BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, defaults.size()) / gridArea);
-    }
-
-    public static void recalculateStats(ItemStack stack) {
-        List<WeaponVoxel> voxels = getVoxels(stack);
+    /** Durability a design gives under the current material settings. */
+    private static int computeMaxDamage(List<WeaponVoxel> voxels) {
         int gridSize = VoxelMaterialRegistry.getGridSize();
         double gridArea = gridSize * gridSize;
 
         double rawDurability = 0;
         for (WeaponVoxel voxel : voxels) {
-            rawDurability += voxel.material().getBonusDurability();
+            rawDurability += voxel.material().statDurability();
         }
+        return WeaponDurability.of(BASE_DURABILITY, Math.round(StatScaling.scale(rawDurability, voxels.size()) / gridArea));
+    }
 
-        int bonusDurability = BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, voxels.size()) / gridArea);
-        stack.set(DataComponents.MAX_DAMAGE, bonusDurability);
+    public static int calculateDefaultMaxDurability() {
+        VoxelMaterialRegistry.initialize();
+        return computeMaxDamage(getDefaultBowVoxels());
+    }
+
+    public static void recalculateStats(ItemStack stack) {
+        WeaponDurability.set(stack, computeMaxDamage(getVoxels(stack)));
+    }
+
+    /** Brings the stack's durability in line with the current material settings (see ModularSwordItem#refreshStats). */
+    public static void refreshStats(ItemStack stack) {
+        WeaponDurability.set(stack, MAX_DAMAGE_CACHE.get(getVoxels(stack), ModularBowItem::computeMaxDamage));
+    }
+
+    @Override
+    protected void serverInventoryTick(ItemStack stack) {
+        // Stats only go stale when the config changes: check each stack once per config version, not every tick
+        if (StatsCheckedStack.needsCheck(stack)) refreshStats(stack);
     }
 
     @Override
@@ -196,7 +203,7 @@ public class ModularBowItem extends BowItemBase {
         // Calculate voxel speed bonus
         double rawSpeed = 0;
         for (WeaponVoxel voxel : voxels) {
-            rawSpeed += voxel.material().getBonusSpeed();
+            rawSpeed += voxel.material().statSpeed();
         }
         double bonusSpeed = StatScaling.scale(rawSpeed, voxels.size()) / gridArea;
         float speedMultiplier = 1.0F + (float) bonusSpeed;

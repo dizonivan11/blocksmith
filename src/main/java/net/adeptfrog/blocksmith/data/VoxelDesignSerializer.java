@@ -60,36 +60,53 @@ public class VoxelDesignSerializer {
 
     public record BlueprintData(List<WeaponVoxel> voxels, WeaponOffset offset, String attribution, String crafter) {}
 
-    public static List<WeaponVoxel> getDefaultVoxels() {
-        try {
-            return importFromJson(DEFAULT_SWORD_BLUEPRINT_JSON, VoxelMaterialRegistry.getGridSize());
-        } catch (Exception e) {
-            return new ArrayList<>(COMPILED_DEFAULT_SWORD_VOXELS);
+    /** A default design scaled to one grid size. */
+    private record DefaultDesign(List<WeaponVoxel> voxels, WeaponOffset offset) {
+        static DefaultDesign of(String json, List<WeaponVoxel> fallback, int gridSize) {
+            try {
+                BlueprintData data = importBlueprint(json, gridSize);
+                return new DefaultDesign(Collections.unmodifiableList(data.voxels()), data.offset());
+            } catch (Exception e) {
+                return new DefaultDesign(fallback, WeaponOffset.ZERO);
+            }
         }
+    }
+
+    /** Both default designs at one grid size. */
+    private record DefaultDesigns(int gridSize, DefaultDesign sword, DefaultDesign bow) {}
+
+    private static volatile DefaultDesigns defaultDesigns;
+
+    /**
+     * The default designs at the current grid size. Built once per grid size, so a grid change in game is picked
+     * up right away, and the same list instance is returned until then (the mesh and stat caches key on it).
+     */
+    private static DefaultDesigns defaultDesigns() {
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        DefaultDesigns d = defaultDesigns;
+        if (d == null || d.gridSize() != gridSize) {
+            d = new DefaultDesigns(gridSize,
+                    DefaultDesign.of(DEFAULT_SWORD_BLUEPRINT_JSON, COMPILED_DEFAULT_SWORD_VOXELS, gridSize),
+                    DefaultDesign.of(DEFAULT_BOW_BLUEPRINT_JSON, COMPILED_DEFAULT_BOW_VOXELS, gridSize));
+            defaultDesigns = d;
+        }
+        return d;
+    }
+
+    public static List<WeaponVoxel> getDefaultVoxels() {
+        return defaultDesigns().sword().voxels();
     }
 
     public static WeaponOffset getDefaultOffset() {
-        try {
-            return importBlueprint(DEFAULT_SWORD_BLUEPRINT_JSON, VoxelMaterialRegistry.getGridSize()).offset();
-        } catch (Exception e) {
-            return WeaponOffset.ZERO;
-        }
+        return defaultDesigns().sword().offset();
     }
 
     public static List<WeaponVoxel> getDefaultBowVoxels() {
-        try {
-            return importFromJson(DEFAULT_BOW_BLUEPRINT_JSON, VoxelMaterialRegistry.getGridSize());
-        } catch (Exception e) {
-            return new ArrayList<>(COMPILED_DEFAULT_BOW_VOXELS);
-        }
+        return defaultDesigns().bow().voxels();
     }
 
     public static WeaponOffset getDefaultBowOffset() {
-        try {
-            return importBlueprint(DEFAULT_BOW_BLUEPRINT_JSON, VoxelMaterialRegistry.getGridSize()).offset();
-        } catch (Exception e) {
-            return WeaponOffset.ZERO;
-        }
+        return defaultDesigns().bow().offset();
     }
 
     public static String exportToJson(List<WeaponVoxel> voxels, WeaponOffset offset, int gridSize, String attribution, String crafter) {

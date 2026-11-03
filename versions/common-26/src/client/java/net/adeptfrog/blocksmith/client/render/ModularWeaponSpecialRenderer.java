@@ -2,7 +2,6 @@ package net.adeptfrog.blocksmith.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.serialization.MapCodec;
-import net.adeptfrog.blocksmith.component.ModDataComponents;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
@@ -54,7 +53,7 @@ public class ModularWeaponSpecialRenderer implements SpecialModelRenderer<Modula
         }
         if (voxels == null || voxels.isEmpty()) return null;
 
-        WeaponOffset offset = stack.getOrDefault(ModDataComponents.WEAPON_OFFSET, WeaponOffset.ZERO);
+        WeaponOffset offset = stack.getItem() instanceof ModularBowItem ? ModularBowItem.getOffset(stack) : ModularSwordItem.getOffset(stack);
         // The item's own list (not a copy): VoxelMesh caches the built mesh per list instance
         return new State(voxels, offset.x(), offset.y());
     }

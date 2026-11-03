@@ -2,6 +2,7 @@ package net.adeptfrog.blocksmith.item;
 
 import net.adeptfrog.blocksmith.compat.EntityCompat;
 import net.adeptfrog.blocksmith.compat.McCompat;
+import net.adeptfrog.blocksmith.ability.BlocksmithCombatHooks;
 import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.component.ModDataComponents;
@@ -20,6 +21,8 @@ import java.util.List;
 import static net.adeptfrog.blocksmith.Blocksmith.BASE_DURABILITY;
 
 public class ModularSwordItem extends SwordItemBase {
+    /** Attack damage before material bonuses, on top of the player's own 1 (so the tooltip shows 10). */
+    public static final double BASE_ATTACK_DAMAGE = 9.0;
 
     public ModularSwordItem(Properties properties) {
         super(properties);
@@ -35,21 +38,12 @@ public class ModularSwordItem extends SwordItemBase {
         recalculateAttributes(stack);
     }
 
-    public static int calculateDefaultMaxDurability() {
-        VoxelMaterialRegistry.initialize();
-        List<WeaponVoxel> defaults = getDefaultVoxels();
-        int gridSize = VoxelMaterialRegistry.getGridSize();
-        double gridArea = gridSize * gridSize;
+    /** Durability and attribute modifiers a design gives under the current material settings. */
+    private record Stats(int maxDamage, ItemAttributeModifiers modifiers) {}
 
-        double rawDurability = 0;
-        for (WeaponVoxel voxel : defaults) {
-            rawDurability += voxel.material().getBonusDurability();
-        }
-        return BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, defaults.size()) / gridArea);
-    }
+    private static final DesignCache<Stats> STATS_CACHE = new DesignCache<>(32);
 
-    public static void recalculateAttributes(ItemStack stack) {
-        List<WeaponVoxel> voxels = getVoxels(stack);
+    private static Stats computeStats(List<WeaponVoxel> voxels) {
         int gridSize = VoxelMaterialRegistry.getGridSize();
         double gridArea = gridSize * gridSize;
 
@@ -59,22 +53,20 @@ public class ModularSwordItem extends SwordItemBase {
 
         for (WeaponVoxel voxel : voxels) {
             VoxelMaterial mat = voxel.material();
-            rawDamage += mat.getBonusDamage();
-            rawSpeed += mat.getBonusSpeed();
-            rawDurability += mat.getBonusDurability();
+            rawDamage += mat.statDamage();
+            rawSpeed += mat.statSpeed();
+            rawDurability += mat.statDurability();
         }
 
         int count = voxels.size();
         double bonusDamage = StatScaling.scale(rawDamage, count) / gridArea;
         double bonusSpeed = StatScaling.scale(rawSpeed, count) / gridArea;
-        int bonusDurability = BASE_DURABILITY + (int) Math.round(StatScaling.scale(rawDurability, count) / gridArea);
-
-        stack.set(DataComponents.MAX_DAMAGE, bonusDurability);
+        int maxDamage = WeaponDurability.of(BASE_DURABILITY, Math.round(StatScaling.scale(rawDurability, count) / gridArea));
 
         ItemAttributeModifiers modifiers = ItemAttributeModifiers.builder()
                 .add(
                         Attributes.ATTACK_DAMAGE,
-                        McCompat.vanillaModifier("base_attack_damage", 6.0 + bonusDamage),
+                        McCompat.vanillaModifier("base_attack_damage", BASE_ATTACK_DAMAGE + bonusDamage),
                         EquipmentSlotGroup.MAINHAND
                 )
                 .add(
@@ -84,45 +76,48 @@ public class ModularSwordItem extends SwordItemBase {
                 )
                 .build();
 
-        stack.set(DataComponents.ATTRIBUTE_MODIFIERS, modifiers);
+        return new Stats(maxDamage, modifiers);
+    }
+
+    public static int calculateDefaultMaxDurability() {
+        VoxelMaterialRegistry.initialize();
+        return computeStats(getDefaultVoxels()).maxDamage();
     }
 
     public static ItemAttributeModifiers createDefaultAttributes() {
-        List<WeaponVoxel> defaults = getDefaultVoxels();
-        int gridSize = VoxelMaterialRegistry.getGridSize();
-        double gridArea = gridSize * gridSize;
+        return computeStats(getDefaultVoxels()).modifiers();
+    }
 
-        double rawDamage = 0;
-        double rawSpeed = 0;
+    public static void recalculateAttributes(ItemStack stack) {
+        Stats stats = computeStats(getVoxels(stack));
+        WeaponDurability.set(stack, stats.maxDamage());
+        stack.set(DataComponents.ATTRIBUTE_MODIFIERS, stats.modifiers());
+    }
 
-        for (WeaponVoxel voxel : defaults) {
-            VoxelMaterial mat = voxel.material();
-            rawDamage += mat.getBonusDamage();
-            rawSpeed += mat.getBonusSpeed();
+    /**
+     * Brings the stack's stats in line with the current material settings. Item defaults are computed once at
+     * startup and forged stats when saved, so toggling Dynamic Stats (or editing materials) would leave them stale.
+     */
+    public static void refreshStats(ItemStack stack) {
+        Stats stats = STATS_CACHE.get(getVoxels(stack), ModularSwordItem::computeStats);
+        WeaponDurability.set(stack, stats.maxDamage());
+        if (!stats.modifiers().equals(stack.get(DataComponents.ATTRIBUTE_MODIFIERS))) {
+            stack.set(DataComponents.ATTRIBUTE_MODIFIERS, stats.modifiers());
         }
+    }
 
-        double bonusDamage = StatScaling.scale(rawDamage, defaults.size()) / gridArea;
-        double bonusSpeed = StatScaling.scale(rawSpeed, defaults.size()) / gridArea;
-
-        return ItemAttributeModifiers.builder()
-                .add(
-                        Attributes.ATTACK_DAMAGE,
-                        McCompat.vanillaModifier("base_attack_damage", 6.0 + bonusDamage),
-                        EquipmentSlotGroup.MAINHAND
-                )
-                .add(
-                        Attributes.ATTACK_SPEED,
-                        McCompat.vanillaModifier("base_attack_speed", -2.4 + bonusSpeed),
-                        EquipmentSlotGroup.MAINHAND
-                )
-                .build();
+    @Override
+    protected void serverInventoryTick(ItemStack stack) {
+        // Stats only go stale when the config changes: check each stack once per config version, not every tick
+        if (StatsCheckedStack.needsCheck(stack)) refreshStats(stack);
     }
 
     @Override
     public void postHurtEnemy(ItemStack stack, LivingEntity target, LivingEntity attacker) {
-        // Fire all unlocked WeaponAbility's onMeleeHit method
+        // Fire all unlocked WeaponAbility's onMeleeHit method, on charged swings only (spam-clicking gets none)
         if (attacker instanceof Player player && !player.level().isClientSide()) {
-            if (!EntityCompat.isOnCooldown(player, stack)) {
+            if (!EntityCompat.isOnCooldown(player, stack)
+                    && BlocksmithCombatHooks.attackStrength(player) >= BlocksmithCombatHooks.MIN_ABILITY_ATTACK_STRENGTH) {
                 for (WeaponAbility ability : WeaponAbilityRegistry.getUnlockedAbilities(stack)) {
                     if (ability.weaponType() == WeaponAbility.WeaponType.SWORD || ability.weaponType() == WeaponAbility.WeaponType.ANY) {
                         ability.onMeleeHit(stack, player, target);

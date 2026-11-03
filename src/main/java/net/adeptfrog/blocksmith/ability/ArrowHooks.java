@@ -54,7 +54,7 @@ public final class ArrowHooks {
             double rawDamage = 0;
             List<WeaponVoxel> bowVoxels = ModularBowItem.getVoxels(bow);
             for (WeaponVoxel voxel : bowVoxels) {
-                rawDamage += voxel.material().getBonusDamage();
+                rawDamage += voxel.material().statDamage();
             }
             double voxelDamageBonus = StatScaling.scale(rawDamage, bowVoxels.size()) / gridArea;
 
@@ -65,6 +65,9 @@ public final class ArrowHooks {
             if (WeaponAbilityRegistry.arrowHasAbility(arrow, "sniper")) {
                 originalDamage /= 2.0F;
             }
+
+            // Materials with negative damage must never make the arrow heal or deal nothing
+            originalDamage = Math.max(1.0F, originalDamage);
         }
 
         return originalDamage;

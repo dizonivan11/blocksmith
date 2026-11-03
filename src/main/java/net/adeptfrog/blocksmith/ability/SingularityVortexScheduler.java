@@ -39,6 +39,11 @@ public class SingularityVortexScheduler {
         }
     }
 
+    /** Drops pending tasks: they hold the old world and must not carry into the next one. */
+    public static void clear() {
+        TASKS.clear();
+    }
+
     public static void tick() {
         if (TASKS.isEmpty()) return;
 

@@ -69,7 +69,8 @@ public class MaterialConfigScreen extends CompatScreen {
                 this.formError = "";
                 this.rebuildWidgets();
             }).bounds(tx, TAB_Y, tw, 20).build();
-            tb.active = (tab != i);
+            // While on a server its config is shown read-only, so there is nothing to add to
+            tb.active = (tab != i) && !(i == TAB_ADD && VoxelMaterialRegistry.isServerControlled());
             this.addRenderableWidget(tb);
             tx += tw + 4;
         }
@@ -81,13 +82,14 @@ public class MaterialConfigScreen extends CompatScreen {
         if (tab == TAB_MATERIALS) {
             int total = 2 * btnW + btnGap;
             int x0 = centerX - total / 2;
-            this.addRenderableWidget(
+            Button reset = this.addRenderableWidget(
                     Button.builder(Component.literal("Reset Defaults"), unused22 -> {
                         VoxelMaterialRegistry.resetToDefaults();
                         this.scrollY = 0;
                         this.rebuildWidgets();
                     }).bounds(x0, btnY, btnW, 20).build()
             );
+            reset.active = !VoxelMaterialRegistry.isServerControlled();
             this.addRenderableWidget(
                     Button.builder(Component.literal("Done"), unused23 -> this.onClose())
                             .bounds(x0 + btnW + btnGap, btnY, btnW, 20).build()
@@ -108,19 +110,39 @@ public class MaterialConfigScreen extends CompatScreen {
     private void initConfig(int centerX) {
         int w = 240;
         int x = centerX - w / 2;
-        this.addRenderableWidget(new GridSizeSlider(x, LIST_TOP + 22, w, 20));
+        boolean serverControlled = VoxelMaterialRegistry.isServerControlled();
+        this.addRenderableWidget(new GridSizeSlider(x, LIST_TOP + 22, w, 20)).active = !serverControlled;
+
+        String serverNote = serverControlled ? "\n§eSet by the server you are connected to." : "";
 
         boolean off = VoxelMaterialRegistry.areAbilitiesDisabled();
-        this.addRenderableWidget(
+        Button abilities = this.addRenderableWidget(
                 Button.builder(abilitiesLabel(off), b -> {
                     boolean now = !VoxelMaterialRegistry.areAbilitiesDisabled();
                     VoxelMaterialRegistry.setAbilitiesDisabled(now);
                     b.setMessage(abilitiesLabel(now));
                 })
                 .bounds(x, LIST_TOP + 96, w, 20)
-                .tooltip(Tooltip.create(Component.literal("When disabled, modular weapons behave as plain weapons: no sword or bow abilities trigger.")))
+                .tooltip(Tooltip.create(Component.literal("When disabled, modular weapons behave as plain weapons: no sword or bow abilities trigger." + serverNote)))
                 .build()
         );
+        abilities.active = !serverControlled;
+
+        Button dynamicStats = this.addRenderableWidget(
+                Button.builder(dynamicStatsLabel(VoxelMaterialRegistry.isDynamicStats()), b -> {
+                    boolean now = !VoxelMaterialRegistry.isDynamicStats();
+                    VoxelMaterialRegistry.setDynamicStats(now);
+                    b.setMessage(dynamicStatsLabel(now));
+                })
+                .bounds(x, LIST_TOP + 134, w, 20)
+                .tooltip(Tooltip.create(Component.literal("When enabled, voxel materials are spent from your inventory and add their bonuses to the weapon's stats. When disabled, materials are infinite (as in creative mode) and add no stats." + serverNote)))
+                .build()
+        );
+        dynamicStats.active = !serverControlled;
+    }
+
+    private static Component dynamicStatsLabel(boolean enabled) {
+        return Component.literal("Dynamic Stats: " + (enabled ? "§aEnabled" : "§cDisabled"));
     }
 
     private static Component abilitiesLabel(boolean disabled) {
@@ -323,7 +345,9 @@ public class MaterialConfigScreen extends CompatScreen {
             int editBtnY = y + 5;
             boolean hoveredEdit = mouseX >= editBtnX && mouseX <= editBtnX + editBtnW && mouseY >= editBtnY && mouseY <= editBtnY + editBtnH && mouseY >= listTopY && mouseY <= listBottomY;
 
-            drawEditButton(guiGraphics, editBtnX, editBtnY, editBtnW, editBtnH, hoveredEdit);
+            if (!VoxelMaterialRegistry.isServerControlled()) {
+                drawEditButton(guiGraphics, editBtnX, editBtnY, editBtnW, editBtnH, hoveredEdit);
+            }
         }
 
         // Scrollbar
@@ -345,7 +369,9 @@ public class MaterialConfigScreen extends CompatScreen {
         guiGraphics.fill(0, 0, this.width, 32, 0xD0000000);
         guiGraphics.fill(0, 32, this.width, 33, 0x55FFFFFF);
         guiGraphics.text(this.font, this.title, centerX - (this.font.width(this.title) / 2), 8, 0xFFFFFFFF, true);
-        Component sub = Component.literal(tab == TAB_MATERIALS ? "Browse and edit material stats, palettes and items" : tab == TAB_ADD ? "Create a new custom material" : "Global mod settings");
+        Component sub = Component.literal(VoxelMaterialRegistry.isServerControlled()
+                ? "§eShowing the server's config (read-only while connected)"
+                : tab == TAB_MATERIALS ? "Browse and edit material stats, palettes and items" : tab == TAB_ADD ? "Create a new custom material" : "Global mod settings");
         guiGraphics.text(this.font, sub, centerX - (this.font.width(sub) / 2), 20, 0xFFAAAAAA, false);
 
         // Fixed Footer Backdrop
@@ -381,7 +407,7 @@ public class MaterialConfigScreen extends CompatScreen {
             return true;
         }
 
-        if (mouseY >= listTopY && mouseY <= listBottomY && mouseX >= cardX && mouseX <= cardX + CARD_WIDTH) {
+        if (!VoxelMaterialRegistry.isServerControlled() && mouseY >= listTopY && mouseY <= listBottomY && mouseX >= cardX && mouseX <= cardX + CARD_WIDTH) {
             List<VoxelMaterial> mats = new ArrayList<>(VoxelMaterialRegistry.getAll());
             for (int i = 0; i < mats.size(); i++) {
                 int y = listTopY - scrollY + (i * ROW_SPACING);
@@ -467,11 +493,13 @@ public class MaterialConfigScreen extends CompatScreen {
             String t = String.valueOf(GRID_SIZES[i]);
             g.text(this.font, Component.literal(t), mx - this.font.width(t) / 2, LIST_TOP + 50, 0xFFAAAAAA, false);
         }
-        Component warn = Component.literal("§cChanging grid resolution requires a server and client restart.");
-        g.text(this.font, warn, centerX - this.font.width(warn) / 2, LIST_TOP + 62, 0xFFFF5555, false);
+        Component note = Component.literal("§7Edited forged weapons do not rescale when changing grid resolution.");
+        g.text(this.font, note, centerX - this.font.width(note) / 2, LIST_TOP + 62, 0xFFAAAAAA, false);
         g.text(this.font, Component.literal("Combat"), x, LIST_TOP + 84, 0xFFEEEEEE, true);
         Component hint = Component.literal("Disables all sword and bow abilities; weapons keep their stats.");
         g.text(this.font, hint, centerX - this.font.width(hint) / 2, LIST_TOP + 120, 0xFFFFFFFF, false);
+        Component statsHint = Component.literal("When off, materials are free and weapons use base stats.");
+        g.text(this.font, statsHint, centerX - this.font.width(statsHint) / 2, LIST_TOP + 158, 0xFFFFFFFF, false);
     }
 
     private void drawEditButton(Gfx g, int x, int y, int w, int h, boolean hovered) {

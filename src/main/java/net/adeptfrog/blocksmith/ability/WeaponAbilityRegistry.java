@@ -15,6 +15,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
@@ -86,10 +87,11 @@ public class WeaponAbilityRegistry {
             @Override
             public void onMeleeHit(ItemStack sword, Player player, LivingEntity target) {
                 if (player.level() instanceof ServerLevel serverLevel) {
-                    // Scan for nearby living enemies within 8 blocks (16x16x16 area)
+                    // Scan for nearby hostile mobs within 8 blocks (16x16x16 area); armor stands, villagers,
+                    // pets and passive mobs do not count
                     AABB area = AABB.ofSize(player.position(), 16, 16, 16);
                     List<LivingEntity> nearbyEnemies = serverLevel.getEntitiesOfClass(LivingEntity.class, area, e ->
-                            e != player && e != target && e.isAlive() && !e.isSpectator() && !player.isAlliedTo(e)
+                            e instanceof Enemy && e != target && e.isAlive() && !e.isSpectator() && !player.isAlliedTo(e)
                     );
                     int enemyCount = Math.min(32, nearbyEnemies.size()); // Max +64.0 damage bonus cap
 
@@ -133,7 +135,8 @@ public class WeaponAbilityRegistry {
                 return Component.literal(
                         "§7When hit by any projectile, "+
                                 "instantly teleports near the attacker "+
-                                "and dodges the damage instance.");
+                                "and dodges the damage instance. "+
+                                "If teleport fails, damage instance is still dodged.");
             }
             @Override public WeaponType weaponType() { return WeaponType.SWORD; }
             @Override public Map<MaterialGroup, Double> requiredThresholds() {
@@ -178,6 +181,12 @@ public class WeaponAbilityRegistry {
                             return false;
                         }
                     }
+
+                    // No safe spot near the attacker (a tight space): still dodge, without moving the player
+                    serverLevel.sendParticles(ParticleTypes.PORTAL, oldPos.x, oldPos.y + 0.5, oldPos.z, 30, 0.3, 0.5, 0.3, 0.1);
+                    serverLevel.playSound(null, oldPos.x, oldPos.y, oldPos.z, SoundEvents.ENDERMAN_TELEPORT, SoundSource.PLAYERS, 1.0F, 1.0F);
+                    EntityCompat.addCooldown(player, sword, 100);
+                    return false;
                 }
                 return true;
             }

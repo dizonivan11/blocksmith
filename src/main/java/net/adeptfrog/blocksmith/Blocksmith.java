@@ -1,5 +1,6 @@
 package net.adeptfrog.blocksmith;
 
+import net.adeptfrog.blocksmith.ability.BlocksmithCombatHooks;
 import net.adeptfrog.blocksmith.ability.BurstFireScheduler;
 import net.adeptfrog.blocksmith.ability.DoubleAttackScheduler;
 import net.adeptfrog.blocksmith.ability.SingularityVortexScheduler;
@@ -8,10 +9,14 @@ import net.adeptfrog.blocksmith.compat.McCompat;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.network.SaveWeaponVoxelsPayload;
+import net.adeptfrog.blocksmith.network.ServerSettingsPayload;
 import net.adeptfrog.blocksmith.network.StartVortexPayload;
 import net.fabricmc.api.ModInitializer;
 
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.network.chat.Component;
 
 import net.minecraft.world.item.*;
@@ -67,8 +72,6 @@ public class Blocksmith implements ModInitializer {
 			ModularSwordItem::new,
 			McCompat.swordProperties(new Item.Properties())
 					.durability(ModularSwordItem.calculateDefaultMaxDurability())
-					.component(ModDataComponents.WEAPON_VOXELS, ModularSwordItem.getDefaultVoxels())
-					.component(ModDataComponents.WEAPON_OFFSET, ModularSwordItem.getDefaultOffset())
 					.attributes(ModularSwordItem.createDefaultAttributes())
 	);
 
@@ -77,8 +80,6 @@ public class Blocksmith implements ModInitializer {
 			ModularBowItem::new,
 			McCompat.bowProperties(new Item.Properties())
 					.durability(ModularBowItem.calculateDefaultMaxDurability())
-					.component(ModDataComponents.WEAPON_VOXELS, ModularBowItem.getDefaultBowVoxels())
-					.component(ModDataComponents.WEAPON_OFFSET, ModularBowItem.getDefaultBowOffset())
 	);
 
 	public static final CreativeModeTab BLOCKSMITH_TAB = CreativeModeTab.builder(CreativeModeTab.Row.BOTTOM, 0)
@@ -100,6 +101,7 @@ public class Blocksmith implements ModInitializer {
 		VoxelMaterialRegistry.initialize();
 		ModDataComponents.initialize();
 		SaveWeaponVoxelsPayload.register();
+		ServerSettingsPayload.register();
 		McCompat.register(BuiltInRegistries.CREATIVE_MODE_TAB, "blocksmith_tab", BLOCKSMITH_TAB);
 
 		// Register ability timers
@@ -107,6 +109,17 @@ public class Blocksmith implements ModInitializer {
 			BurstFireScheduler.tick();
 			DoubleAttackScheduler.tick();
 			SingularityVortexScheduler.tick();
+		});
+		ServerLifecycleEvents.SERVER_STOPPED.register(unused4 -> {
+			BurstFireScheduler.clear();
+			DoubleAttackScheduler.clear();
+			SingularityVortexScheduler.clear();
+		});
+
+		// Remember how charged each swing is: melee abilities only fire on charged swings
+		AttackEntityCallback.EVENT.register((player, level, hand, entity, hitResult) -> {
+			if (!level.isClientSide()) BlocksmithCombatHooks.beforeAttack(player);
+			return InteractionResult.PASS;
 		});
 
 		// Handles Singularity Ability particle spawning

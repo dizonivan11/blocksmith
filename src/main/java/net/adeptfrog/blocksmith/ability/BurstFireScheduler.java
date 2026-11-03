@@ -22,6 +22,11 @@ public class BurstFireScheduler {
         TASKS.add(new BurstTask(level, player.getUUID(), bow.copy(), power, 2, 3));
     }
 
+    /** Drops pending tasks: they hold the old world and must not carry into the next one. */
+    public static void clear() {
+        TASKS.clear();
+    }
+
     public static void tick() {
         if (TASKS.isEmpty()) return;
 

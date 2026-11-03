@@ -1,5 +1,6 @@
 package net.adeptfrog.blocksmith.item;
 
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.ItemStack;
@@ -18,4 +19,12 @@ public abstract class BowItemBase extends BowItem {
 
     /** Called when the player lets go of the bow; returns true if an arrow was shot. */
     protected abstract boolean release(ItemStack stack, Level level, LivingEntity entity, int timeLeft);
+
+    @Override
+    public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
+        if (!level.isClientSide()) serverInventoryTick(stack);
+    }
+
+    /** Called every tick on the server while the stack is in an inventory. */
+    protected void serverInventoryTick(ItemStack stack) {}
 }

@@ -26,6 +26,11 @@ public record VoxelMaterial(
     public int getBonusDurability() { return bonusDurability; }
     public int[] getPalette() { return palette; }
 
+    // Contributions to weapon stats: zero while Dynamic Stats is off
+    public float statDamage() { return VoxelMaterialRegistry.isDynamicStats() ? bonusDamage : 0f; }
+    public float statSpeed() { return VoxelMaterialRegistry.isDynamicStats() ? bonusSpeed : 0f; }
+    public int statDurability() { return VoxelMaterialRegistry.isDynamicStats() ? bonusDurability : 0; }
+
     @Override
     public String toString() {
         return this.id;

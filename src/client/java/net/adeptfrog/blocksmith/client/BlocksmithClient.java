@@ -43,6 +43,9 @@ public class BlocksmithClient implements ClientModInitializer {
 						ClientVortexHandler.addVortex(new Vec3(payload.x(), payload.y(), payload.z()), payload.duration())));
 		ClientTickEvents.END_CLIENT_TICK.register(ClientVortexHandler::tick);
 
+		// Use the connected server's Dynamic Stats / Weapon Abilities settings
+		ServerSettingsClient.register();
+
 		// Client-side block interaction listener
 		UseBlockCallback.EVENT.register((player, level, hand, hitResult) -> {
 			if (level.isClientSide()) {
