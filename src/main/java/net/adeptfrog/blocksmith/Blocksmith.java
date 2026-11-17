@@ -8,17 +8,10 @@ import net.adeptfrog.blocksmith.block.WeaponTableBlock;
 import net.adeptfrog.blocksmith.compat.McCompat;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
-import net.adeptfrog.blocksmith.network.SaveWeaponVoxelsPayload;
-import net.adeptfrog.blocksmith.network.ServerSettingsPayload;
-import net.adeptfrog.blocksmith.network.StartVortexPayload;
-import net.fabricmc.api.ModInitializer;
 
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
-import net.minecraft.world.InteractionResult;
 import net.minecraft.network.chat.Component;
 
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.*;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
@@ -31,7 +24,7 @@ import net.adeptfrog.blocksmith.item.ModularSwordItem;
 import net.minecraft.core.registries.BuiltInRegistries;
 
 
-public class Blocksmith implements ModInitializer {
+public final class Blocksmith {
 	public static final String MOD_ID = "blocksmith";
 	public static int BASE_GRID_SIZE = 32;
 	public static final int MIN_VOXELS = 8;
@@ -52,77 +45,88 @@ public class Blocksmith implements ModInitializer {
 	// That way, it's clear which mod wrote info, warnings, and errors.
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-	public static final Block WEAPON_TABLE = McCompat.registerBlock(
-			"weapon_table",
-			WeaponTableBlock::new,
-			BlockBehaviour.Properties.of()
-					.strength(5f)
-					.sound(SoundType.ANVIL)
-					.lightLevel(unused2 -> 6)
-	);
+	// Registered objects. Forge only accepts registrations during its RegisterEvent, so these are created there
+	// (see the version's loader entry point) instead of when this class loads.
+	public static Block WEAPON_TABLE;
+	public static Item WEAPON_TABLE_ITEM;
+	public static Item MODULAR_SWORD;
+	public static Item MODULAR_BOW;
+	public static CreativeModeTab BLOCKSMITH_TAB;
 
-	public static final Item WEAPON_TABLE_ITEM = McCompat.registerItem(
-			"weapon_table",
-			props -> new BlockItem(WEAPON_TABLE, props),
-			new Item.Properties()
-	);
+	private Blocksmith() {
+	}
 
-	public static final Item MODULAR_SWORD = McCompat.registerItem(
-			"modular_sword",
-			ModularSwordItem::new,
-			McCompat.swordProperties(new Item.Properties())
-					.durability(ModularSwordItem.calculateDefaultMaxDurability())
-					.attributes(ModularSwordItem.createDefaultAttributes())
-	);
-
-	public static final Item MODULAR_BOW = McCompat.registerItem(
-			"modular_bow",
-			ModularBowItem::new,
-			McCompat.bowProperties(new Item.Properties())
-					.durability(ModularBowItem.calculateDefaultMaxDurability())
-	);
-
-	public static final CreativeModeTab BLOCKSMITH_TAB = CreativeModeTab.builder(CreativeModeTab.Row.BOTTOM, 0)
-			.icon(() -> new ItemStack(WEAPON_TABLE_ITEM))
-			.title(Component.translatable("itemGroup.blocksmith.blocksmith_tab"))
-			.displayItems((unused1, output) -> {
-				output.accept(WEAPON_TABLE_ITEM);
-				output.accept(MODULAR_SWORD);
-				output.accept(MODULAR_BOW);
-			})
-			.build();
-
-	@Override
-	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
+	/** Loads the config before anything that reads it (item default stats) is created. */
+	public static void initialize() {
 		VoxelMaterialRegistry.initialize();
-		ModDataComponents.initialize();
-		SaveWeaponVoxelsPayload.register();
-		ServerSettingsPayload.register();
-		McCompat.register(BuiltInRegistries.CREATIVE_MODE_TAB, "blocksmith_tab", BLOCKSMITH_TAB);
+	}
 
-		// Register ability timers
-		ServerTickEvents.END_SERVER_TICK.register(unused3 -> {
-			BurstFireScheduler.tick();
-			DoubleAttackScheduler.tick();
-			SingularityVortexScheduler.tick();
-		});
-		ServerLifecycleEvents.SERVER_STOPPED.register(unused4 -> {
-			BurstFireScheduler.clear();
-			DoubleAttackScheduler.clear();
-			SingularityVortexScheduler.clear();
-		});
+	public static void registerBlocks() {
+		WEAPON_TABLE = McCompat.registerBlock(
+				"weapon_table",
+				WeaponTableBlock::new,
+				BlockBehaviour.Properties.of()
+						.strength(5f)
+						.sound(SoundType.ANVIL)
+						.lightLevel(unused2 -> 6)
+		);
+	}
 
-		// Remember how charged each swing is: melee abilities only fire on charged swings
-		AttackEntityCallback.EVENT.register((player, level, hand, entity, hitResult) -> {
-			if (!level.isClientSide()) BlocksmithCombatHooks.beforeAttack(player);
-			return InteractionResult.PASS;
-		});
+	public static void registerItems() {
+		WEAPON_TABLE_ITEM = McCompat.registerItem(
+				"weapon_table",
+				props -> new BlockItem(WEAPON_TABLE, props),
+				new Item.Properties()
+		);
 
-		// Handles Singularity Ability particle spawning
-		McCompat.registerClientbound(StartVortexPayload.TYPE, StartVortexPayload.STREAM_CODEC);
+		MODULAR_SWORD = McCompat.registerItem(
+				"modular_sword",
+				ModularSwordItem::new,
+				McCompat.swordProperties(new Item.Properties())
+						.durability(ModularSwordItem.calculateDefaultMaxDurability())
+						.attributes(ModularSwordItem.createDefaultAttributes())
+		);
+
+		MODULAR_BOW = McCompat.registerItem(
+				"modular_bow",
+				ModularBowItem::new,
+				McCompat.bowProperties(new Item.Properties())
+						.durability(ModularBowItem.calculateDefaultMaxDurability())
+		);
+	}
+
+	public static void registerDataComponents() {
+		ModDataComponents.register();
+	}
+
+	public static void registerCreativeTabs() {
+		BLOCKSMITH_TAB = McCompat.register(BuiltInRegistries.CREATIVE_MODE_TAB, "blocksmith_tab", CreativeModeTab.builder()
+				.icon(() -> new ItemStack(WEAPON_TABLE_ITEM))
+				.title(Component.translatable("itemGroup.blocksmith.blocksmith_tab"))
+				.displayItems((unused1, output) -> {
+					output.accept(WEAPON_TABLE_ITEM);
+					output.accept(MODULAR_SWORD);
+					output.accept(MODULAR_BOW);
+				})
+				.build());
+	}
+
+	/** Ability timers: called at the end of every server tick. */
+	public static void onServerTick() {
+		BurstFireScheduler.tick();
+		DoubleAttackScheduler.tick();
+		SingularityVortexScheduler.tick();
+	}
+
+	/** Drops pending ability tasks: they hold the old world and must not carry into the next one. */
+	public static void onServerStopped() {
+		BurstFireScheduler.clear();
+		DoubleAttackScheduler.clear();
+		SingularityVortexScheduler.clear();
+	}
+
+	/** Remembers how charged each swing is: melee abilities only fire on charged swings. */
+	public static void onAttackEntity(Player player) {
+		if (!player.level().isClientSide()) BlocksmithCombatHooks.beforeAttack(player);
 	}
 }

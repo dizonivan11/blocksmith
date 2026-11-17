@@ -8,90 +8,105 @@ import net.adeptfrog.blocksmith.ability.WeaponAbility;
 import net.adeptfrog.blocksmith.ability.WeaponAbilityRegistry;
 import net.adeptfrog.blocksmith.client.render.ClientVortexHandler;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
-import net.adeptfrog.blocksmith.network.StartVortexPayload;
-import net.fabricmc.api.ClientModInitializer;
+import net.adeptfrog.blocksmith.network.BlocksmithNetwork;
 
 import net.adeptfrog.blocksmith.client.gui.CustomizationScreen;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FormattedText;
 import net.minecraft.network.chat.Style;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
 
-public class BlocksmithClient implements ClientModInitializer {
-	@Override
-	public void onInitializeClient() {
-		// This entrypoint is suitable for setting up client-specific logic, such as rendering.
+/**
+ * Client setup and the client's event handlers, independent of the mod loader. The version's
+ * {@code BlocksmithForgeClient} calls these from Forge's events.
+ */
+public final class BlocksmithClient {
+	private BlocksmithClient() {
+	}
 
+	/** Runs once while the mod is constructed on the client. */
+	public static void init() {
 		// Voxel renderer for the forged weapons (registration differs per Minecraft version)
 		ClientCompat.registerWeaponRenderer();
 
-		// Listen for server vortex start packet & tick client particles
-		ClientPlayNetworking.registerGlobalReceiver(StartVortexPayload.TYPE, (payload, context) ->
-				context.client().execute(() ->
-						ClientVortexHandler.addVortex(new Vec3(payload.x(), payload.y(), payload.z()), payload.duration())));
-		ClientTickEvents.END_CLIENT_TICK.register(ClientVortexHandler::tick);
+		// Listen for server vortex start packet
+		BlocksmithNetwork.onStartVortex = payload ->
+				ClientVortexHandler.addVortex(new Vec3(payload.x(), payload.y(), payload.z()), payload.duration());
 
 		// Use the connected server's Dynamic Stats / Weapon Abilities settings
 		ServerSettingsClient.register();
+	}
 
-		// Client-side block interaction listener
-		UseBlockCallback.EVENT.register((player, level, hand, hitResult) -> {
-			if (level.isClientSide()) {
-				BlockState state = level.getBlockState(hitResult.getBlockPos());
+	/** End of every client tick. */
+	public static void onClientTick(Minecraft client) {
+		ClientVortexHandler.tick(client);
+		ServerSettingsClient.tick(client);
+	}
 
-				if (state.is(Blocksmith.WEAPON_TABLE)) {
-					ItemStack held = player.getItemInHand(hand);
-					if (held.getItem() instanceof ModularSwordItem || held.getItem() instanceof ModularBowItem) {
-						InputCompat.openScreen(new CustomizationScreen(held));
-						return InteractionResult.SUCCESS;
-					} else {
-						EntityCompat.actionBar(player, Component.literal("§eHold a forged weapon in your hand to customize it!"));
-						return InteractionResult.CONSUME;
-					}
+	/** The client left a world or server. */
+	public static void onDisconnect() {
+		ServerSettingsClient.clear();
+	}
+
+	/**
+	 * Right-clicking a block. Anything but {@link InteractionResult#PASS} stops the click there, with that result.
+	 */
+	public static InteractionResult onUseBlock(Player player, Level level, InteractionHand hand, BlockHitResult hitResult) {
+		if (level.isClientSide()) {
+			BlockState state = level.getBlockState(hitResult.getBlockPos());
+
+			if (state.is(Blocksmith.WEAPON_TABLE)) {
+				ItemStack held = player.getItemInHand(hand);
+				if (held.getItem() instanceof ModularSwordItem || held.getItem() instanceof ModularBowItem) {
+					InputCompat.openScreen(new CustomizationScreen(held));
+					return InteractionResult.SUCCESS;
+				} else {
+					EntityCompat.actionBar(player, Component.literal("§eHold a forged weapon in your hand to customize it!"));
+					return InteractionResult.CONSUME;
 				}
 			}
-			return InteractionResult.PASS;
-		});
+		}
+		return InteractionResult.PASS;
+	}
 
-		// Register custom tooltip for Forged weapons
-		ItemTooltipCallback.EVENT.register((stack, unused4, unused5, lines) -> {
-			boolean isSword = stack.getItem() instanceof ModularSwordItem;
-			boolean isBow = stack.getItem() instanceof ModularBowItem;
-			boolean isModular = isSword || isBow;
-			if (isModular) {
-				List<WeaponAbility> abilities = WeaponAbilityRegistry.getUnlockedAbilities(stack);
+	/** Adds the ability lines to a forged weapon's tooltip. */
+	public static void onTooltip(ItemStack stack, List<Component> lines) {
+		boolean isSword = stack.getItem() instanceof ModularSwordItem;
+		boolean isBow = stack.getItem() instanceof ModularBowItem;
+		boolean isModular = isSword || isBow;
+		if (isModular) {
+			List<WeaponAbility> abilities = WeaponAbilityRegistry.getUnlockedAbilities(stack);
 
-				if (!abilities.isEmpty()) {
-					boolean holdingAlt = InputCompat.altDown();
+			if (!abilities.isEmpty()) {
+				boolean holdingAlt = InputCompat.altDown();
 
-					// Header prompt
-					lines.add(Component.literal(holdingAlt ? "§6✦ Abilities:" : "§6✦ Abilities: §8(Hold Alt for Info)"));
+				// Header prompt
+				lines.add(Component.literal(holdingAlt ? "§6✦ Abilities:" : "§6✦ Abilities: §8(Hold Alt for Info)"));
 
-					for (WeaponAbility ability : abilities) {
-						lines.add(Component.literal("  ").append(ability.displayName()));
+				for (WeaponAbility ability : abilities) {
+					lines.add(Component.literal("  ").append(ability.displayName()));
 
-						// Show description indented below the ability name when Alt is pressed
-						if (holdingAlt && !ability.description().getString().isEmpty()) {
-							Font font = Minecraft.getInstance().font;
-							for (FormattedText wrappedLine : font.getSplitter().splitLines(ability.description(), 165, Style.EMPTY)) {
-								lines.add(Component.literal("    §7" + wrappedLine.getString().trim()));
-							}
+					// Show description indented below the ability name when Alt is pressed
+					if (holdingAlt && !ability.description().getString().isEmpty()) {
+						Font font = Minecraft.getInstance().font;
+						for (FormattedText wrappedLine : font.getSplitter().splitLines(ability.description(), 165, Style.EMPTY)) {
+							lines.add(Component.literal("    §7" + wrappedLine.getString().trim()));
 						}
 					}
 				}
 			}
-		});
+		}
 	}
 }

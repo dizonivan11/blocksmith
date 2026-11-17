@@ -21,7 +21,7 @@ import net.adeptfrog.blocksmith.data.*;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
 import net.adeptfrog.blocksmith.network.SaveWeaponVoxelsPayload;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.adeptfrog.blocksmith.network.BlocksmithNetwork;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
@@ -1039,7 +1039,7 @@ public class CustomizationScreen extends CompatScreen {
                 WeaponOffset newOffset = new WeaponOffset(workingOffsetX, workingOffsetY);
                 weaponStack.set(ModDataComponents.WEAPON_OFFSET, newOffset);
                 ModularSwordItem.saveVoxels(weaponStack, workingVoxels);
-                ClientPlayNetworking.send(new SaveWeaponVoxelsPayload(workingVoxels, newOffset));
+                BlocksmithNetwork.sendToServer(new SaveWeaponVoxelsPayload(workingVoxels, newOffset));
                 recalculateCachedStats();
                 this.saveFeedbackTimer = 40;
             } else {

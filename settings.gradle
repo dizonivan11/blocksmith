@@ -1,12 +1,17 @@
 pluginManagement {
 	repositories {
 		maven {
-			name = 'Fabric'
-			url = 'https://maven.fabricmc.net/'
+			name = 'MinecraftForge'
+			url = 'https://maven.minecraftforge.net/'
 		}
 		mavenCentral()
 		gradlePluginPortal()
 	}
+}
+
+plugins {
+	// Lets Gradle download the JDK a version needs (21 for 1.21.1, 25 for 26.x) when it is not installed.
+	id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 
 // Should match your modid

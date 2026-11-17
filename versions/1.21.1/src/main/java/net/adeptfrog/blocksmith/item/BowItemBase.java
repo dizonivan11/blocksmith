@@ -5,6 +5,9 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
+
+import java.util.function.Consumer;
 
 /** Minecraft 1.21.1: releaseUsing returns nothing. The shared bow implements {@link #release}. */
 public abstract class BowItemBase extends BowItem {
@@ -27,4 +30,10 @@ public abstract class BowItemBase extends BowItem {
 
     /** Called every tick on the server while the stack is in an inventory. */
     protected void serverInventoryTick(ItemStack stack) {}
+
+    /** Forge calls this on the client only: the voxel renderer for the item's "builtin/entity" model. */
+    @Override
+    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+        consumer.accept(net.adeptfrog.blocksmith.client.render.ModularWeaponItemExtensions.INSTANCE);
+    }
 }

@@ -1,13 +1,10 @@
 package net.adeptfrog.blocksmith.compat;
 
 import net.adeptfrog.blocksmith.Blocksmith;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -56,14 +53,6 @@ public final class McCompat {
 
     public static <T extends CustomPacketPayload> CustomPacketPayload.Type<T> payloadType(String path) {
         return new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath(Blocksmith.MOD_ID, path));
-    }
-
-    public static <T extends CustomPacketPayload> void registerServerbound(CustomPacketPayload.Type<T> type, StreamCodec<RegistryFriendlyByteBuf, T> codec) {
-        PayloadTypeRegistry.serverboundPlay().register(type, codec);
-    }
-
-    public static <T extends CustomPacketPayload> void registerClientbound(CustomPacketPayload.Type<T> type, StreamCodec<RegistryFriendlyByteBuf, T> codec) {
-        PayloadTypeRegistry.clientboundPlay().register(type, codec);
     }
 
     /** Flat attribute bonus with a vanilla id ("base_attack_damage" makes the tooltip show it like a vanilla weapon's). */

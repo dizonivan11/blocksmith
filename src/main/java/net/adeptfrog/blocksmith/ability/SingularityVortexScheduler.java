@@ -3,7 +3,7 @@ package net.adeptfrog.blocksmith.ability;
 import net.adeptfrog.blocksmith.compat.EntityCompat;
 import net.adeptfrog.blocksmith.compat.HurtCompat;
 import net.adeptfrog.blocksmith.network.StartVortexPayload;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.adeptfrog.blocksmith.network.BlocksmithNetwork;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -34,7 +34,7 @@ public class SingularityVortexScheduler {
         StartVortexPayload packet = new StartVortexPayload(center.x, center.y, center.z, durationTicks);
         for (ServerPlayer player : level.players()) {
             if (player.distanceToSqr(center) < 64 * 64) {
-                ServerPlayNetworking.send(player, packet);
+                BlocksmithNetwork.sendToPlayer(player, packet);
             }
         }
     }

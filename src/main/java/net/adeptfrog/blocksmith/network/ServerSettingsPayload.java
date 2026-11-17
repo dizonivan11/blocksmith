@@ -3,9 +3,6 @@ package net.adeptfrog.blocksmith.network;
 import net.adeptfrog.blocksmith.Blocksmith;
 import net.adeptfrog.blocksmith.compat.McCompat;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -65,21 +62,27 @@ public record ServerSettingsPayload(String config, ItemDefaults sword, ItemDefau
     }
 
     public static void register() {
-        McCompat.registerClientbound(TYPE, STREAM_CODEC);
-
-        ServerLifecycleEvents.SERVER_STARTED.register(s -> server = s);
-        ServerLifecycleEvents.SERVER_STOPPED.register(s -> server = null);
-        ServerPlayConnectionEvents.JOIN.register((handler, sender, s) -> sender.sendPacket(current()));
-
         // A LAN host changing the config in game: tell the players already connected
         VoxelMaterialRegistry.onSettingsChanged(() -> {
             MinecraftServer s = server;
             if (s != null) s.execute(() -> {
                 ServerSettingsPayload payload = current();
                 for (ServerPlayer player : s.getPlayerList().getPlayers()) {
-                    ServerPlayNetworking.send(player, payload);
+                    BlocksmithNetwork.sendToPlayer(player, payload);
                 }
             });
         });
+    }
+
+    public static void onServerStarted(MinecraftServer s) {
+        server = s;
+    }
+
+    public static void onServerStopped() {
+        server = null;
+    }
+
+    public static void onPlayerJoin(ServerPlayer player) {
+        BlocksmithNetwork.sendToPlayer(player, current());
     }
 }

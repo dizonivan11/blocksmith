@@ -1,10 +1,10 @@
 package net.adeptfrog.blocksmith.client.compat;
 
 import net.adeptfrog.blocksmith.Blocksmith;
+import net.adeptfrog.blocksmith.client.mixin.SpecialModelRenderersAccessor;
 import net.adeptfrog.blocksmith.client.render.ModularWeaponSpecialRenderer;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.MultiLineEditBox;
-import net.minecraft.client.renderer.special.SpecialModelRenderers;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Player;
@@ -16,7 +16,7 @@ public final class ClientCompat {
 
     /** Registers the voxel renderer that the forged weapons' item models (assets/blocksmith/items) point at. */
     public static void registerWeaponRenderer() {
-        SpecialModelRenderers.ID_MAPPER.put(
+        SpecialModelRenderersAccessor.blocksmith$idMapper().put(
                 Identifier.fromNamespaceAndPath(Blocksmith.MOD_ID, "modular_weapon"),
                 ModularWeaponSpecialRenderer.Unbaked.MAP_CODEC
         );

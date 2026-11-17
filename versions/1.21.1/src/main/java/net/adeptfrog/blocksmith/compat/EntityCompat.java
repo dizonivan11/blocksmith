@@ -1,5 +1,7 @@
 package net.adeptfrog.blocksmith.compat;
 
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
@@ -27,6 +29,11 @@ public final class EntityCompat {
     /** The entity's scoreboard tags (the forged bow stores arrow abilities there). */
     public static Set<String> tags(Entity entity) {
         return entity.getTags();
+    }
+
+    /** The server this player is on. */
+    public static MinecraftServer server(ServerPlayer player) {
+        return player.server;
     }
 
     /** Shows a message above the hotbar. */

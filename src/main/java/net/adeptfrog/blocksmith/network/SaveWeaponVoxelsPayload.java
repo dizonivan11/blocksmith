@@ -9,13 +9,13 @@ import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -49,101 +49,97 @@ public record SaveWeaponVoxelsPayload(List<WeaponVoxel> voxels, WeaponOffset off
         return TYPE;
     }
 
-    public static void register() {
-        McCompat.registerServerbound(TYPE, STREAM_CODEC);
+    /** Saves a design the player made in the Forging Table. Runs on the server thread. */
+    public static void handle(SaveWeaponVoxelsPayload payload, ServerPlayer player) {
+        ItemStack stack = player.getMainHandItem();
+        boolean isModular = stack.getItem() instanceof ModularSwordItem || stack.getItem() instanceof ModularBowItem;
 
-        ServerPlayNetworking.registerGlobalReceiver(TYPE, (payload, context) -> context.server().execute(() -> {
-            Player player = context.player();
-            ItemStack stack = player.getMainHandItem();
-            boolean isModular = stack.getItem() instanceof ModularSwordItem || stack.getItem() instanceof ModularBowItem;
+        if (!isModular) {
+            stack = player.getOffhandItem();
+            isModular = stack.getItem() instanceof ModularSwordItem || stack.getItem() instanceof ModularBowItem;
+            if (!isModular) return;
+        }
 
-            if (!isModular) {
-                stack = player.getOffhandItem();
-                isModular = stack.getItem() instanceof ModularSwordItem || stack.getItem() instanceof ModularBowItem;
-                if (!isModular) return;
-            }
+        // Each save walks the whole design: at most one per SAVE_INTERVAL_TICKS per player
+        int now = EntityCompat.server(player).getTickCount();
+        Integer last = LAST_SAVE.put(player.getUUID(), now);
+        if (last != null && now >= last && now - last < SAVE_INTERVAL_TICKS) return;
 
-            // Each save walks the whole design: at most one per SAVE_INTERVAL_TICKS per player
-            int now = context.server().getTickCount();
-            Integer last = LAST_SAVE.put(player.getUUID(), now);
-            if (last != null && now >= last && now - last < SAVE_INTERVAL_TICKS) return;
+        // The editor only opens from a Forging Table, so saving needs one nearby
+        if (!isNearWeaponTable(player)) {
+            EntityCompat.actionBar(player, Component.literal("§cYou must be near a Forging Table to save!"));
+            player.inventoryMenu.broadcastChanges();
+            return;
+        }
 
-            // The editor only opens from a Forging Table, so saving needs one nearby
-            if (!isNearWeaponTable(player)) {
-                EntityCompat.actionBar(player, Component.literal("§cYou must be near a Forging Table to save!"));
-                player.inventoryMenu.broadcastChanges();
-                return;
-            }
+        int gridSize = VoxelMaterialRegistry.getGridSize();
+        List<WeaponVoxel> newVoxels = validVoxels(payload.voxels(), gridSize);
+        WeaponOffset newOffset = payload.offset();
 
-            int gridSize = VoxelMaterialRegistry.getGridSize();
-            List<WeaponVoxel> newVoxels = validVoxels(payload.voxels(), gridSize);
-            WeaponOffset newOffset = payload.offset();
+        // Voxel count limit check (across all layers)
+        if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_TOTAL_VOXELS()) {
+            EntityCompat.actionBar(player, Component.literal("§cInvalid voxel count!"));
+            player.inventoryMenu.broadcastChanges();
+            return;
+        }
 
-            // Voxel count limit check (across all layers)
-            if (newVoxels.size() < MIN_VOXELS || newVoxels.size() > MAX_TOTAL_VOXELS()) {
-                EntityCompat.actionBar(player, Component.literal("§cInvalid voxel count!"));
-                player.inventoryMenu.broadcastChanges();
-                return;
-            }
+        // Grip offset limit check
+        if (Math.abs(newOffset.x()) > gridSize || Math.abs(newOffset.y()) > gridSize) {
+            EntityCompat.actionBar(player, Component.literal("§cInvalid grip offset!"));
+            player.inventoryMenu.broadcastChanges();
+            return;
+        }
 
-            // Grip offset limit check
-            if (Math.abs(newOffset.x()) > gridSize || Math.abs(newOffset.y()) > gridSize) {
-                EntityCompat.actionBar(player, Component.literal("§cInvalid grip offset!"));
-                player.inventoryMenu.broadcastChanges();
-                return;
-            }
+        List<WeaponVoxel> originalVoxels = stack.getItem() instanceof ModularSwordItem
+                ? ModularSwordItem.getVoxels(stack)
+                : ModularBowItem.getVoxels(stack);
 
-            List<WeaponVoxel> originalVoxels = stack.getItem() instanceof ModularSwordItem
-                    ? ModularSwordItem.getVoxels(stack)
-                    : ModularBowItem.getVoxels(stack);
+        Map<Item, Integer> itemDiffs = new HashMap<>();
 
-            Map<Item, Integer> itemDiffs = new HashMap<>();
+        for (WeaponVoxel v : newVoxels) {
+            Item item = v.material().getIconItem();
+            itemDiffs.merge(item, 1, Integer::sum);
+        }
 
-            for (WeaponVoxel v : newVoxels) {
-                Item item = v.material().getIconItem();
-                itemDiffs.merge(item, 1, Integer::sum);
-            }
+        for (WeaponVoxel v : originalVoxels) {
+            Item item = v.material().getIconItem();
+            itemDiffs.merge(item, -1, Integer::sum);
+        }
 
-            for (WeaponVoxel v : originalVoxels) {
-                Item item = v.material().getIconItem();
-                itemDiffs.merge(item, -1, Integer::sum);
-            }
+        if (!VoxelMaterialRegistry.areMaterialsFree(player)) {
+            for (Map.Entry<Item, Integer> entry : itemDiffs.entrySet()) {
+                Item item = entry.getKey();
+                int needed = entry.getValue();
 
-            if (!VoxelMaterialRegistry.areMaterialsFree(player)) {
-                for (Map.Entry<Item, Integer> entry : itemDiffs.entrySet()) {
-                    Item item = entry.getKey();
-                    int needed = entry.getValue();
-
-                    if (needed > 0) {
-                        int has = countItem(player, item);
-                        if (has < needed) {
-                            int missing = needed - has;
-                            EntityCompat.actionBar(player, 
-                                    Component.literal("§cCannot save: Missing " + missing + "x " + item.getName(new ItemStack(item)).getString() + "!")
-                            );
-                            player.inventoryMenu.broadcastChanges();
-                            return;
-                        }
+                if (needed > 0) {
+                    int has = countItem(player, item);
+                    if (has < needed) {
+                        int missing = needed - has;
+                        EntityCompat.actionBar(player, 
+                                Component.literal("§cCannot save: Missing " + missing + "x " + item.getName(new ItemStack(item)).getString() + "!")
+                        );
+                        player.inventoryMenu.broadcastChanges();
+                        return;
                     }
                 }
-
-                for (Map.Entry<Item, Integer> entry : itemDiffs.entrySet()) {
-                    Item item = entry.getKey();
-                    int diff = entry.getValue();
-                    if (diff > 0) consumeItem(player, item, diff);
-                }
             }
 
-            // Save data
-            if (stack.getItem() instanceof ModularSwordItem) {
-                ModularSwordItem.saveVoxels(stack, newVoxels);
-            } else {
-                ModularBowItem.saveVoxels(stack, newVoxels);
+            for (Map.Entry<Item, Integer> entry : itemDiffs.entrySet()) {
+                Item item = entry.getKey();
+                int diff = entry.getValue();
+                if (diff > 0) consumeItem(player, item, diff);
             }
-            stack.set(ModDataComponents.WEAPON_OFFSET, newOffset);
+        }
 
-            player.inventoryMenu.broadcastChanges();
-        }));
+        // Save data
+        if (stack.getItem() instanceof ModularSwordItem) {
+            ModularSwordItem.saveVoxels(stack, newVoxels);
+        } else {
+            ModularBowItem.saveVoxels(stack, newVoxels);
+        }
+        stack.set(ModDataComponents.WEAPON_OFFSET, newOffset);
+
+        player.inventoryMenu.broadcastChanges();
     }
 
     /**

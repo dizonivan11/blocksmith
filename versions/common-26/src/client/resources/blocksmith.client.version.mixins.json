@@ -2,7 +2,9 @@
 	"required": true,
 	"package": "net.adeptfrog.blocksmith.client.mixin",
 	"compatibilityLevel": "JAVA_21",
-	"client": [],
+	"client": [
+		"SpecialModelRenderersAccessor"
+	],
 	"injectors": {
 		"defaultRequire": 1
 	}

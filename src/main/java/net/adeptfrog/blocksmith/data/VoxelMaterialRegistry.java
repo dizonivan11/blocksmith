@@ -5,7 +5,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import net.adeptfrog.blocksmith.Blocksmith;
-import net.fabricmc.loader.api.FabricLoader;
+import net.adeptfrog.blocksmith.platform.Platform;
 import net.minecraft.world.entity.player.Player;
 
 import java.io.File;
@@ -16,7 +16,7 @@ import java.util.*;
 
 public class VoxelMaterialRegistry {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final File CONFIG_FILE = FabricLoader.getInstance().getConfigDir().resolve("blocksmith_materials.json").toFile();
+    private static final File CONFIG_FILE = Platform.configDir().resolve("blocksmith_materials.json").toFile();
 
     private static final Map<String, VoxelMaterial> MATERIALS = new LinkedHashMap<>();
 

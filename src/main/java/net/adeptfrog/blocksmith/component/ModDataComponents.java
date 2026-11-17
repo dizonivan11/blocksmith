@@ -1,7 +1,6 @@
 package net.adeptfrog.blocksmith.component;
 
 import net.adeptfrog.blocksmith.compat.McCompat;
-import net.adeptfrog.blocksmith.Blocksmith;
 import net.adeptfrog.blocksmith.data.WeaponOffset;
 import net.adeptfrog.blocksmith.data.WeaponVoxel;
 import net.minecraft.core.component.DataComponentType;
@@ -11,23 +10,19 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import java.util.List;
 
 public class ModDataComponents {
-    public static final DataComponentType<List<WeaponVoxel>> WEAPON_VOXELS = McCompat.register(
-            BuiltInRegistries.DATA_COMPONENT_TYPE,
-            "weapon_voxels",
-            DataComponentType.<List<WeaponVoxel>>builder()
-                    .persistent(WeaponVoxel.LIST_CODEC)
-                    .networkSynchronized(WeaponVoxel.LIST_STREAM_CODEC)
-                    .build()
-    );
+    // Created when this class loads and registered later, in Forge's RegisterEvent (see register()).
+    public static final DataComponentType<List<WeaponVoxel>> WEAPON_VOXELS = DataComponentType.<List<WeaponVoxel>>builder()
+            .persistent(WeaponVoxel.LIST_CODEC)
+            .networkSynchronized(WeaponVoxel.LIST_STREAM_CODEC)
+            .build();
 
-    public static final DataComponentType<WeaponOffset> WEAPON_OFFSET = McCompat.register(
-            BuiltInRegistries.DATA_COMPONENT_TYPE,
-            "weapon_offset",
-            DataComponentType.<WeaponOffset>builder()
-                    .persistent(WeaponOffset.CODEC)
-                    .networkSynchronized(WeaponOffset.STREAM_CODEC)
-                    .build()
-    );
+    public static final DataComponentType<WeaponOffset> WEAPON_OFFSET = DataComponentType.<WeaponOffset>builder()
+            .persistent(WeaponOffset.CODEC)
+            .networkSynchronized(WeaponOffset.STREAM_CODEC)
+            .build();
 
-    public static void initialize() {}
+    public static void register() {
+        McCompat.register(BuiltInRegistries.DATA_COMPONENT_TYPE, "weapon_voxels", WEAPON_VOXELS);
+        McCompat.register(BuiltInRegistries.DATA_COMPONENT_TYPE, "weapon_offset", WEAPON_OFFSET);
+    }
 }

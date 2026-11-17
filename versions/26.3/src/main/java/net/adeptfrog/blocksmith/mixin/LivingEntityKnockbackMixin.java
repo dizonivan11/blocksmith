@@ -15,7 +15,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(LivingEntity.class)
 public abstract class LivingEntityKnockbackMixin {
-	@Inject(method = "knockback", at = @At("HEAD"), cancellable = true)
+	// Full descriptor: there is also a 5-argument overload, which delegates to this one
+	@Inject(method = "knockback(DDDLnet/minecraft/world/damagesource/DamageSource;FZ)V", at = @At("HEAD"), cancellable = true)
 	private void blocksmith$cancelDamageKnockback(double power, double xd, double zd, DamageSource source, float damage, boolean comesFromEffect, CallbackInfo ci) {
 		if (BlocksmithCombatHooks.CANCEL_KNOCKBACK.get()) {
 			ci.cancel();

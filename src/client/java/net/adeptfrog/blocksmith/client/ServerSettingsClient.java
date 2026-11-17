@@ -5,11 +5,9 @@ import net.adeptfrog.blocksmith.compat.EntityCompat;
 import net.adeptfrog.blocksmith.data.VoxelMaterialRegistry;
 import net.adeptfrog.blocksmith.item.ModularBowItem;
 import net.adeptfrog.blocksmith.item.ModularSwordItem;
+import net.adeptfrog.blocksmith.network.BlocksmithNetwork;
 import net.adeptfrog.blocksmith.network.ServerSettingsPayload;
 import net.adeptfrog.blocksmith.network.ServerSettingsPayload.ItemDefaults;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
@@ -39,10 +37,7 @@ public final class ServerSettingsClient {
     private ServerSettingsClient() {}
 
     public static void register() {
-        ClientPlayNetworking.registerGlobalReceiver(ServerSettingsPayload.TYPE, (payload, context) ->
-                context.client().execute(() -> apply(context.client(), payload)));
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(ServerSettingsClient::clear));
-        ClientTickEvents.END_CLIENT_TICK.register(ServerSettingsClient::tick);
+        BlocksmithNetwork.onServerSettings = payload -> apply(Minecraft.getInstance(), payload);
     }
 
     private static void apply(Minecraft client, ServerSettingsPayload payload) {
@@ -68,12 +63,13 @@ public final class ServerSettingsClient {
         }
     }
 
-    private static void clear() {
+    /** Back to the local config: called when the client disconnects. */
+    static void clear() {
         fixes = List.of();
         VoxelMaterialRegistry.clearServerConfig();
     }
 
-    private static void tick(Minecraft client) {
+    static void tick(Minecraft client) {
         List<Fix<?>> f = fixes;
         Player player = client.player;
         if (f.isEmpty() || player == null) return;

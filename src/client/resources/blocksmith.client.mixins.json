@@ -3,15 +3,13 @@
 	"package": "net.adeptfrog.blocksmith.client.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"client": [
-		"ExampleClientMixin"
+		"ExampleClientMixin",
+		"HudMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
 	},
 	"overwrites": {
 		"requireAnnotations": true
-	},
-    "mixins": [
-      "HudMixin"
-    ]
+	}
 }

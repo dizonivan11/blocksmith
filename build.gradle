@@ -1,4 +1,4 @@
-// Root project: holds the shared sources (src/) and configures one subproject per Minecraft version.
+// Root project: holds the shared sources (src/) and configures one Forge subproject per Minecraft version.
 //   ./gradlew :1.21.1:build   ./gradlew :26.1.2:build   ./gradlew :26.3:build
 //   ./gradlew :26.3:runClient    ./gradlew build  (all versions)
 // Jars end up in versions/<minecraft>/build/libs/.
@@ -7,131 +7,130 @@
 //   src/                          shared by every version (Java 21 syntax, no version-specific Minecraft API)
 //   versions/common-26/src/       shared by the 26.x versions (source_group=common-26)
 //   versions/<minecraft>/src/     that version only
+//
+// Forge builds a single jar for both sides, so src/<dir>/main and src/<dir>/client are compiled together. Code in
+// main must still never name a class from client: Forge only loads client classes on the client.
 plugins {
-	// 26.x is unobfuscated (no remapping); 1.21.1 is obfuscated and uses the remapping plugin with Mojang mappings.
-	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
-	id 'fabric-loom' version "${loom_version}" apply false
+	id 'net.minecraftforge.gradle' version "${forgegradle_version}" apply false
 }
 
 subprojects {
-	def obfuscated = project.obfuscated.toBoolean()
-	apply plugin: obfuscated ? 'fabric-loom' : 'net.fabricmc.fabric-loom'
+	apply plugin: 'java'
+	apply plugin: 'idea'
+	apply plugin: 'eclipse'
 	apply plugin: 'maven-publish'
+	apply plugin: 'net.minecraftforge.gradle'
 
 	def shared = rootProject.file('src')
 	def group = project.source_group?.trim()
 	def groupDir = group ? rootProject.file("versions/${group}/src") : null
 	def javaVersion = project.java_version.toInteger()
+	def modId = rootProject.name
+	def mappingsVersion = project.findProperty('mappings_version')?.trim()
 
 	base {
-		archivesName = rootProject.name
+		archivesName = modId
 	}
-	version = "${rootProject.version}+${project.minecraft_version}"
+	version = "${rootProject.version}+${project.minecraft_version}-forge"
 	project.group = rootProject.group
 
-	repositories {
-		// Add repositories to retrieve artifacts from in here.
-		// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	}
+	java.toolchain.languageVersion = JavaLanguageVersion.of(javaVersion)
 
-	loom {
-		splitEnvironmentSourceSets()
-
-		mods {
-			"blocksmith" {
-				sourceSet sourceSets.main
-				sourceSet sourceSets.client
-			}
+	def dirs = { String kind ->
+		def list = []
+		['main', 'client'].each { set ->
+			list << "${shared}/${set}/${kind}"
+			if (groupDir != null) list << "${groupDir}/${set}/${kind}"
+			list << "src/${set}/${kind}"
 		}
-
-		// Dev runs on a newer JDK print warnings about JNA's native access and Guava's sun.misc.Unsafe use.
-		// They come from Minecraft's own libraries and cost nothing; these flags only silence them.
-		runConfigs.configureEach {
-			vmArgs "--enable-native-access=ALL-UNNAMED", "--sun-misc-unsafe-memory-access=allow"
-		}
-	}
-
-	def dirs = { String set, String kind ->
-		def list = ["${shared}/${set}/${kind}"]
-		if (groupDir != null) list << "${groupDir}/${set}/${kind}"
-		list << "src/${set}/${kind}"
 		return list
 	}
 	sourceSets {
 		main {
-			java.srcDirs = dirs('main', 'java')
-			resources.srcDirs = dirs('main', 'resources')
-		}
-		client {
-			java.srcDirs = dirs('client', 'java')
-			resources.srcDirs = dirs('client', 'resources')
+			java.srcDirs = dirs('java')
+			resources.srcDirs = dirs('resources')
 		}
 	}
 
-	// Mod Menu's API, compile-time only. These stand-ins are never packaged, so at runtime the
-	// player's real Mod Menu provides the classes (bundling them shadowed newer Mod Menu versions).
-	sourceSets {
-		modmenuApi {
-			java.srcDirs = ["${shared}/modmenu-api/java"]
-			compileClasspath += sourceSets.client.compileClasspath
+	// Mixin configs: loaded from the jar manifest in production and from the command line in dev runs.
+	def mixinConfigs = ["${modId}.mixins.json", "${modId}.client.mixins.json", "${modId}.client.version.mixins.json"]
+
+	minecraft {
+		// 1.21.1 is obfuscated and needs Mojang's mappings; 26.x is unobfuscated and needs none.
+		if (mappingsVersion) {
+			mappings channel: 'official', version: mappingsVersion
 		}
-		client {
-			compileClasspath += sourceSets.modmenuApi.output
+
+		runs {
+			configureEach {
+				workingDir = layout.projectDirectory.dir('run')
+				args mixinConfigs.collectMany { ['--mixin.config', it] }
+				// Dev runs on a newer JDK print warnings about JNA's native access and Guava's sun.misc.Unsafe use.
+				// They come from Minecraft's own libraries and cost nothing; these flags only silence them.
+				jvmArgs '--enable-native-access=ALL-UNNAMED', '--sun-misc-unsafe-memory-access=allow'
+			}
+
+			register('client')
+
+			register('server') {
+				args '--nogui'
+			}
 		}
 	}
 
-	fabricApi {
-		configureDataGeneration {
-			client = true
-		}
+	repositories {
+		minecraft.mavenizer(it)
+		maven fg.forgeMaven
+		maven fg.minecraftLibsMaven
+		mavenCentral()
 	}
 
 	dependencies {
-		minecraft "com.mojang:minecraft:${project.minecraft_version}"
-		if (obfuscated) {
-			mappings loom.officialMojangMappings()
-			modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-			modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
-		} else {
-			implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-			implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+		implementation minecraft.dependency("net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}")
+		def validator = project.findProperty('eventbus_validator_version')?.trim()
+		if (validator) {
+			annotationProcessor "net.minecraftforge:eventbus-validator:${validator}"
 		}
 	}
 
 	processResources {
 		def version = project.version
 		def minecraftVersion = project.minecraft_version
-		// Versions this jar claims to support (fabric.mod.json, and what Modrinth/CurseForge detect). Defaults to any
+		// Versions this jar claims to support (mods.toml, and what Modrinth/CurseForge detect). Defaults to any
 		// patch release of the same minor version; a version folder can narrow it with minecraft_dependency.
-		def minecraftDependency = project.findProperty("minecraft_dependency") ?: "~${minecraftVersion}"
-		def javaVer = project.java_version
+		def minecraftDependency = project.findProperty("minecraft_dependency") ?: "[${minecraftVersion},)"
+		def forgeDependency = project.forge_dependency
+		def loaderVersion = project.loader_version_range
 		inputs.property "version", version
-		inputs.property "minecraftVersion", minecraftVersion
 		inputs.property "minecraftDependency", minecraftDependency
-		inputs.property "javaVersion", javaVer
+		inputs.property "forgeDependency", forgeDependency
+		inputs.property "loaderVersion", loaderVersion
 
-		filesMatching("fabric.mod.json") {
-			expand "version": version, "minecraft_version": minecraftVersion, "minecraft_dependency": minecraftDependency, "java_version": javaVer
+		filesMatching("META-INF/mods.toml") {
+			expand "version": version, "minecraft_dependency": minecraftDependency, "forge_dependency": forgeDependency,
+					"loader_version": loaderVersion
 		}
 	}
 
 	tasks.withType(JavaCompile).configureEach {
 		it.options.release = javaVersion
+		it.options.encoding = 'UTF-8'
 	}
 
 	java {
 		withSourcesJar()
-
-		sourceCompatibility = JavaVersion.toVersion(javaVersion)
-		targetCompatibility = JavaVersion.toVersion(javaVersion)
 	}
 
 	jar {
-		def projectName = rootProject.name
+		def projectName = modId
 		inputs.property "projectName", projectName
 
 		from(rootProject.file("LICENSE")) {
 			rename { "${it}_$projectName" }
+		}
+
+		manifest {
+			attributes['MixinConfigs'] = mixinConfigs.join(',')
 		}
 	}
 

@@ -1,6 +1,6 @@
 package net.adeptfrog.blocksmith.data;
 
-import net.fabricmc.loader.api.FabricLoader;
+import net.adeptfrog.blocksmith.platform.Platform;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 public class DesignFileManager {
-    public static final File BLUEPRINTS_DIR = FabricLoader.getInstance().getGameDir().resolve("blocksmith_blueprints").toFile();
+    public static final File BLUEPRINTS_DIR = Platform.gameDir().resolve("blocksmith_blueprints").toFile();
     private static List<DesignEntry> CACHED_ENTRIES = null;
     // Entries are scaled to a grid size when read: a cache made for another grid size is read again
     private static int cachedGridSize = 0;
@@ -65,8 +65,7 @@ public class DesignFileManager {
         // Skips bundled files the player's library already has (same folder and file name), e.g. when the bundled
         // folders were copied into blocksmith_blueprints, so nothing is listed twice.
         List<DesignEntry> bundled = new ArrayList<>();
-        FabricLoader.getInstance().getModContainer("blocksmith")
-                .flatMap(c -> c.findPath(BUNDLED_PATH))
+        Platform.modResource(BUNDLED_PATH)
                 .ifPresent(root -> scan(root, "", "", targetGridSize, bundled, false));
         java.util.Set<String> seen = new java.util.HashSet<>();
         for (DesignEntry e : list) seen.add(e.folder() + "/" + e.fileName());

@@ -5,6 +5,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.item.Tiers;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
+
+import java.util.function.Consumer;
 
 /** Minecraft 1.21.1: a netherite SwordItem, which gives cobweb mining, sweeping and the netherite enchantability. */
 public abstract class SwordItemBase extends SwordItem {
@@ -19,4 +22,10 @@ public abstract class SwordItemBase extends SwordItem {
 
     /** Called every tick on the server while the stack is in an inventory. */
     protected void serverInventoryTick(ItemStack stack) {}
+
+    /** Forge calls this on the client only: the voxel renderer for the item's "builtin/entity" model. */
+    @Override
+    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+        consumer.accept(net.adeptfrog.blocksmith.client.render.ModularWeaponItemExtensions.INSTANCE);
+    }
 }

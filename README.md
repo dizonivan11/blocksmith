@@ -1,7 +1,7 @@
 # Blocksmith
 
 [![License](https://img.shields.io/github/license/dizonivan11/blocksmith?style=for-the-badge&color=4169E1&labelColor=555555)](https://github.com/dizonivan11/blocksmith/blob/master/LICENSE)&nbsp;
-[![Fabric](https://img.shields.io/badge/Modloader-Fabric-C1A173?style=for-the-badge&logo=fabric&logoColor=white)](https://fabricmc.net/)&nbsp;
+[![Forge](https://img.shields.io/badge/Modloader-Forge-DFA86A?style=for-the-badge&logoColor=white)](https://files.minecraftforge.net/)&nbsp;
 [![Modrinth](https://img.shields.io/modrinth/dt/blocksmith?style=for-the-badge&logo=modrinth&color=1BD96A&labelColor=555555&label=MODRINTH)](https://modrinth.com/mod/blocksmith)
 [![CurseForge](https://img.shields.io/curseforge/dt/1707321?style=for-the-badge&logo=curseforge&label=CurseForge&color=orange
 )](https://www.curseforge.com/minecraft/mc-mods/blocksmith-voxel-weapons)

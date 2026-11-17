@@ -1,8 +1,5 @@
 package net.adeptfrog.blocksmith.client.compat;
 
-import net.adeptfrog.blocksmith.Blocksmith;
-import net.adeptfrog.blocksmith.client.render.ModularWeaponSpecialRenderer;
-import net.fabricmc.fabric.api.client.rendering.v1.BuiltinItemRendererRegistry;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.network.chat.Component;
@@ -13,11 +10,11 @@ public final class ClientCompat {
     private ClientCompat() {
     }
 
-    /** Registers the voxel renderer for the forged weapons, whose item models use "parent": "builtin/entity". */
+    /**
+     * Nothing to register on 1.21.1 Forge: the forged weapons' item models use "parent": "builtin/entity", and the
+     * items hand Forge their renderer themselves (SwordItemBase / BowItemBase#initializeClient).
+     */
     public static void registerWeaponRenderer() {
-        ModularWeaponSpecialRenderer renderer = new ModularWeaponSpecialRenderer();
-        BuiltinItemRendererRegistry.INSTANCE.register(Blocksmith.MODULAR_SWORD, renderer);
-        BuiltinItemRendererRegistry.INSTANCE.register(Blocksmith.MODULAR_BOW, renderer);
     }
 
     public static String playerName(Player player) {
