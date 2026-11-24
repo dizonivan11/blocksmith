@@ -67,7 +67,9 @@ subprojects {
 				args mixinConfigs.collectMany { ['--mixin.config', it] }
 				// Dev runs on a newer JDK print warnings about JNA's native access and Guava's sun.misc.Unsafe use.
 				// They come from Minecraft's own libraries and cost nothing; these flags only silence them.
-				jvmArgs '--enable-native-access=ALL-UNNAMED', '--sun-misc-unsafe-memory-access=allow'
+				jvmArgs '--enable-native-access=ALL-UNNAMED'
+				// Only Java 23+ knows this flag (1.21.1 runs on Java 21, where it stops the JVM from starting)
+				if (javaVersion >= 23) jvmArgs '--sun-misc-unsafe-memory-access=allow'
 			}
 
 			register('client')

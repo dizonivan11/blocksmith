@@ -14,7 +14,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /** Draws the shared {@link BowChargeHud} after the HUD. Minecraft 26.1: the HUD is drawn by Gui and hidden with options.hideGui. */
 @Mixin(Gui.class)
 public abstract class HudMixin {
-    @Inject(method = "extractRenderState", at = @At("TAIL"))
+    // RETURN, not TAIL: Forge draws its layered HUD and returns early from this method, past the final return
+    @Inject(method = "extractRenderState", at = @At("RETURN"))
     private void blocksmith$renderBowDrawHud(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker, CallbackInfo ci) {
         BowChargeHud.render(new Gfx(graphics), Minecraft.getInstance().options.hideGui);
     }
